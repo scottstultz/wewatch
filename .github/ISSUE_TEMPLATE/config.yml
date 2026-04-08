@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: WeWatch README
+    url: https://github.com/scottstultz/wewatch
+    about: Review the project overview and setup documentation
