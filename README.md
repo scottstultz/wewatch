@@ -29,22 +29,116 @@ WeWatch is intended to explore and demonstrate:
 
 ## MVP Scope
 
-The initial MVP (Minimum Viable Product) for WeWatch is focused on helping a user track and manage what they want to watch.
+### Summary
+The goal of the MVP is to deliver a focused, personal tracking experience that allows users to manage what they want to watch, are currently watching, and have already watched.
 
-### In Scope
-- Search for movies and TV shows
-- View basic title details
-- Add titles to a watchlist
-- Mark titles as watched
-- View saved watchlist / watched items
+This MVP intentionally avoids feature creep and prioritizes a simple, fast, and usable core experience.
 
-### Out of Scope (for MVP)
-- Advanced recommendation engine
-- Streaming provider integrations
-- Social features / shared watchlists
-- AI-powered suggestions
+---
+
+### Core User Actions
+
+#### 1. Discover Content
+- Search for movies and TV shows (via external API, e.g., TMDB)
+- View basic content details:
+  - Title
+  - Poster
+  - Overview
+  - Release year
+  - Content type (movie or TV show)
+
+---
+
+#### 2. Track Content Status
+Users can assign and manage a status for each piece of content:
+
+- `WANT_TO_WATCH`
+- `WATCHING`
+- `WATCHED`
+
+Capabilities:
+- Add content to a status
+- Move content between statuses
+- Remove content from tracking
+
+---
+
+#### 3. View Personal Library
+- View all tracked content grouped by status:
+  - Want to Watch
+  - Watching
+  - Watched
+- Quickly scan and manage items within each group
+
+---
+
+### Out of Scope (MVP)
+
+To maintain focus and speed of development, the following features are explicitly excluded from the MVP:
+
+#### Social Features
+- Friends / followers
+- Shared lists
+- Activity feeds
+
+#### Advanced Tracking
+- Episode-level tracking
+- Watch progress (timestamps, percentages)
+- Watch history timeline
+
+#### Personalization
+- Recommendations
+- AI-driven suggestions
+
+#### Content Interaction
+- Ratings
+- Reviews
+
+#### UX Enhancements
 - Notifications
-- Production deployment polish
+- Advanced filtering and sorting
+
+---
+
+### Stretch Features (Post-MVP)
+
+The following features may be considered after the MVP is complete:
+
+- Ratings (e.g., 1–5 stars or thumbs up/down)
+- Reviews and notes
+- Episode tracking for TV shows
+- Social features (friends, shared watchlists)
+- Recommendation system (rule-based or AI-powered)
+
+---
+
+### Roadmap
+
+#### Phase 1 — MVP
+- Content search and detail view
+- Status-based tracking system
+- Personal library view
+- Basic persistence (user + tracked content)
+
+#### Phase 2 — Enrichment
+- Ratings
+- Reviews
+- Filtering and sorting
+
+#### Phase 3 — Engagement
+- Social features
+- Recommendations
+- Enhanced discovery
+
+---
+
+### Acceptance Criteria
+
+- MVP scope is clearly defined and documented
+- Scope is constrained to core tracking functionality
+- Out-of-scope features are explicitly listed
+- Roadmap is broken into clear phases
+- `docs/roadmap.md` reflects this MVP definition
 
 ---
 
