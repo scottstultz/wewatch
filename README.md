@@ -196,17 +196,98 @@ wewatch/
 
 ### Prerequisites
 
-To work on WeWatch locally, you’ll eventually want the following installed:
+To work on WeWatch locally, install:
 
 - [Git](https://git-scm.com/)
-- [Node.js](https://nodejs.org/)
-- Java 21+ (or whichever version the backend targets)
-- [Docker](https://www.docker.com/)
+- [Node.js](https://nodejs.org/) 25+ with `npm`
+- Java 21+
+
+Notes:
+
+- The frontend uses Vite, React, and TypeScript.
+- The backend uses the Maven wrapper (`./mvnw`), so a global Maven install is optional.
+- Docker is not currently required to run the app locally.
 
 ### Clone the Repository
 
+```bash
 git clone git@github.com:<your-username>/wewatch.git
 cd wewatch
+```
+
+### Run the Backend
+
+From the repository root:
+
+```bash
+cd backend
+./mvnw spring-boot:run
+```
+
+Backend defaults:
+
+- Base URL: `http://localhost:8080`
+- Health endpoint: `http://localhost:8080/api/health`
+
+Useful backend commands:
+
+```bash
+cd backend
+./mvnw test
+```
+
+If you prefer a global Maven install:
+
+```bash
+cd backend
+mvn spring-boot:run
+mvn test
+```
+
+### Run the Frontend
+
+From the repository root:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend defaults:
+
+- App URL: `http://localhost:5173`
+
+Useful frontend commands:
+
+```bash
+cd frontend
+npm run build
+npm run lint
+```
+
+To test the frontend from another device on the same network:
+
+```bash
+cd frontend
+npm run dev -- --host 0.0.0.0 --port 5173
+```
+
+Then open `http://<your-local-ip>:5173` on the other device.
+
+### Run Both Services Together
+
+Use two terminals:
+
+1. Start the backend in `backend/` with `./mvnw spring-boot:run`
+2. Start the frontend in `frontend/` with `npm run dev`
+
+Default local ports:
+
+- Frontend: `5173`
+- Backend: `8080`
+
+With both services running, the frontend is available at `http://localhost:5173` and the backend API is available at `http://localhost:8080`.
 
 ## Development Approach
 
@@ -278,11 +359,14 @@ Example:
 ### Near-Term Priorities
 - [x] Establish repo structure
 - [x] Create initial README
+- [x] Scaffold frontend app
+- [x] Scaffold backend service
+- [x] Establish local development workflow
+- [x] Add backend health endpoint
+- [x] Create backend package structure
+- [x] Build mobile-first frontend app shell
 - [ ] Create GitHub issue / PR templates
-- [ ] Scaffold frontend app
-- [ ] Scaffold backend service
 - [ ] Define external API integration approach
-- [ ] Establish local development workflow
 
 ### MVP Milestones
 - [ ] Search for titles
