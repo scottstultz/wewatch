@@ -22,6 +22,30 @@ Conventions:
 
 Current endpoint-specific code such as the health check may stay in a small feature package until shared conventions justify moving it into the broader `controller` and `dto` structure.
 
+# Local Database Strategy
+
+The MVP local database choice is PostgreSQL running in Docker.
+
+Why PostgreSQL:
+
+- It supports the MVP domain model cleanly without adding operational complexity beyond a single container.
+- It matches the project’s planned stack and avoids a later migration from an embedded development database.
+- It handles relational constraints well for `User`, `Title`, `WatchlistEntry`, `Review`, `CustomList`, and `CustomListItem`.
+
+Local development approach:
+
+- Run PostgreSQL in Docker with a named volume for persistent local data.
+- Use a Spring `local` profile for datasource settings.
+- Keep database credentials and host values overridable through environment variables.
+
+Default local connection values:
+
+- host: `localhost`
+- port: `5432`
+- database: `wewatch`
+- username: `wewatch`
+- password: `wewatch`
+
 # Initial Domain Model
 
 The initial domain model is MVP-focused. It supports content discovery, status-based tracking, simple reviews, and user-managed custom lists without designing for social features, provider syncing, or recommendation systems yet.

@@ -201,12 +201,13 @@ To work on WeWatch locally, install:
 - [Git](https://git-scm.com/)
 - [Node.js](https://nodejs.org/) 25+ with `npm`
 - Java 21+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a local Docker Engine installation with Docker Compose support
 
 Notes:
 
 - The frontend uses Vite, React, and TypeScript.
 - The backend uses the Maven wrapper (`./mvnw`), so a global Maven install is optional.
-- Docker is not currently required to run the app locally.
+- PostgreSQL runs locally in Docker for backend development.
 
 ### Clone the Repository
 
@@ -222,6 +223,13 @@ From the repository root:
 ```bash
 cd backend
 ./mvnw spring-boot:run
+```
+
+To run the backend with the local PostgreSQL configuration:
+
+```bash
+cd backend
+./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 Backend defaults:
@@ -240,8 +248,55 @@ If you prefer a global Maven install:
 
 ```bash
 cd backend
-mvn spring-boot:run
+mvn spring-boot:run -Dspring-boot.run.profiles=local
 mvn test
+```
+
+### Run PostgreSQL Locally with Docker
+
+1. Install Docker Desktop and open it.
+2. Wait for Docker to finish starting.
+3. Verify Docker is available:
+
+```bash
+docker --version
+docker compose version
+```
+
+4. Start PostgreSQL from the repository root:
+
+```bash
+docker compose up -d postgres
+```
+
+5. Verify the database container is healthy:
+
+```bash
+docker compose ps
+```
+
+6. Stop the database when you are done:
+
+```bash
+docker compose down
+```
+
+Default PostgreSQL values used locally:
+
+- host: `localhost`
+- port: `5432`
+- database: `wewatch`
+- username: `wewatch`
+- password: `wewatch`
+
+These values can be overridden with environment variables before starting the backend:
+
+```bash
+export DB_HOST=localhost
+export DB_PORT=5432
+export DB_NAME=wewatch
+export DB_USER=wewatch
+export DB_PASSWORD=wewatch
 ```
 
 ### Run the Frontend
@@ -279,15 +334,17 @@ Then open `http://<your-local-ip>:5173` on the other device.
 
 Use two terminals:
 
-1. Start the backend in `backend/` with `./mvnw spring-boot:run`
-2. Start the frontend in `frontend/` with `npm run dev`
+1. Start PostgreSQL from the repo root with `docker compose up -d postgres`
+2. Start the backend in `backend/` with `./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
+3. Start the frontend in `frontend/` with `npm run dev`
 
 Default local ports:
 
 - Frontend: `5173`
 - Backend: `8080`
+- PostgreSQL: `5432`
 
-With both services running, the frontend is available at `http://localhost:5173` and the backend API is available at `http://localhost:8080`.
+With all services running, the frontend is available at `http://localhost:5173`, the backend API is available at `http://localhost:8080`, and PostgreSQL is available on `localhost:5432`.
 
 ## Development Approach
 
