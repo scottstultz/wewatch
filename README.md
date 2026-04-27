@@ -292,6 +292,17 @@ With both services running, the frontend is available at `http://localhost:5173`
 ## Development Approach
 
 This project is being built incrementally using an issue-based workflow with small, reviewable changes.
+WeWatch uses GitHub Issues and GitHub Projects to track work.
+
+### Project Board
+
+Issues move through:
+
+- Backlog
+- Ready
+- In Progress
+- In Review
+- Done
 
 ### Principles
 
