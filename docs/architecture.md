@@ -109,6 +109,7 @@ Notes:
 
 - This is the core MVP object for personal tracking.
 - There should be at most one `WatchlistEntry` per user and title.
+- `WatchlistEntry` is explicitly user-owned and should always be treated as a relationship between one user and one shared title.
 
 ### Review
 

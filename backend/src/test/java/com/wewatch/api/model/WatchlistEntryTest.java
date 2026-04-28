@@ -3,7 +3,6 @@ package com.wewatch.api.model;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Set;
 
 import jakarta.validation.ConstraintViolation;
@@ -34,12 +33,13 @@ class WatchlistEntryTest {
 	void validWatchedEntryPassesValidation() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
-			"Arrival",
+			10L,
+			20L,
 			WatchStatus.WATCHED,
-			5,
-			"Rewatch candidate.",
 			Instant.parse("2026-04-28T12:00:00Z"),
-			LocalDate.parse("2026-04-27")
+			Instant.parse("2026-04-28T12:05:00Z"),
+			Instant.parse("2026-04-28T12:01:00Z"),
+			Instant.parse("2026-04-28T12:10:00Z")
 		);
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
@@ -48,70 +48,110 @@ class WatchlistEntryTest {
 	}
 
 	@Test
-	void blankTitleFailsValidation() {
+	void missingUserIdFailsValidation() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
-			" ",
+			null,
+			20L,
 			WatchStatus.WANT_TO_WATCH,
-			null,
-			null,
 			Instant.parse("2026-04-28T12:00:00Z"),
+			Instant.parse("2026-04-28T12:05:00Z"),
+			null,
 			null
 		);
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
 
-		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("titleName"));
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("userId"));
 	}
 
 	@Test
 	void watchedEntryRequiresWatchedDate() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
-			"Arrival",
+			10L,
+			20L,
 			WatchStatus.WATCHED,
-			null,
-			null,
 			Instant.parse("2026-04-28T12:00:00Z"),
+			Instant.parse("2026-04-28T12:05:00Z"),
+			Instant.parse("2026-04-28T12:01:00Z"),
 			null
 		);
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
 
-		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validWatchedDate"));
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validCompletedAt"));
 	}
 
 	@Test
-	void unwatchedEntryCannotHaveWatchedDate() {
+	void unwatchedEntryCannotHaveCompletedAt() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
-			"Arrival",
+			10L,
+			20L,
 			WatchStatus.WATCHING,
-			null,
-			null,
 			Instant.parse("2026-04-28T12:00:00Z"),
-			LocalDate.parse("2026-04-27")
+			Instant.parse("2026-04-28T12:05:00Z"),
+			Instant.parse("2026-04-28T12:01:00Z"),
+			Instant.parse("2026-04-28T12:10:00Z")
 		);
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
 
-		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validWatchedDate"));
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validCompletedAt"));
 	}
 
 	@Test
-	void ratingMustStayWithinMvpRange() {
+	void missingTitleIdFailsValidation() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
-			"Arrival",
-			WatchStatus.WATCHED,
-			6,
+			10L,
 			null,
+			WatchStatus.WANT_TO_WATCH,
 			Instant.parse("2026-04-28T12:00:00Z"),
-			LocalDate.parse("2026-04-27")
+			Instant.parse("2026-04-28T12:05:00Z"),
+			null,
+			null
 		);
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
 
-		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("rating"));
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("titleId"));
+	}
+
+	@Test
+	void watchingEntryRequiresStartedAt() {
+		WatchlistEntry entry = new WatchlistEntry(
+			1L,
+			10L,
+			20L,
+			WatchStatus.WATCHING,
+			Instant.parse("2026-04-28T12:00:00Z"),
+			Instant.parse("2026-04-28T12:05:00Z"),
+			null,
+			null
+		);
+
+		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
+
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validStartedAt"));
+	}
+
+	@Test
+	void wantToWatchEntryCannotHaveStartedAt() {
+		WatchlistEntry entry = new WatchlistEntry(
+			1L,
+			10L,
+			20L,
+			WatchStatus.WANT_TO_WATCH,
+			Instant.parse("2026-04-28T12:00:00Z"),
+			Instant.parse("2026-04-28T12:05:00Z"),
+			Instant.parse("2026-04-28T12:01:00Z"),
+			null
+		);
+
+		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
+
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("validStartedAt"));
 	}
 }

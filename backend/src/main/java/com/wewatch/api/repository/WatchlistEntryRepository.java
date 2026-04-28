@@ -9,11 +9,11 @@ public interface WatchlistEntryRepository {
 
 	WatchlistEntry create(WatchlistEntry watchlistEntry);
 
-	Optional<WatchlistEntry> findById(Long id);
+	Optional<WatchlistEntry> findById(Long userId, Long id);
 
-	List<WatchlistEntry> findAll();
+	List<WatchlistEntry> findAllByUserId(Long userId);
 
 	WatchlistEntry update(WatchlistEntry watchlistEntry);
 
-	void deleteById(Long id);
+	void deleteById(Long userId, Long id);
 }
