@@ -1,7 +1,6 @@
 package com.wewatch.api.repository;
 
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -48,7 +47,7 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 				INSERT INTO watchlist_entries (user_id, title_id, status, added_at, updated_at, started_at, completed_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				""",
-				Statement.RETURN_GENERATED_KEYS
+				new String[] {"id"}
 			);
 			statement.setLong(1, watchlistEntry.getUserId());
 			statement.setLong(2, watchlistEntry.getTitleId());
