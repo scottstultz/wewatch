@@ -2,7 +2,6 @@ package com.wewatch.api.repository;
 
 import java.sql.Date;
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -60,7 +59,7 @@ public class JdbcTitleRepository implements TitleRepository {
 					updated_at
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 				""",
-				Statement.RETURN_GENERATED_KEYS
+				new String[] {"id"}
 			);
 			statement.setString(1, title.getExternalId());
 			statement.setString(2, title.getExternalSource());

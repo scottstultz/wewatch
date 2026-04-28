@@ -1,7 +1,6 @@
 package com.wewatch.api.repository;
 
 import java.sql.PreparedStatement;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -44,7 +43,7 @@ public class JdbcUserRepository implements UserRepository {
 				INSERT INTO users (email, display_name, created_at, updated_at)
 				VALUES (?, ?, ?, ?)
 				""",
-				Statement.RETURN_GENERATED_KEYS
+				new String[] {"id"}
 			);
 			statement.setString(1, user.getEmail());
 			statement.setString(2, user.getDisplayName());
