@@ -23,12 +23,13 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 
 	private static final RowMapper<WatchlistEntry> ROW_MAPPER = (rs, rowNum) -> new WatchlistEntry(
 		rs.getLong("id"),
-		rs.getString("title_name"),
+		rs.getLong("user_id"),
+		rs.getLong("title_id"),
 		WatchStatus.valueOf(rs.getString("status")),
-		(Integer) rs.getObject("rating"),
-		rs.getString("notes"),
-		rs.getTimestamp("date_added").toInstant(),
-		rs.getDate("date_watched") == null ? null : rs.getDate("date_watched").toLocalDate()
+		rs.getTimestamp("added_at").toInstant(),
+		rs.getTimestamp("updated_at").toInstant(),
+		rs.getTimestamp("started_at") == null ? null : rs.getTimestamp("started_at").toInstant(),
+		rs.getTimestamp("completed_at") == null ? null : rs.getTimestamp("completed_at").toInstant()
 	);
 
 	private final JdbcTemplate jdbcTemplate;
@@ -44,17 +45,18 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 		jdbcTemplate.update(connection -> {
 			PreparedStatement statement = connection.prepareStatement(
 				"""
-				INSERT INTO watchlist_entries (title_name, status, rating, notes, date_added, date_watched)
-				VALUES (?, ?, ?, ?, ?, ?)
+				INSERT INTO watchlist_entries (user_id, title_id, status, added_at, updated_at, started_at, completed_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
 				""",
 				Statement.RETURN_GENERATED_KEYS
 			);
-			statement.setString(1, watchlistEntry.getTitleName());
-			statement.setString(2, watchlistEntry.getStatus().name());
-			statement.setObject(3, watchlistEntry.getRating());
-			statement.setString(4, watchlistEntry.getNotes());
-			statement.setTimestamp(5, Timestamp.from(watchlistEntry.getDateAdded().atOffset(ZoneOffset.UTC).toInstant()));
-			statement.setObject(6, watchlistEntry.getDateWatched());
+			statement.setLong(1, watchlistEntry.getUserId());
+			statement.setLong(2, watchlistEntry.getTitleId());
+			statement.setString(3, watchlistEntry.getStatus().name());
+			statement.setTimestamp(4, Timestamp.from(watchlistEntry.getAddedAt().atOffset(ZoneOffset.UTC).toInstant()));
+			statement.setTimestamp(5, Timestamp.from(watchlistEntry.getUpdatedAt().atOffset(ZoneOffset.UTC).toInstant()));
+			statement.setTimestamp(6, watchlistEntry.getStartedAt() == null ? null : Timestamp.from(watchlistEntry.getStartedAt().atOffset(ZoneOffset.UTC).toInstant()));
+			statement.setTimestamp(7, watchlistEntry.getCompletedAt() == null ? null : Timestamp.from(watchlistEntry.getCompletedAt().atOffset(ZoneOffset.UTC).toInstant()));
 			return statement;
 		}, keyHolder);
 
@@ -67,28 +69,31 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 	}
 
 	@Override
-	public Optional<WatchlistEntry> findById(Long id) {
+	public Optional<WatchlistEntry> findById(Long userId, Long id) {
 		List<WatchlistEntry> results = jdbcTemplate.query(
 			"""
-			SELECT id, title_name, status, rating, notes, date_added, date_watched
+			SELECT id, user_id, title_id, status, added_at, updated_at, started_at, completed_at
 			FROM watchlist_entries
-			WHERE id = ?
+			WHERE user_id = ? AND id = ?
 			""",
 			ROW_MAPPER,
+			userId,
 			id
 		);
 		return results.stream().findFirst();
 	}
 
 	@Override
-	public List<WatchlistEntry> findAll() {
+	public List<WatchlistEntry> findAllByUserId(Long userId) {
 		return jdbcTemplate.query(
 			"""
-			SELECT id, title_name, status, rating, notes, date_added, date_watched
+			SELECT id, user_id, title_id, status, added_at, updated_at, started_at, completed_at
 			FROM watchlist_entries
-			ORDER BY date_added DESC, id DESC
+			WHERE user_id = ?
+			ORDER BY added_at DESC, id DESC
 			""",
-			ROW_MAPPER
+			ROW_MAPPER,
+			userId
 		);
 	}
 
@@ -97,15 +102,16 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 		jdbcTemplate.update(
 			"""
 			UPDATE watchlist_entries
-			SET title_name = ?, status = ?, rating = ?, notes = ?, date_added = ?, date_watched = ?
-			WHERE id = ?
+			SET title_id = ?, status = ?, added_at = ?, updated_at = ?, started_at = ?, completed_at = ?
+			WHERE user_id = ? AND id = ?
 			""",
-			watchlistEntry.getTitleName(),
+			watchlistEntry.getTitleId(),
 			watchlistEntry.getStatus().name(),
-			watchlistEntry.getRating(),
-			watchlistEntry.getNotes(),
-			Timestamp.from(watchlistEntry.getDateAdded().atOffset(ZoneOffset.UTC).toInstant()),
-			watchlistEntry.getDateWatched(),
+			Timestamp.from(watchlistEntry.getAddedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			Timestamp.from(watchlistEntry.getUpdatedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			watchlistEntry.getStartedAt() == null ? null : Timestamp.from(watchlistEntry.getStartedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			watchlistEntry.getCompletedAt() == null ? null : Timestamp.from(watchlistEntry.getCompletedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			watchlistEntry.getUserId(),
 			watchlistEntry.getId()
 		);
 
@@ -113,7 +119,7 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 	}
 
 	@Override
-	public void deleteById(Long id) {
-		jdbcTemplate.update("DELETE FROM watchlist_entries WHERE id = ?", id);
+	public void deleteById(Long userId, Long id) {
+		jdbcTemplate.update("DELETE FROM watchlist_entries WHERE user_id = ? AND id = ?", userId, id);
 	}
 }

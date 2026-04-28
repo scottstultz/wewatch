@@ -1,57 +1,54 @@
 package com.wewatch.api.model;
 
 import java.time.Instant;
-import java.time.LocalDate;
 
 import jakarta.validation.constraints.AssertTrue;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Size;
 
 public class WatchlistEntry {
 
 	private Long id;
 
-	@NotBlank
-	@Size(max = 255)
-	private String titleName;
+	@NotNull
+	private Long userId;
+
+	@NotNull
+	private Long titleId;
 
 	@NotNull
 	private WatchStatus status;
 
-	@Min(1)
-	@Max(5)
-	private Integer rating;
-
-	@Size(max = 2000)
-	private String notes;
+	@NotNull
+	private Instant addedAt;
 
 	@NotNull
-	private Instant dateAdded;
+	private Instant updatedAt;
 
-	private LocalDate dateWatched;
+	private Instant startedAt;
+
+	private Instant completedAt;
 
 	public WatchlistEntry() {
 	}
 
 	public WatchlistEntry(
 		Long id,
-		String titleName,
+		Long userId,
+		Long titleId,
 		WatchStatus status,
-		Integer rating,
-		String notes,
-		Instant dateAdded,
-		LocalDate dateWatched
+		Instant addedAt,
+		Instant updatedAt,
+		Instant startedAt,
+		Instant completedAt
 	) {
 		this.id = id;
-		this.titleName = titleName;
+		this.userId = userId;
+		this.titleId = titleId;
 		this.status = status;
-		this.rating = rating;
-		this.notes = notes;
-		this.dateAdded = dateAdded;
-		this.dateWatched = dateWatched;
+		this.addedAt = addedAt;
+		this.updatedAt = updatedAt;
+		this.startedAt = startedAt;
+		this.completedAt = completedAt;
 	}
 
 	public Long getId() {
@@ -62,12 +59,20 @@ public class WatchlistEntry {
 		this.id = id;
 	}
 
-	public String getTitleName() {
-		return titleName;
+	public Long getUserId() {
+		return userId;
 	}
 
-	public void setTitleName(String titleName) {
-		this.titleName = titleName;
+	public void setUserId(Long userId) {
+		this.userId = userId;
+	}
+
+	public Long getTitleId() {
+		return titleId;
+	}
+
+	public void setTitleId(Long titleId) {
+		this.titleId = titleId;
 	}
 
 	public WatchStatus getStatus() {
@@ -78,48 +83,61 @@ public class WatchlistEntry {
 		this.status = status;
 	}
 
-	public Integer getRating() {
-		return rating;
+	public Instant getAddedAt() {
+		return addedAt;
 	}
 
-	public void setRating(Integer rating) {
-		this.rating = rating;
+	public void setAddedAt(Instant addedAt) {
+		this.addedAt = addedAt;
 	}
 
-	public String getNotes() {
-		return notes;
+	public Instant getUpdatedAt() {
+		return updatedAt;
 	}
 
-	public void setNotes(String notes) {
-		this.notes = notes;
+	public void setUpdatedAt(Instant updatedAt) {
+		this.updatedAt = updatedAt;
 	}
 
-	public Instant getDateAdded() {
-		return dateAdded;
+	public Instant getStartedAt() {
+		return startedAt;
 	}
 
-	public void setDateAdded(Instant dateAdded) {
-		this.dateAdded = dateAdded;
+	public void setStartedAt(Instant startedAt) {
+		this.startedAt = startedAt;
 	}
 
-	public LocalDate getDateWatched() {
-		return dateWatched;
+	public Instant getCompletedAt() {
+		return completedAt;
 	}
 
-	public void setDateWatched(LocalDate dateWatched) {
-		this.dateWatched = dateWatched;
+	public void setCompletedAt(Instant completedAt) {
+		this.completedAt = completedAt;
 	}
 
-	@AssertTrue(message = "dateWatched must be set only for watched entries")
-	boolean hasValidWatchedDate() {
+	@AssertTrue(message = "completedAt must be set only for watched entries")
+	boolean hasValidCompletedAt() {
 		if (status == null) {
 			return true;
 		}
 
 		if (status == WatchStatus.WATCHED) {
-			return dateWatched != null;
+			return completedAt != null;
 		}
 
-		return dateWatched == null;
+		return completedAt == null;
+	}
+
+	@AssertTrue(message = "startedAt must be set only for active or completed entries")
+	boolean hasValidStartedAt() {
+		if (status == null) {
+			return true;
+		}
+
+		if (status == WatchStatus.WANT_TO_WATCH) {
+			return startedAt == null;
+		}
+
+		return startedAt != null;
 	}
 }

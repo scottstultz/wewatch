@@ -7,7 +7,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,13 +43,14 @@ class WatchlistEntryServiceTest {
 	void createSetsDateAddedWhenMissing() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
 		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
-		WatchlistEntry entry = new WatchlistEntry(null, "Arrival", WatchStatus.WANT_TO_WATCH, null, null, null, null);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WANT_TO_WATCH, null, null, null, null);
 
 		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
 
-		assertThat(created.getDateAdded()).isNotNull();
+		assertThat(created.getAddedAt()).isNotNull();
+		assertThat(created.getUpdatedAt()).isNotNull();
 		verify(repository).create(entry);
 	}
 
@@ -58,7 +58,7 @@ class WatchlistEntryServiceTest {
 	void createRejectsInvalidEntry() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
 		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
-		WatchlistEntry entry = new WatchlistEntry(null, "", WatchStatus.WANT_TO_WATCH, null, null, Instant.now(), null);
+		WatchlistEntry entry = new WatchlistEntry(null, null, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null);
 
 		assertThatThrownBy(() -> service.create(entry)).isInstanceOf(ConstraintViolationException.class);
 	}
@@ -70,43 +70,48 @@ class WatchlistEntryServiceTest {
 		Instant originalDateAdded = Instant.parse("2026-04-28T12:00:00Z");
 		WatchlistEntry existingEntry = new WatchlistEntry(
 			1L,
-			"Arrival",
+			10L,
+			20L,
 			WatchStatus.WANT_TO_WATCH,
-			null,
-			null,
 			originalDateAdded,
+			Instant.parse("2026-04-28T12:10:00Z"),
+			null,
 			null
 		);
 		WatchlistEntry updatedEntry = new WatchlistEntry(
 			null,
-			"Arrival",
+			999L,
+			30L,
 			WatchStatus.WATCHED,
-			5,
-			"Great movie.",
 			null,
-			LocalDate.parse("2026-04-27")
+			null,
+			Instant.parse("2026-04-28T12:15:00Z"),
+			Instant.parse("2026-04-28T12:30:00Z")
 		);
 
-		when(repository.findById(1L)).thenReturn(Optional.of(existingEntry));
+		when(repository.findById(10L, 1L)).thenReturn(Optional.of(existingEntry));
 		when(repository.update(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-		WatchlistEntry result = service.update(1L, updatedEntry);
+		WatchlistEntry result = service.update(10L, 1L, updatedEntry);
 
 		assertThat(result.getId()).isEqualTo(1L);
-		assertThat(result.getDateAdded()).isEqualTo(originalDateAdded);
+		assertThat(result.getUserId()).isEqualTo(10L);
+		assertThat(result.getTitleId()).isEqualTo(30L);
+		assertThat(result.getAddedAt()).isEqualTo(originalDateAdded);
+		assertThat(result.getUpdatedAt()).isNotNull();
 		verify(repository).update(updatedEntry);
 	}
 
 	@Test
-	void findAllDelegatesToRepository() {
+	void findAllDelegatesToRepositoryForUser() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
 		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
 		List<WatchlistEntry> entries = List.of(
-			new WatchlistEntry(1L, "Arrival", WatchStatus.WANT_TO_WATCH, null, null, Instant.now(), null)
+			new WatchlistEntry(1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null)
 		);
 
-		when(repository.findAll()).thenReturn(entries);
+		when(repository.findAllByUserId(10L)).thenReturn(entries);
 
-		assertThat(service.findAll()).containsExactlyElementsOf(entries);
+		assertThat(service.findAllByUserId(10L)).containsExactlyElementsOf(entries);
 	}
 }

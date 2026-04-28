@@ -28,37 +28,43 @@ public class WatchlistEntryService {
 	}
 
 	public WatchlistEntry create(WatchlistEntry watchlistEntry) {
-		if (watchlistEntry.getDateAdded() == null) {
-			watchlistEntry.setDateAdded(Instant.now());
+		Instant now = Instant.now();
+		if (watchlistEntry.getAddedAt() == null) {
+			watchlistEntry.setAddedAt(now);
+		}
+		if (watchlistEntry.getUpdatedAt() == null) {
+			watchlistEntry.setUpdatedAt(now);
 		}
 
 		validate(watchlistEntry);
 		return watchlistEntryRepository.create(watchlistEntry);
 	}
 
-	public Optional<WatchlistEntry> findById(Long id) {
-		return watchlistEntryRepository.findById(id);
+	public Optional<WatchlistEntry> findById(Long userId, Long id) {
+		return watchlistEntryRepository.findById(userId, id);
 	}
 
-	public List<WatchlistEntry> findAll() {
-		return watchlistEntryRepository.findAll();
+	public List<WatchlistEntry> findAllByUserId(Long userId) {
+		return watchlistEntryRepository.findAllByUserId(userId);
 	}
 
-	public WatchlistEntry update(Long id, WatchlistEntry watchlistEntry) {
-		WatchlistEntry existingEntry = watchlistEntryRepository.findById(id)
+	public WatchlistEntry update(Long userId, Long id, WatchlistEntry watchlistEntry) {
+		WatchlistEntry existingEntry = watchlistEntryRepository.findById(userId, id)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 
 		watchlistEntry.setId(existingEntry.getId());
-		if (watchlistEntry.getDateAdded() == null) {
-			watchlistEntry.setDateAdded(existingEntry.getDateAdded());
+		watchlistEntry.setUserId(existingEntry.getUserId());
+		if (watchlistEntry.getAddedAt() == null) {
+			watchlistEntry.setAddedAt(existingEntry.getAddedAt());
 		}
+		watchlistEntry.setUpdatedAt(Instant.now());
 
 		validate(watchlistEntry);
 		return watchlistEntryRepository.update(watchlistEntry);
 	}
 
-	public void deleteById(Long id) {
-		watchlistEntryRepository.deleteById(id);
+	public void deleteById(Long userId, Long id) {
+		watchlistEntryRepository.deleteById(userId, id);
 	}
 
 	private void validate(WatchlistEntry watchlistEntry) {
