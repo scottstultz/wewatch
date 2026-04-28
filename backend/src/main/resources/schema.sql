@@ -1,3 +1,12 @@
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    display_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    CONSTRAINT uq_users_email UNIQUE (email)
+);
+
 CREATE TABLE IF NOT EXISTS watchlist_entries (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
