@@ -30,6 +30,14 @@ public class ApiExceptionHandler {
 		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
 	}
 
+	@ExceptionHandler(DuplicateTitleException.class)
+	public ResponseEntity<ApiErrorResponse> handleDuplicateTitle(
+		DuplicateTitleException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
 		MethodArgumentNotValidException exception,
