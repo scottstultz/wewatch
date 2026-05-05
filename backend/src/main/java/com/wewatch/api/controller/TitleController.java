@@ -7,6 +7,7 @@ import jakarta.validation.Valid;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.TitleCreateRequest;
 import com.wewatch.api.dto.TitleResponse;
+import com.wewatch.api.dto.TitleUpdateRequest;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
@@ -66,6 +68,18 @@ public class TitleController {
 	@GetMapping("/{titleId}")
 	public TitleResponse getTitle(@PathVariable Long titleId) {
 		return toResponse(titleService.findById(titleId));
+	}
+
+	@PatchMapping("/{titleId}")
+	public TitleResponse updateTitle(@PathVariable Long titleId, @Valid @RequestBody TitleUpdateRequest request) {
+		return toResponse(titleService.update(
+			titleId,
+			request.name(),
+			request.overview(),
+			request.releaseDate(),
+			request.posterUrl(),
+			request.type()
+		));
 	}
 
 	private TitleResponse toResponse(Title title) {

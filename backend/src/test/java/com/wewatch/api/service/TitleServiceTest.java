@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import jakarta.validation.ConstraintViolationException;
@@ -164,6 +165,76 @@ class TitleServiceTest {
 		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
 
 		assertThat(service.findByExternalSourceAndExternalId("TMDB", "603")).isEqualTo(existing);
+	}
+
+	@Test
+	void updateAppliesProvidedFieldsOnly() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Title existing = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			"Original overview",
+			LocalDate.parse("1999-03-31"),
+			"https://example.com/original.jpg",
+			createdAt,
+			createdAt
+		);
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.update(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		Title updated = service.update(1L, "The Matrix Reloaded", null, null, null, TitleType.TV);
+
+		assertThat(updated.getExternalId()).isEqualTo("603");
+		assertThat(updated.getExternalSource()).isEqualTo("TMDB");
+		assertThat(updated.getName()).isEqualTo("The Matrix Reloaded");
+		assertThat(updated.getOverview()).isEqualTo("Original overview");
+		assertThat(updated.getReleaseDate()).isEqualTo(LocalDate.parse("1999-03-31"));
+		assertThat(updated.getPosterUrl()).isEqualTo("https://example.com/original.jpg");
+		assertThat(updated.getType()).isEqualTo(TitleType.TV);
+		assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
+		assertThat(updated.getUpdatedAt()).isAfter(createdAt);
+		verify(repository).update(existing);
+	}
+
+	@Test
+	void updateRejectsMissingTitle() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+
+		when(repository.findById(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.update(42L, "The Matrix", null, null, null, null))
+			.isInstanceOf(NoSuchElementException.class)
+			.hasMessage("Title not found: 42");
+	}
+
+	@Test
+	void updateRejectsInvalidMergedTitle() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+		Title existing = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			Instant.now(),
+			Instant.now()
+		);
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+
+		assertThatThrownBy(() -> service.update(1L, "", null, null, null, null))
+			.isInstanceOf(ConstraintViolationException.class);
 	}
 
 	@Test

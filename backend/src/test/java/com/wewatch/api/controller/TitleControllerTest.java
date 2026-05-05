@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -157,6 +158,142 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.type").value("MOVIE"))
 			.andExpect(jsonPath("$.name").value("The Matrix"))
 			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"));
+	}
+
+	@Test
+	void updateTitleReturnsUpdatedTitle() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
+		Title updatedTitle = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.TV,
+			"The Matrix",
+			"Updated overview",
+			LocalDate.parse("1999-03-31"),
+			"https://example.com/updated.jpg",
+			createdAt,
+			updatedAt
+		);
+
+		when(titleService.update(
+			1L,
+			"The Matrix",
+			"Updated overview",
+			LocalDate.parse("1999-03-31"),
+			"https://example.com/updated.jpg",
+			TitleType.TV
+		)).thenReturn(updatedTitle);
+
+		mockMvc.perform(
+			patch("/api/titles/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "The Matrix",
+					  "overview": "Updated overview",
+					  "releaseDate": "1999-03-31",
+					  "posterUrl": "https://example.com/updated.jpg",
+					  "type": "TV"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.externalId").value("603"))
+			.andExpect(jsonPath("$.externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.type").value("TV"))
+			.andExpect(jsonPath("$.name").value("The Matrix"))
+			.andExpect(jsonPath("$.overview").value("Updated overview"))
+			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"))
+			.andExpect(jsonPath("$.posterUrl").value("https://example.com/updated.jpg"))
+			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
+			.andExpect(jsonPath("$.updatedAt").value("2026-04-29T12:00:00Z"));
+
+		verify(titleService).update(
+			1L,
+			"The Matrix",
+			"Updated overview",
+			LocalDate.parse("1999-03-31"),
+			"https://example.com/updated.jpg",
+			TitleType.TV
+		);
+	}
+
+	@Test
+	void updateTitleSupportsPartialPayload() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
+		Title updatedTitle = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix Reloaded",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			createdAt,
+			updatedAt
+		);
+
+		when(titleService.update(1L, "The Matrix Reloaded", null, null, null, null)).thenReturn(updatedTitle);
+
+		mockMvc.perform(
+			patch("/api/titles/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "The Matrix Reloaded"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.externalId").value("603"))
+			.andExpect(jsonPath("$.externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.name").value("The Matrix Reloaded"));
+
+		verify(titleService).update(1L, "The Matrix Reloaded", null, null, null, null);
+	}
+
+	@Test
+	void updateTitleReturnsNotFoundWhenMissing() throws Exception {
+		when(titleService.update(42L, "The Matrix", null, null, null, null))
+			.thenThrow(new NoSuchElementException("Title not found: 42"));
+
+		mockMvc.perform(
+			patch("/api/titles/42")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": "The Matrix"
+					}
+					""")
+		)
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(404))
+			.andExpect(jsonPath("$.message").value("Title not found: 42"));
+	}
+
+	@Test
+	void updateTitleReturnsBadRequestForInvalidPayload() throws Exception {
+		mockMvc.perform(
+			patch("/api/titles/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "name": ""
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(400))
+			.andExpect(jsonPath("$.error").value("Bad Request"));
 	}
 
 	@Test

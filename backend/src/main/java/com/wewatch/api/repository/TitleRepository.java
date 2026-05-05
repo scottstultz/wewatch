@@ -10,6 +10,8 @@ public interface TitleRepository {
 
 	Title create(Title title);
 
+	Title update(Title title);
+
 	Optional<Title> findById(Long id);
 
 	Optional<Title> findByExternalSourceAndExternalId(String externalSource, String externalId);
