@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 import jakarta.validation.ConstraintViolationException;
@@ -163,5 +164,39 @@ class TitleServiceTest {
 		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
 
 		assertThat(service.findByExternalSourceAndExternalId("TMDB", "603")).isEqualTo(existing);
+	}
+
+	@Test
+	void findByFiltersReturnsMatchingTitles() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+		Title existing = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			Instant.now(),
+			Instant.now()
+		);
+
+		when(repository.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).thenReturn(List.of(existing));
+
+		assertThat(service.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).containsExactly(existing);
+		verify(repository).findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix");
+	}
+
+	@Test
+	void findByFiltersNormalizesBlankValues() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+
+		when(repository.findByFilters(null, null, null, null)).thenReturn(List.of());
+
+		assertThat(service.findByFilters("", " ", null, "")).isEmpty();
+		verify(repository).findByFilters(null, null, null, null);
 	}
 }

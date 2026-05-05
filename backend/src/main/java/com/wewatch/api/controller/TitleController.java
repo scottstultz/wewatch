@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import java.net.URI;
+import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.context.annotation.Profile;
@@ -10,11 +11,13 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.TitleCreateRequest;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
 
 @RestController
@@ -46,6 +49,18 @@ public class TitleController {
 		return ResponseEntity
 			.created(URI.create("/api/titles/" + createdTitle.getId()))
 			.body(toResponse(createdTitle));
+	}
+
+	@GetMapping
+	public List<TitleResponse> getTitles(
+		@RequestParam(required = false) String externalId,
+		@RequestParam(required = false) String externalSource,
+		@RequestParam(required = false) TitleType type,
+		@RequestParam(required = false) String name
+	) {
+		return titleService.findByFilters(externalId, externalSource, type, name).stream()
+			.map(this::toResponse)
+			.toList();
 	}
 
 	@GetMapping("/{titleId}")
