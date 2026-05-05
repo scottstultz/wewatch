@@ -1,6 +1,7 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
@@ -50,10 +51,21 @@ public class UserService {
 			.orElseThrow(() -> new NoSuchElementException("User not found: " + id));
 	}
 
+	public List<User> findByFilters(String email, String displayName) {
+		return userRepository.findByFilters(normalize(email), normalize(displayName));
+	}
+
 	private void validate(User user) {
 		Set<ConstraintViolation<User>> violations = validator.validate(user);
 		if (!violations.isEmpty()) {
 			throw new ConstraintViolationException(violations);
 		}
+	}
+
+	private String normalize(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		return value;
 	}
 }

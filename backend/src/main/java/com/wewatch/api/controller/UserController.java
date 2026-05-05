@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import java.net.URI;
+import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.context.annotation.Profile;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.UserCreateRequest;
@@ -35,6 +37,16 @@ public class UserController {
 		return ResponseEntity
 			.created(URI.create("/api/users/" + createdUser.getId()))
 			.body(toResponse(createdUser));
+	}
+
+	@GetMapping
+	public List<UserResponse> getUsers(
+		@RequestParam(required = false) String email,
+		@RequestParam(required = false) String displayName
+	) {
+		return userService.findByFilters(email, displayName).stream()
+			.map(this::toResponse)
+			.toList();
 	}
 
 	@GetMapping("/{userId}")
