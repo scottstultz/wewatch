@@ -3,6 +3,7 @@ package com.wewatch.api.repository;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -86,5 +87,28 @@ public class JdbcUserRepository implements UserRepository {
 			email
 		);
 		return results.stream().findFirst();
+	}
+
+	@Override
+	public List<User> findByFilters(String email, String displayName) {
+		StringBuilder sql = new StringBuilder("""
+			SELECT id, email, display_name, created_at, updated_at
+			FROM users
+			WHERE 1 = 1
+			""");
+		List<Object> parameters = new ArrayList<>();
+
+		if (email != null) {
+			sql.append("AND email = ?\n");
+			parameters.add(email);
+		}
+		if (displayName != null) {
+			sql.append("AND display_name = ?\n");
+			parameters.add(displayName);
+		}
+
+		sql.append("ORDER BY id");
+
+		return jdbcTemplate.query(sql.toString(), ROW_MAPPER, parameters.toArray());
 	}
 }

@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateEmailException;
+import com.wewatch.api.model.User;
 import com.wewatch.api.service.UserService;
 
 @WebMvcTest(UserController.class)
@@ -127,6 +129,72 @@ class UserControllerTest {
 			.andExpect(jsonPath("$.id").value(1))
 			.andExpect(jsonPath("$.email").value("user@example.com"))
 			.andExpect(jsonPath("$.displayName").value("Scott"));
+	}
+
+	@Test
+	void getUsersReturnsMatchesForEmail() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
+
+		when(userService.findByFilters("user@example.com", null)).thenReturn(List.of(existingUser));
+
+		mockMvc.perform(get("/api/users").param("email", "user@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].email").value("user@example.com"))
+			.andExpect(jsonPath("$[0].displayName").value("Scott"));
+
+		verify(userService).findByFilters("user@example.com", null);
+	}
+
+	@Test
+	void getUsersReturnsMatchesForDisplayName() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
+
+		when(userService.findByFilters(null, "Scott")).thenReturn(List.of(existingUser));
+
+		mockMvc.perform(get("/api/users").param("displayName", "Scott"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].email").value("user@example.com"))
+			.andExpect(jsonPath("$[0].displayName").value("Scott"));
+
+		verify(userService).findByFilters(null, "Scott");
+	}
+
+	@Test
+	void getUsersCombinesQueryParameters() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
+
+		when(userService.findByFilters("user@example.com", "Scott")).thenReturn(List.of(existingUser));
+
+		mockMvc.perform(
+			get("/api/users")
+				.param("email", "user@example.com")
+				.param("displayName", "Scott")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].email").value("user@example.com"))
+			.andExpect(jsonPath("$[0].displayName").value("Scott"));
+
+		verify(userService).findByFilters("user@example.com", "Scott");
+	}
+
+	@Test
+	void getUsersReturnsEmptyListWhenNoUsersMatch() throws Exception {
+		when(userService.findByFilters("missing@example.com", null)).thenReturn(List.of());
+
+		mockMvc.perform(get("/api/users").param("email", "missing@example.com"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$").isArray())
+			.andExpect(jsonPath("$").isEmpty());
 	}
 
 	@Test
