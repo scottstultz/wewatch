@@ -51,6 +51,30 @@ public class UserService {
 			.orElseThrow(() -> new NoSuchElementException("User not found: " + id));
 	}
 
+	public User update(Long id, String email, String displayName) {
+		User existingUser = findById(id);
+
+		if (email != null) {
+			existingUser.setEmail(email);
+		}
+		if (displayName != null) {
+			existingUser.setDisplayName(displayName);
+		}
+		existingUser.setUpdatedAt(Instant.now());
+
+		validate(existingUser);
+
+		if (email != null) {
+			userRepository.findByEmail(email)
+				.filter(userWithEmail -> !userWithEmail.getId().equals(id))
+				.ifPresent(userWithEmail -> {
+					throw new DuplicateEmailException(email);
+				});
+		}
+
+		return userRepository.update(existingUser);
+	}
+
 	public List<User> findByFilters(String email, String displayName) {
 		return userRepository.findByFilters(normalize(email), normalize(displayName));
 	}

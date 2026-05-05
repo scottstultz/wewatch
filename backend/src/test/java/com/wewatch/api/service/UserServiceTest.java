@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import jakarta.validation.ConstraintViolationException;
@@ -85,6 +86,79 @@ class UserServiceTest {
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
 
 		assertThat(service.findById(1L)).isEqualTo(existing);
+	}
+
+	@Test
+	void updateAppliesProvidedFieldsOnly() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		UserService service = new UserService(repository, validator);
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		User existing = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.update(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		User updated = service.update(1L, null, "Scott Stultz");
+
+		assertThat(updated.getEmail()).isEqualTo("user@example.com");
+		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
+		assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
+		assertThat(updated.getUpdatedAt()).isAfter(createdAt);
+		verify(repository).update(existing);
+	}
+
+	@Test
+	void updateRejectsMissingUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		UserService service = new UserService(repository, validator);
+
+		when(repository.findById(42L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.update(42L, null, "Scott"))
+			.isInstanceOf(NoSuchElementException.class)
+			.hasMessage("User not found: 42");
+	}
+
+	@Test
+	void updateRejectsInvalidMergedUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		UserService service = new UserService(repository, validator);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+
+		assertThatThrownBy(() -> service.update(1L, "", null)).isInstanceOf(ConstraintViolationException.class);
+	}
+
+	@Test
+	void updateRejectsDuplicateEmailForAnotherUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		UserService service = new UserService(repository, validator);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.findByEmail("other@example.com")).thenReturn(Optional.of(other));
+
+		assertThatThrownBy(() -> service.update(1L, "other@example.com", null))
+			.isInstanceOf(DuplicateEmailException.class);
+	}
+
+	@Test
+	void updateAllowsExistingEmailForSameUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		UserService service = new UserService(repository, validator);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(existing));
+		when(repository.update(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		User updated = service.update(1L, "user@example.com", "Scott Stultz");
+
+		assertThat(updated.getEmail()).isEqualTo("user@example.com");
+		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
+		verify(repository).update(existing);
 	}
 
 	@Test
