@@ -62,6 +62,23 @@ public class JdbcUserRepository implements UserRepository {
 	}
 
 	@Override
+	public User update(User user) {
+		jdbcTemplate.update(
+			"""
+			UPDATE users
+			SET email = ?, display_name = ?, updated_at = ?
+			WHERE id = ?
+			""",
+			user.getEmail(),
+			user.getDisplayName(),
+			Timestamp.from(user.getUpdatedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			user.getId()
+		);
+
+		return user;
+	}
+
+	@Override
 	public Optional<User> findById(Long id) {
 		List<User> results = jdbcTemplate.query(
 			"""

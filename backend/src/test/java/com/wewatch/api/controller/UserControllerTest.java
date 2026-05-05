@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -129,6 +130,116 @@ class UserControllerTest {
 			.andExpect(jsonPath("$.id").value(1))
 			.andExpect(jsonPath("$.email").value("user@example.com"))
 			.andExpect(jsonPath("$.displayName").value("Scott"));
+	}
+
+	@Test
+	void updateUserReturnsUpdatedUser() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
+		User updatedUser = new User(1L, "updated@example.com", "Scott Stultz", createdAt, updatedAt);
+
+		when(userService.update(1L, "updated@example.com", "Scott Stultz")).thenReturn(updatedUser);
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "updated@example.com",
+					  "displayName": "Scott Stultz"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.email").value("updated@example.com"))
+			.andExpect(jsonPath("$.displayName").value("Scott Stultz"))
+			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
+			.andExpect(jsonPath("$.updatedAt").value("2026-04-29T12:00:00Z"));
+
+		verify(userService).update(1L, "updated@example.com", "Scott Stultz");
+	}
+
+	@Test
+	void updateUserSupportsPartialPayload() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
+		User updatedUser = new User(1L, "user@example.com", "Scott Stultz", createdAt, updatedAt);
+
+		when(userService.update(1L, null, "Scott Stultz")).thenReturn(updatedUser);
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "displayName": "Scott Stultz"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.email").value("user@example.com"))
+			.andExpect(jsonPath("$.displayName").value("Scott Stultz"));
+
+		verify(userService).update(1L, null, "Scott Stultz");
+	}
+
+	@Test
+	void updateUserReturnsNotFoundWhenMissing() throws Exception {
+		when(userService.update(42L, null, "Scott")).thenThrow(new NoSuchElementException("User not found: 42"));
+
+		mockMvc.perform(
+			patch("/api/users/42")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "displayName": "Scott"
+					}
+					""")
+		)
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(404))
+			.andExpect(jsonPath("$.message").value("User not found: 42"));
+	}
+
+	@Test
+	void updateUserReturnsBadRequestForInvalidPayload() throws Exception {
+		mockMvc.perform(
+			patch("/api/users/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "not-an-email"
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(400))
+			.andExpect(jsonPath("$.error").value("Bad Request"));
+	}
+
+	@Test
+	void updateUserReturnsConflictForDuplicateEmail() throws Exception {
+		when(userService.update(1L, "other@example.com", null))
+			.thenThrow(new DuplicateEmailException("other@example.com"));
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "other@example.com"
+					}
+					""")
+		)
+			.andExpect(status().isConflict())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(409))
+			.andExpect(jsonPath("$.message").value("User email already exists: other@example.com"));
 	}
 
 	@Test
