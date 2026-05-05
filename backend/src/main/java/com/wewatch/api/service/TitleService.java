@@ -1,6 +1,7 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateTitleException;
 import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TitleRepository;
 
 @Service
@@ -57,10 +59,26 @@ public class TitleService {
 			));
 	}
 
+	public List<Title> findByFilters(String externalId, String externalSource, TitleType type, String name) {
+		return titleRepository.findByFilters(
+			normalize(externalId),
+			normalize(externalSource),
+			type,
+			normalize(name)
+		);
+	}
+
 	private void validate(Title title) {
 		Set<ConstraintViolation<Title>> violations = validator.validate(title);
 		if (!violations.isEmpty()) {
 			throw new ConstraintViolationException(violations);
 		}
+	}
+
+	private String normalize(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		return value;
 	}
 }

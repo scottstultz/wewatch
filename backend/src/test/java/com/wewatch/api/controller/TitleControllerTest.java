@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import org.junit.jupiter.api.Test;
@@ -156,6 +157,112 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.type").value("MOVIE"))
 			.andExpect(jsonPath("$.name").value("The Matrix"))
 			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"));
+	}
+
+	@Test
+	void getTitlesReturnsMatchesForExternalIdentifiers() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Title existingTitle = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			createdAt,
+			createdAt
+		);
+
+		when(titleService.findByFilters("603", "TMDB", null, null)).thenReturn(List.of(existingTitle));
+
+		mockMvc.perform(
+			get("/api/titles")
+				.param("externalId", "603")
+				.param("externalSource", "TMDB")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].externalId").value("603"))
+			.andExpect(jsonPath("$[0].externalSource").value("TMDB"))
+			.andExpect(jsonPath("$[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+
+		verify(titleService).findByFilters("603", "TMDB", null, null);
+	}
+
+	@Test
+	void getTitlesReturnsMatchesForName() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Title existingTitle = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			createdAt,
+			createdAt
+		);
+
+		when(titleService.findByFilters(null, null, null, "The Matrix")).thenReturn(List.of(existingTitle));
+
+		mockMvc.perform(get("/api/titles").param("name", "The Matrix"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+
+		verify(titleService).findByFilters(null, null, null, "The Matrix");
+	}
+
+	@Test
+	void getTitlesCombinesQueryParameters() throws Exception {
+		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
+		Title existingTitle = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			createdAt,
+			createdAt
+		);
+
+		when(titleService.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).thenReturn(List.of(existingTitle));
+
+		mockMvc.perform(
+			get("/api/titles")
+				.param("externalId", "603")
+				.param("externalSource", "TMDB")
+				.param("type", "MOVIE")
+				.param("name", "The Matrix")
+		)
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].id").value(1))
+			.andExpect(jsonPath("$[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+
+		verify(titleService).findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix");
+	}
+
+	@Test
+	void getTitlesReturnsEmptyListWhenNoTitlesMatch() throws Exception {
+		when(titleService.findByFilters(null, null, null, "Missing Title")).thenReturn(List.of());
+
+		mockMvc.perform(get("/api/titles").param("name", "Missing Title"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$").isArray())
+			.andExpect(jsonPath("$").isEmpty());
 	}
 
 	@Test

@@ -4,6 +4,7 @@ import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.Timestamp;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -108,5 +109,36 @@ public class JdbcTitleRepository implements TitleRepository {
 			externalId
 		);
 		return results.stream().findFirst();
+	}
+
+	@Override
+	public List<Title> findByFilters(String externalId, String externalSource, TitleType type, String name) {
+		StringBuilder sql = new StringBuilder("""
+			SELECT id, external_id, external_source, type, name, overview, release_date, poster_url, created_at, updated_at
+			FROM titles
+			WHERE 1 = 1
+			""");
+		List<Object> parameters = new ArrayList<>();
+
+		if (externalId != null) {
+			sql.append("AND external_id = ?\n");
+			parameters.add(externalId);
+		}
+		if (externalSource != null) {
+			sql.append("AND external_source = ?\n");
+			parameters.add(externalSource);
+		}
+		if (type != null) {
+			sql.append("AND type = ?\n");
+			parameters.add(type.name());
+		}
+		if (name != null) {
+			sql.append("AND name = ?\n");
+			parameters.add(name);
+		}
+
+		sql.append("ORDER BY id");
+
+		return jdbcTemplate.query(sql.toString(), ROW_MAPPER, parameters.toArray());
 	}
 }
