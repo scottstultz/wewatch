@@ -1,6 +1,7 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -66,6 +67,38 @@ public class TitleService {
 			type,
 			normalize(name)
 		);
+	}
+
+	public Title update(
+		Long id,
+		String name,
+		String overview,
+		LocalDate releaseDate,
+		String posterUrl,
+		TitleType type
+	) {
+		Title existingTitle = findById(id);
+
+		if (name != null) {
+			existingTitle.setName(name);
+		}
+		if (overview != null) {
+			existingTitle.setOverview(overview);
+		}
+		if (releaseDate != null) {
+			existingTitle.setReleaseDate(releaseDate);
+		}
+		if (posterUrl != null) {
+			existingTitle.setPosterUrl(posterUrl);
+		}
+		if (type != null) {
+			existingTitle.setType(type);
+		}
+		existingTitle.setUpdatedAt(Instant.now());
+
+		validate(existingTitle);
+
+		return titleRepository.update(existingTitle);
 	}
 
 	private void validate(Title title) {

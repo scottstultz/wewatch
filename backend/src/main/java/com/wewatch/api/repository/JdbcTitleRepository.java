@@ -83,6 +83,26 @@ public class JdbcTitleRepository implements TitleRepository {
 	}
 
 	@Override
+	public Title update(Title title) {
+		jdbcTemplate.update(
+			"""
+			UPDATE titles
+			SET type = ?, name = ?, overview = ?, release_date = ?, poster_url = ?, updated_at = ?
+			WHERE id = ?
+			""",
+			title.getType().name(),
+			title.getName(),
+			title.getOverview(),
+			title.getReleaseDate() == null ? null : Date.valueOf(title.getReleaseDate()),
+			title.getPosterUrl(),
+			Timestamp.from(title.getUpdatedAt().atOffset(ZoneOffset.UTC).toInstant()),
+			title.getId()
+		);
+
+		return title;
+	}
+
+	@Override
 	public Optional<Title> findById(Long id) {
 		List<Title> results = jdbcTemplate.query(
 			"""
