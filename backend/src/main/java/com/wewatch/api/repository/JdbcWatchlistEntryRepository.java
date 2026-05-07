@@ -83,6 +83,21 @@ public class JdbcWatchlistEntryRepository implements WatchlistEntryRepository {
 	}
 
 	@Override
+	public Optional<WatchlistEntry> findByUserIdAndTitleId(Long userId, Long titleId) {
+		List<WatchlistEntry> results = jdbcTemplate.query(
+			"""
+			SELECT id, user_id, title_id, status, added_at, updated_at, started_at, completed_at
+			FROM watchlist_entries
+			WHERE user_id = ? AND title_id = ?
+			""",
+			ROW_MAPPER,
+			userId,
+			titleId
+		);
+		return results.stream().findFirst();
+	}
+
+	@Override
 	public List<WatchlistEntry> findAllByUserId(Long userId) {
 		return jdbcTemplate.query(
 			"""

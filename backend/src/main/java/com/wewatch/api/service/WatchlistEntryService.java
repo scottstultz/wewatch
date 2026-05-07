@@ -12,6 +12,8 @@ import jakarta.validation.Validator;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
+import com.wewatch.api.exception.DuplicateWatchlistEntryException;
+import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.WatchlistEntryRepository;
 
@@ -21,22 +23,55 @@ public class WatchlistEntryService {
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final Validator validator;
+	private final UserService userService;
+	private final TitleService titleService;
 
-	public WatchlistEntryService(WatchlistEntryRepository watchlistEntryRepository, Validator validator) {
+	public WatchlistEntryService(
+		WatchlistEntryRepository watchlistEntryRepository,
+		Validator validator,
+		UserService userService,
+		TitleService titleService
+	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.validator = validator;
+		this.userService = userService;
+		this.titleService = titleService;
 	}
 
 	public WatchlistEntry create(WatchlistEntry watchlistEntry) {
 		Instant now = Instant.now();
+		if (watchlistEntry.getStatus() == null) {
+			watchlistEntry.setStatus(WatchStatus.WANT_TO_WATCH);
+		}
 		if (watchlistEntry.getAddedAt() == null) {
 			watchlistEntry.setAddedAt(now);
 		}
 		if (watchlistEntry.getUpdatedAt() == null) {
 			watchlistEntry.setUpdatedAt(now);
 		}
+		if (watchlistEntry.getStatus() == WatchStatus.WATCHING && watchlistEntry.getStartedAt() == null) {
+			watchlistEntry.setStartedAt(now);
+		}
+		if (watchlistEntry.getStatus() == WatchStatus.WATCHED) {
+			if (watchlistEntry.getStartedAt() == null) {
+				watchlistEntry.setStartedAt(now);
+			}
+			if (watchlistEntry.getCompletedAt() == null) {
+				watchlistEntry.setCompletedAt(now);
+			}
+		}
 
 		validate(watchlistEntry);
+		userService.findById(watchlistEntry.getUserId());
+		titleService.findById(watchlistEntry.getTitleId());
+		watchlistEntryRepository.findByUserIdAndTitleId(watchlistEntry.getUserId(), watchlistEntry.getTitleId())
+			.ifPresent(existingEntry -> {
+				throw new DuplicateWatchlistEntryException(
+					watchlistEntry.getUserId(),
+					watchlistEntry.getTitleId()
+				);
+			});
+
 		return watchlistEntryRepository.create(watchlistEntry);
 	}
 
