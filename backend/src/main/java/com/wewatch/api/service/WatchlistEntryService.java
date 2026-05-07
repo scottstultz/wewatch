@@ -3,7 +3,6 @@ package com.wewatch.api.service;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 import java.util.Set;
 
 import jakarta.validation.ConstraintViolation;
@@ -75,12 +74,21 @@ public class WatchlistEntryService {
 		return watchlistEntryRepository.create(watchlistEntry);
 	}
 
-	public Optional<WatchlistEntry> findById(Long userId, Long id) {
-		return watchlistEntryRepository.findById(userId, id);
+	public WatchlistEntry findById(Long userId, Long id) {
+		userService.findById(userId);
+		return watchlistEntryRepository.findById(userId, id)
+			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 	}
 
-	public List<WatchlistEntry> findAllByUserId(Long userId) {
-		return watchlistEntryRepository.findAllByUserId(userId);
+	public List<WatchlistEntry> findByFilters(Long userId, WatchStatus status) {
+		userService.findById(userId);
+		List<WatchlistEntry> entries = watchlistEntryRepository.findAllByUserId(userId);
+		if (status == null) {
+			return entries;
+		}
+		return entries.stream()
+			.filter(entry -> entry.getStatus() == status)
+			.toList();
 	}
 
 	public WatchlistEntry update(Long userId, Long id, WatchlistEntry watchlistEntry) {
