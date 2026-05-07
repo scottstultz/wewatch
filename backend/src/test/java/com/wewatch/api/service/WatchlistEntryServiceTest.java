@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import jakarta.validation.ConstraintViolationException;
@@ -19,6 +20,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import com.wewatch.api.exception.DuplicateWatchlistEntryException;
+import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.WatchlistEntryRepository;
@@ -42,9 +47,14 @@ class WatchlistEntryServiceTest {
 	@Test
 	void createSetsDateAddedWhenMissing() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
-		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
 		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WANT_TO_WATCH, null, null, null, null);
 
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
+		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
 		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
@@ -57,16 +67,131 @@ class WatchlistEntryServiceTest {
 	@Test
 	void createRejectsInvalidEntry() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
-		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository,
+			validator,
+			Mockito.mock(UserService.class),
+			Mockito.mock(TitleService.class)
+		);
 		WatchlistEntry entry = new WatchlistEntry(null, null, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null);
 
 		assertThatThrownBy(() -> service.create(entry)).isInstanceOf(ConstraintViolationException.class);
 	}
 
 	@Test
+	void createDefaultsMissingStatusToWantToWatch() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, null, null, null, null, null);
+
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
+		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
+		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry created = service.create(entry);
+
+		assertThat(created.getStatus()).isEqualTo(WatchStatus.WANT_TO_WATCH);
+		assertThat(created.getStartedAt()).isNull();
+		assertThat(created.getCompletedAt()).isNull();
+	}
+
+	@Test
+	void createSetsStartedAtForWatchingEntry() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WATCHING, null, null, null, null);
+
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
+		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
+		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry created = service.create(entry);
+
+		assertThat(created.getStartedAt()).isNotNull();
+		assertThat(created.getCompletedAt()).isNull();
+	}
+
+	@Test
+	void createSetsStartedAtAndCompletedAtForWatchedEntry() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WATCHED, null, null, null, null);
+
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
+		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
+		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry created = service.create(entry);
+
+		assertThat(created.getStartedAt()).isNotNull();
+		assertThat(created.getCompletedAt()).isNotNull();
+	}
+
+	@Test
+	void createRejectsMissingUser() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WANT_TO_WATCH, null, null, null, null);
+
+		when(userService.findById(10L)).thenThrow(new NoSuchElementException("User not found: 10"));
+
+		assertThatThrownBy(() -> service.create(entry))
+			.isInstanceOf(NoSuchElementException.class)
+			.hasMessage("User not found: 10");
+	}
+
+	@Test
+	void createRejectsMissingTitle() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WANT_TO_WATCH, null, null, null, null);
+
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenThrow(new NoSuchElementException("Title not found: 20"));
+
+		assertThatThrownBy(() -> service.create(entry))
+			.isInstanceOf(NoSuchElementException.class)
+			.hasMessage("Title not found: 20");
+	}
+
+	@Test
+	void createRejectsDuplicateUserTitleEntry() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		UserService userService = Mockito.mock(UserService.class);
+		TitleService titleService = Mockito.mock(TitleService.class);
+		WatchlistEntryService service = new WatchlistEntryService(repository, validator, userService, titleService);
+		WatchlistEntry entry = new WatchlistEntry(null, 10L, 20L, WatchStatus.WANT_TO_WATCH, null, null, null, null);
+		WatchlistEntry existingEntry = new WatchlistEntry(1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null);
+
+		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
+		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
+		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.of(existingEntry));
+
+		assertThatThrownBy(() -> service.create(entry)).isInstanceOf(DuplicateWatchlistEntryException.class);
+	}
+
+	@Test
 	void updatePreservesOriginalDateAddedWhenOmitted() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
-		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository,
+			validator,
+			Mockito.mock(UserService.class),
+			Mockito.mock(TitleService.class)
+		);
 		Instant originalDateAdded = Instant.parse("2026-04-28T12:00:00Z");
 		WatchlistEntry existingEntry = new WatchlistEntry(
 			1L,
@@ -105,7 +230,12 @@ class WatchlistEntryServiceTest {
 	@Test
 	void findAllDelegatesToRepositoryForUser() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
-		WatchlistEntryService service = new WatchlistEntryService(repository, validator);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository,
+			validator,
+			Mockito.mock(UserService.class),
+			Mockito.mock(TitleService.class)
+		);
 		List<WatchlistEntry> entries = List.of(
 			new WatchlistEntry(1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null)
 		);

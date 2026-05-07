@@ -1,0 +1,182 @@
+package com.wewatch.api.controller;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.time.Instant;
+import java.util.NoSuchElementException;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+import com.wewatch.api.exception.DuplicateWatchlistEntryException;
+import com.wewatch.api.model.WatchStatus;
+import com.wewatch.api.model.WatchlistEntry;
+import com.wewatch.api.service.WatchlistEntryService;
+
+@WebMvcTest(WatchlistEntryController.class)
+@ActiveProfiles("local")
+class WatchlistEntryControllerTest {
+
+	@Autowired
+	private MockMvc mockMvc;
+
+	@MockBean
+	private WatchlistEntryService watchlistEntryService;
+
+	@Test
+	void createWatchlistEntryReturnsCreatedEntry() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry createdEntry = new WatchlistEntry(
+			1L,
+			10L,
+			20L,
+			WatchStatus.WANT_TO_WATCH,
+			addedAt,
+			addedAt,
+			null,
+			null
+		);
+
+		when(watchlistEntryService.create(any(WatchlistEntry.class))).thenReturn(createdEntry);
+
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20,
+					  "status": "WANT_TO_WATCH"
+					}
+					""")
+		)
+			.andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/users/10/watchlist/1"))
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.userId").value(10))
+			.andExpect(jsonPath("$.titleId").value(20))
+			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"))
+			.andExpect(jsonPath("$.addedAt").value("2026-04-28T12:00:00Z"))
+			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
+
+		verify(watchlistEntryService).create(any(WatchlistEntry.class));
+	}
+
+	@Test
+	void createWatchlistEntryAllowsMissingStatus() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry createdEntry = new WatchlistEntry(
+			1L,
+			10L,
+			20L,
+			WatchStatus.WANT_TO_WATCH,
+			addedAt,
+			addedAt,
+			null,
+			null
+		);
+
+		when(watchlistEntryService.create(any(WatchlistEntry.class))).thenReturn(createdEntry);
+
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20
+					}
+					""")
+		)
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"));
+	}
+
+	@Test
+	void createWatchlistEntryReturnsBadRequestWhenTitleIdMissing() throws Exception {
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WANT_TO_WATCH"
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(400))
+			.andExpect(jsonPath("$.error").value("Bad Request"));
+	}
+
+	@Test
+	void createWatchlistEntryReturnsNotFoundWhenUserMissing() throws Exception {
+		when(watchlistEntryService.create(any(WatchlistEntry.class)))
+			.thenThrow(new NoSuchElementException("User not found: 10"));
+
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20
+					}
+					""")
+		)
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(404))
+			.andExpect(jsonPath("$.message").value("User not found: 10"));
+	}
+
+	@Test
+	void createWatchlistEntryReturnsNotFoundWhenTitleMissing() throws Exception {
+		when(watchlistEntryService.create(any(WatchlistEntry.class)))
+			.thenThrow(new NoSuchElementException("Title not found: 20"));
+
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20
+					}
+					""")
+		)
+			.andExpect(status().isNotFound())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(404))
+			.andExpect(jsonPath("$.message").value("Title not found: 20"));
+	}
+
+	@Test
+	void createWatchlistEntryReturnsConflictWhenDuplicate() throws Exception {
+		when(watchlistEntryService.create(any(WatchlistEntry.class)))
+			.thenThrow(new DuplicateWatchlistEntryException(10L, 20L));
+
+		mockMvc.perform(
+			post("/api/users/10/watchlist")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20
+					}
+					""")
+		)
+			.andExpect(status().isConflict())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(409))
+			.andExpect(jsonPath("$.message").value("Watchlist entry already exists for user 10 and title 20"));
+	}
+}
