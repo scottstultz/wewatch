@@ -28,13 +28,16 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.DuplicateTitleException;
+import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.UserService;
+import com.wewatch.api.tmdb.TmdbClient;
 
 @WebMvcTest(TitleController.class)
 @Import(SecurityConfig.class)
@@ -46,6 +49,9 @@ class TitleControllerTest {
 
 	@MockBean
 	private TitleService titleService;
+
+	@MockBean
+	private TmdbClient tmdbClient;
 
 	@MockBean
 	private UserService userService;
@@ -463,5 +469,69 @@ class TitleControllerTest {
 	void getTitleReturnsUnauthorizedWhenNoToken() throws Exception {
 		mockMvc.perform(get("/api/titles/1"))
 			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void searchTitlesReturnsResults() throws Exception {
+		List<TitleSearchResponse> searchResults = List.of(
+			new TitleSearchResponse(
+				"27205",
+				"TMDB",
+				TitleType.MOVIE,
+				"Inception",
+				"A thief who steals corporate secrets.",
+				LocalDate.parse("2010-07-16"),
+				"https://image.tmdb.org/t/p/w500/poster.jpg"
+			)
+		);
+
+		when(tmdbClient.search("inception", null)).thenReturn(searchResults);
+
+		mockMvc.perform(get("/api/titles/search")
+			.header("Authorization", "Bearer test-token")
+			.param("q", "inception"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].externalId").value("27205"))
+			.andExpect(jsonPath("$[0].externalSource").value("TMDB"))
+			.andExpect(jsonPath("$[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$[0].name").value("Inception"))
+			.andExpect(jsonPath("$[0].releaseDate").value("2010-07-16"))
+			.andExpect(jsonPath("$[0].posterUrl").value("https://image.tmdb.org/t/p/w500/poster.jpg"));
+
+		verify(tmdbClient).search("inception", null);
+	}
+
+	@Test
+	void searchTitlesReturnsEmptyListWhenNoResultsFound() throws Exception {
+		when(tmdbClient.search("xyznotafilm", null)).thenReturn(List.of());
+
+		mockMvc.perform(get("/api/titles/search")
+			.header("Authorization", "Bearer test-token")
+			.param("q", "xyznotafilm"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$").isArray())
+			.andExpect(jsonPath("$").isEmpty());
+	}
+
+	@Test
+	void searchTitlesReturnsBadGatewayOnTmdbError() throws Exception {
+		when(tmdbClient.search(any(), any()))
+			.thenThrow(new TmdbApiException("TMDB search failed", new RuntimeException()));
+
+		mockMvc.perform(get("/api/titles/search")
+			.header("Authorization", "Bearer test-token")
+			.param("q", "inception"))
+			.andExpect(status().isBadGateway())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(502))
+			.andExpect(jsonPath("$.message").value("TMDB search failed"));
+	}
+
+	@Test
+	void searchTitlesMissingQueryReturnsBadRequest() throws Exception {
+		mockMvc.perform(get("/api/titles/search")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest());
 	}
 }

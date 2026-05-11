@@ -16,19 +16,34 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.TitleCreateRequest;
 import com.wewatch.api.dto.TitleResponse;
+import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.dto.TitleUpdateRequest;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.tmdb.TmdbClient;
 
 @RestController
 @RequestMapping("/api/titles")
 public class TitleController {
 
 	private final TitleService titleService;
+	private final TmdbClient tmdbClient;
 
-	public TitleController(TitleService titleService) {
+	public TitleController(TitleService titleService, TmdbClient tmdbClient) {
 		this.titleService = titleService;
+		this.tmdbClient = tmdbClient;
+	}
+
+	@GetMapping("/search")
+	public List<TitleSearchResponse> searchTitles(
+		@RequestParam String q,
+		@RequestParam(required = false) TitleType type
+	) {
+		if (q.isBlank()) {
+			return List.of();
+		}
+		return tmdbClient.search(q, type);
 	}
 
 	@PostMapping
