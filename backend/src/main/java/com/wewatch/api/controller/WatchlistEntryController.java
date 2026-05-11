@@ -4,7 +4,6 @@ import java.net.URI;
 import java.util.List;
 
 import jakarta.validation.Valid;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +20,6 @@ import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.service.WatchlistEntryService;
 
 @RestController
-@Profile("local")
 @RequestMapping("/api/users/{userId}/watchlist")
 public class WatchlistEntryController {
 

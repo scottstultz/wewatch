@@ -4,7 +4,6 @@ import java.net.URI;
 import java.util.List;
 
 import jakarta.validation.Valid;
-import org.springframework.context.annotation.Profile;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -22,7 +21,6 @@ import com.wewatch.api.model.User;
 import com.wewatch.api.service.UserService;
 
 @RestController
-@Profile("local")
 @RequestMapping("/api/users")
 public class UserController {
 

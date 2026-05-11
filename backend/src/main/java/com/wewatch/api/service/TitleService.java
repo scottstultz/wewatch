@@ -9,7 +9,6 @@ import java.util.Set;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateTitleException;
@@ -18,7 +17,6 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TitleRepository;
 
 @Service
-@Profile("local")
 public class TitleService {
 
 	private final TitleRepository titleRepository;
@@ -45,7 +43,7 @@ public class TitleService {
 				throw new DuplicateTitleException(title.getExternalSource(), title.getExternalId());
 			});
 
-		return titleRepository.create(title);
+		return titleRepository.save(title);
 	}
 
 	public Title findById(Long id) {
@@ -98,7 +96,7 @@ public class TitleService {
 
 		validate(existingTitle);
 
-		return titleRepository.update(existingTitle);
+		return titleRepository.save(existingTitle);
 	}
 
 	private void validate(Title title) {

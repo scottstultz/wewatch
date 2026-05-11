@@ -60,13 +60,13 @@ class TitleServiceTest {
 		);
 
 		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.empty());
-		when(repository.create(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		Title created = service.create(title);
 
 		assertThat(created.getCreatedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
-		verify(repository).create(title);
+		verify(repository).save(title);
 	}
 
 	@Test
@@ -186,7 +186,7 @@ class TitleServiceTest {
 		);
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.update(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		Title updated = service.update(1L, "The Matrix Reloaded", null, null, null, TitleType.TV);
 
@@ -199,7 +199,7 @@ class TitleServiceTest {
 		assertThat(updated.getType()).isEqualTo(TitleType.TV);
 		assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
 		assertThat(updated.getUpdatedAt()).isAfter(createdAt);
-		verify(repository).update(existing);
+		verify(repository).save(existing);
 	}
 
 	@Test

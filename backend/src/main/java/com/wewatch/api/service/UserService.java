@@ -8,7 +8,6 @@ import java.util.Set;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateEmailException;
@@ -16,7 +15,6 @@ import com.wewatch.api.model.User;
 import com.wewatch.api.repository.UserRepository;
 
 @Service
-@Profile("local")
 public class UserService {
 
 	private final UserRepository userRepository;
@@ -43,7 +41,7 @@ public class UserService {
 				throw new DuplicateEmailException(user.getEmail());
 			});
 
-		return userRepository.create(user);
+		return userRepository.save(user);
 	}
 
 	public User findById(Long id) {
@@ -72,7 +70,7 @@ public class UserService {
 				});
 		}
 
-		return userRepository.update(existingUser);
+		return userRepository.save(existingUser);
 	}
 
 	public List<User> findByFilters(String email, String displayName) {

@@ -55,13 +55,13 @@ class WatchlistEntryServiceTest {
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
 		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
 		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
-		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
 
 		assertThat(created.getAddedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
-		verify(repository).create(entry);
+		verify(repository).save(entry);
 	}
 
 	@Test
@@ -89,7 +89,7 @@ class WatchlistEntryServiceTest {
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
 		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
 		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
-		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
 
@@ -109,7 +109,7 @@ class WatchlistEntryServiceTest {
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
 		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
 		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
-		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
 
@@ -128,7 +128,7 @@ class WatchlistEntryServiceTest {
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
 		when(titleService.findById(20L)).thenReturn(new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, null, Instant.now(), Instant.now()));
 		when(repository.findByUserIdAndTitleId(10L, 20L)).thenReturn(Optional.empty());
-		when(repository.create(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry created = service.create(entry);
 
@@ -214,8 +214,8 @@ class WatchlistEntryServiceTest {
 			Instant.parse("2026-04-28T12:30:00Z")
 		);
 
-		when(repository.findById(10L, 1L)).thenReturn(Optional.of(existingEntry));
-		when(repository.update(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(existingEntry));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		WatchlistEntry result = service.update(10L, 1L, updatedEntry);
 
@@ -224,7 +224,7 @@ class WatchlistEntryServiceTest {
 		assertThat(result.getTitleId()).isEqualTo(30L);
 		assertThat(result.getAddedAt()).isEqualTo(originalDateAdded);
 		assertThat(result.getUpdatedAt()).isNotNull();
-		verify(repository).update(updatedEntry);
+		verify(repository).save(updatedEntry);
 	}
 
 	@Test
@@ -242,7 +242,7 @@ class WatchlistEntryServiceTest {
 		);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findAllByUserId(10L)).thenReturn(entries);
+		when(repository.findAllByUserIdOrderByAddedAtDescIdDesc(10L)).thenReturn(entries);
 
 		assertThat(service.findByFilters(10L, null)).containsExactlyElementsOf(entries);
 	}
@@ -261,7 +261,7 @@ class WatchlistEntryServiceTest {
 		WatchlistEntry watching = new WatchlistEntry(2L, 10L, 30L, WatchStatus.WATCHING, Instant.now(), Instant.now(), Instant.now(), null);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findAllByUserId(10L)).thenReturn(List.of(wantToWatch, watching));
+		when(repository.findAllByUserIdOrderByAddedAtDescIdDesc(10L)).thenReturn(List.of(wantToWatch, watching));
 
 		assertThat(service.findByFilters(10L, WatchStatus.WATCHING)).containsExactly(watching);
 	}
@@ -297,7 +297,7 @@ class WatchlistEntryServiceTest {
 		WatchlistEntry entry = new WatchlistEntry(1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findById(10L, 1L)).thenReturn(Optional.of(entry));
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(entry));
 
 		assertThat(service.findById(10L, 1L)).isEqualTo(entry);
 	}
@@ -314,7 +314,7 @@ class WatchlistEntryServiceTest {
 		);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findById(10L, 1L)).thenReturn(Optional.empty());
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.findById(10L, 1L))
 			.isInstanceOf(NoSuchElementException.class)

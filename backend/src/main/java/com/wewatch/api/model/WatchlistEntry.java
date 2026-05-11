@@ -2,30 +2,56 @@ package com.wewatch.api.model;
 
 import java.time.Instant;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
 
+@Entity
+@Table(
+	name = "watchlist_entries",
+	uniqueConstraints = {
+		@UniqueConstraint(name = "uq_watchlist_entries_user_title", columnNames = {"user_id", "title_id"})
+	}
+)
 public class WatchlistEntry {
 
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
 	@NotNull
+	@Column(name = "user_id", nullable = false)
 	private Long userId;
 
 	@NotNull
+	@Column(name = "title_id", nullable = false)
 	private Long titleId;
 
 	@NotNull
+	@Enumerated(EnumType.STRING)
+	@Column(name = "status", nullable = false, length = 32)
 	private WatchStatus status;
 
 	@NotNull
+	@Column(name = "added_at", nullable = false)
 	private Instant addedAt;
 
 	@NotNull
+	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;
 
+	@Column(name = "started_at")
 	private Instant startedAt;
 
+	@Column(name = "completed_at")
 	private Instant completedAt;
 
 	public WatchlistEntry() {
