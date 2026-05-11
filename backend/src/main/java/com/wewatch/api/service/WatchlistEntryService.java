@@ -8,7 +8,6 @@ import java.util.Set;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
-import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
@@ -17,7 +16,6 @@ import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.WatchlistEntryRepository;
 
 @Service
-@Profile("local")
 public class WatchlistEntryService {
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
@@ -71,18 +69,18 @@ public class WatchlistEntryService {
 				);
 			});
 
-		return watchlistEntryRepository.create(watchlistEntry);
+		return watchlistEntryRepository.save(watchlistEntry);
 	}
 
 	public WatchlistEntry findById(Long userId, Long id) {
 		userService.findById(userId);
-		return watchlistEntryRepository.findById(userId, id)
+		return watchlistEntryRepository.findByIdAndUserId(id, userId)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 	}
 
 	public List<WatchlistEntry> findByFilters(Long userId, WatchStatus status) {
 		userService.findById(userId);
-		List<WatchlistEntry> entries = watchlistEntryRepository.findAllByUserId(userId);
+		List<WatchlistEntry> entries = watchlistEntryRepository.findAllByUserIdOrderByAddedAtDescIdDesc(userId);
 		if (status == null) {
 			return entries;
 		}
@@ -92,7 +90,7 @@ public class WatchlistEntryService {
 	}
 
 	public WatchlistEntry update(Long userId, Long id, WatchlistEntry watchlistEntry) {
-		WatchlistEntry existingEntry = watchlistEntryRepository.findById(userId, id)
+		WatchlistEntry existingEntry = watchlistEntryRepository.findByIdAndUserId(id, userId)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 
 		watchlistEntry.setId(existingEntry.getId());
@@ -103,11 +101,11 @@ public class WatchlistEntryService {
 		watchlistEntry.setUpdatedAt(Instant.now());
 
 		validate(watchlistEntry);
-		return watchlistEntryRepository.update(watchlistEntry);
+		return watchlistEntryRepository.save(watchlistEntry);
 	}
 
 	public void deleteById(Long userId, Long id) {
-		watchlistEntryRepository.deleteById(userId, id);
+		watchlistEntryRepository.deleteByIdAndUserId(id, userId);
 	}
 
 	private void validate(WatchlistEntry watchlistEntry) {

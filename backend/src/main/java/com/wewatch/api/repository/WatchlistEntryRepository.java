@@ -3,19 +3,17 @@ package com.wewatch.api.repository;
 import java.util.List;
 import java.util.Optional;
 
+import org.springframework.data.jpa.repository.JpaRepository;
+
 import com.wewatch.api.model.WatchlistEntry;
 
-public interface WatchlistEntryRepository {
+public interface WatchlistEntryRepository extends JpaRepository<WatchlistEntry, Long> {
 
-	WatchlistEntry create(WatchlistEntry watchlistEntry);
-
-	Optional<WatchlistEntry> findById(Long userId, Long id);
+	Optional<WatchlistEntry> findByIdAndUserId(Long id, Long userId);
 
 	Optional<WatchlistEntry> findByUserIdAndTitleId(Long userId, Long titleId);
 
-	List<WatchlistEntry> findAllByUserId(Long userId);
+	List<WatchlistEntry> findAllByUserIdOrderByAddedAtDescIdDesc(Long userId);
 
-	WatchlistEntry update(WatchlistEntry watchlistEntry);
-
-	void deleteById(Long userId, Long id);
+	void deleteByIdAndUserId(Long id, Long userId);
 }

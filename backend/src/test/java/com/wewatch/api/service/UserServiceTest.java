@@ -47,13 +47,13 @@ class UserServiceTest {
 		User user = new User(null, "user@example.com", "Scott", null, null);
 
 		when(repository.findByEmail("user@example.com")).thenReturn(Optional.empty());
-		when(repository.create(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		User created = service.create(user);
 
 		assertThat(created.getCreatedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
-		verify(repository).create(user);
+		verify(repository).save(user);
 	}
 
 	@Test
@@ -96,7 +96,7 @@ class UserServiceTest {
 		User existing = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.update(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		User updated = service.update(1L, null, "Scott Stultz");
 
@@ -104,7 +104,7 @@ class UserServiceTest {
 		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
 		assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
 		assertThat(updated.getUpdatedAt()).isAfter(createdAt);
-		verify(repository).update(existing);
+		verify(repository).save(existing);
 	}
 
 	@Test
@@ -152,13 +152,13 @@ class UserServiceTest {
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
 		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(existing));
-		when(repository.update(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		User updated = service.update(1L, "user@example.com", "Scott Stultz");
 
 		assertThat(updated.getEmail()).isEqualTo("user@example.com");
 		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
-		verify(repository).update(existing);
+		verify(repository).save(existing);
 	}
 
 	@Test
