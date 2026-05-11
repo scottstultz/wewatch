@@ -5,7 +5,9 @@ import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.WatchlistEntryCreateRequest;
 import com.wewatch.api.dto.WatchlistEntryResponse;
+import com.wewatch.api.dto.WatchlistEntryUpdateRequest;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.service.WatchlistEntryService;
@@ -63,6 +66,31 @@ public class WatchlistEntryController {
 	@GetMapping("/{entryId}")
 	public WatchlistEntryResponse getWatchlistEntry(@PathVariable Long userId, @PathVariable Long entryId) {
 		return toResponse(watchlistEntryService.findById(userId, entryId));
+	}
+
+	@PatchMapping("/{entryId}")
+	public WatchlistEntryResponse updateWatchlistEntry(
+		@PathVariable Long userId,
+		@PathVariable Long entryId,
+		@Valid @RequestBody WatchlistEntryUpdateRequest request
+	) {
+		WatchlistEntry updated = watchlistEntryService.update(userId, entryId, new WatchlistEntry(
+			null,
+			userId,
+			null,
+			request.status(),
+			null,
+			null,
+			null,
+			null
+		));
+		return toResponse(updated);
+	}
+
+	@DeleteMapping("/{entryId}")
+	public ResponseEntity<Void> deleteWatchlistEntry(@PathVariable Long userId, @PathVariable Long entryId) {
+		watchlistEntryService.deleteById(userId, entryId);
+		return ResponseEntity.noContent().build();
 	}
 
 	private WatchlistEntryResponse toResponse(WatchlistEntry watchlistEntry) {
