@@ -43,6 +43,11 @@ public class ApiExceptionHandler {
 		return buildErrorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request.getRequestURI());
 	}
 
+	@ExceptionHandler(TmdbApiException.class)
+	public ResponseEntity<ApiErrorResponse> handleTmdbApiException(TmdbApiException exception, HttpServletRequest request) {
+		return buildErrorResponse(HttpStatus.BAD_GATEWAY, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(DuplicateWatchlistEntryException.class)
 	public ResponseEntity<ApiErrorResponse> handleDuplicateWatchlistEntry(
 		DuplicateWatchlistEntryException exception,
