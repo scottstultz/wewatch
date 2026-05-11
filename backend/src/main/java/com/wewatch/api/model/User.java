@@ -46,6 +46,12 @@ public class User {
 	@Column(name = "updated_at", nullable = false)
 	private Instant updatedAt;
 
+	@Column(name = "provider", length = 50)
+	private String provider;
+
+	@Column(name = "provider_id", length = 255)
+	private String providerId;
+
 	public User() {
 	}
 
@@ -55,6 +61,16 @@ public class User {
 		this.displayName = displayName;
 		this.createdAt = createdAt;
 		this.updatedAt = updatedAt;
+	}
+
+	public User(Long id, String email, String displayName, Instant createdAt, Instant updatedAt, String provider, String providerId) {
+		this.id = id;
+		this.email = email;
+		this.displayName = displayName;
+		this.createdAt = createdAt;
+		this.updatedAt = updatedAt;
+		this.provider = provider;
+		this.providerId = providerId;
 	}
 
 	public Long getId() {
@@ -95,5 +111,21 @@ public class User {
 
 	public void setUpdatedAt(Instant updatedAt) {
 		this.updatedAt = updatedAt;
+	}
+
+	public String getProvider() {
+		return provider;
+	}
+
+	public void setProvider(String provider) {
+		this.provider = provider;
+	}
+
+	public String getProviderId() {
+		return providerId;
+	}
+
+	public void setProviderId(String providerId) {
+		this.providerId = providerId;
 	}
 }

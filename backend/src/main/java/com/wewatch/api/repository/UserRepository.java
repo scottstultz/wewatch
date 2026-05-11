@@ -13,6 +13,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
 	Optional<User> findByEmail(String email);
 
+	Optional<User> findByProviderAndProviderId(String provider, String providerId);
+
 	@Query("SELECT u FROM User u WHERE (:email IS NULL OR u.email = :email) AND (:displayName IS NULL OR u.displayName = :displayName) ORDER BY u.id")
 	List<User> findByFilters(@Param("email") String email, @Param("displayName") String displayName);
 }

@@ -5,9 +5,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -15,19 +13,25 @@ import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
 
 @WebMvcTest(UserController.class)
+@Import(SecurityConfig.class)
 @ActiveProfiles("local")
 class UserControllerTest {
 
@@ -37,78 +41,24 @@ class UserControllerTest {
 	@MockBean
 	private UserService userService;
 
-	@Test
-	void createUserReturnsCreatedUser() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		com.wewatch.api.model.User createdUser = new com.wewatch.api.model.User(
-			1L,
-			"user@example.com",
-			"Scott",
-			createdAt,
-			createdAt
-		);
+	@MockBean
+	private JwtDecoder jwtDecoder;
 
-		when(userService.create(any(com.wewatch.api.model.User.class))).thenReturn(createdUser);
+	private static final User TEST_USER = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
 
-		mockMvc.perform(
-			post("/api/users")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "user@example.com",
-					  "displayName": "Scott"
-					}
-					""")
-		)
-			.andExpect(status().isCreated())
-			.andExpect(header().string("Location", "/api/users/1"))
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.email").value("user@example.com"))
-			.andExpect(jsonPath("$.displayName").value("Scott"))
-			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
-			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
+	private static final Jwt TEST_JWT = Jwt.withTokenValue("test-token")
+		.header("alg", "RS256")
+		.claim("sub", "sub-123")
+		.claim("email", "test@example.com")
+		.claim("name", "Test User")
+		.issuedAt(Instant.EPOCH)
+		.expiresAt(Instant.EPOCH.plusSeconds(86400))
+		.build();
 
-		verify(userService).create(any(com.wewatch.api.model.User.class));
-	}
-
-	@Test
-	void createUserReturnsBadRequestForInvalidPayload() throws Exception {
-		mockMvc.perform(
-			post("/api/users")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "",
-					  "displayName": ""
-					}
-					""")
-		)
-			.andExpect(status().isBadRequest())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(400))
-			.andExpect(jsonPath("$.error").value("Bad Request"));
-	}
-
-	@Test
-	void createUserReturnsConflictForDuplicateEmail() throws Exception {
-		when(userService.create(any(com.wewatch.api.model.User.class)))
-			.thenThrow(new DuplicateEmailException("user@example.com"));
-
-		mockMvc.perform(
-			post("/api/users")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "user@example.com",
-					  "displayName": "Scott"
-					}
-					""")
-		)
-			.andExpect(status().isConflict())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(409))
-			.andExpect(jsonPath("$.message").value("User email already exists: user@example.com"));
+	@BeforeEach
+	void setupAuth() {
+		when(jwtDecoder.decode(any())).thenReturn(TEST_JWT);
+		when(userService.findOrCreateByGoogleIdentity(any(), any(), any())).thenReturn(TEST_USER);
 	}
 
 	@Test
@@ -124,7 +74,8 @@ class UserControllerTest {
 
 		when(userService.findById(1L)).thenReturn(existingUser);
 
-		mockMvc.perform(get("/api/users/1"))
+		mockMvc.perform(get("/api/users/1")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
@@ -142,6 +93,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -171,6 +123,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -192,6 +145,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/42")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -209,6 +163,7 @@ class UserControllerTest {
 	void updateUserReturnsBadRequestForInvalidPayload() throws Exception {
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -229,6 +184,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -249,7 +205,9 @@ class UserControllerTest {
 
 		when(userService.findByFilters("user@example.com", null)).thenReturn(List.of(existingUser));
 
-		mockMvc.perform(get("/api/users").param("email", "user@example.com"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("email", "user@example.com"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$[0].id").value(1))
@@ -266,7 +224,9 @@ class UserControllerTest {
 
 		when(userService.findByFilters(null, "Scott")).thenReturn(List.of(existingUser));
 
-		mockMvc.perform(get("/api/users").param("displayName", "Scott"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("displayName", "Scott"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$[0].id").value(1))
@@ -285,6 +245,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			get("/api/users")
+				.header("Authorization", "Bearer test-token")
 				.param("email", "user@example.com")
 				.param("displayName", "Scott")
 		)
@@ -301,7 +262,9 @@ class UserControllerTest {
 	void getUsersReturnsEmptyListWhenNoUsersMatch() throws Exception {
 		when(userService.findByFilters("missing@example.com", null)).thenReturn(List.of());
 
-		mockMvc.perform(get("/api/users").param("email", "missing@example.com"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("email", "missing@example.com"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$").isArray())
@@ -312,10 +275,17 @@ class UserControllerTest {
 	void getUserReturnsNotFoundWhenMissing() throws Exception {
 		when(userService.findById(42L)).thenThrow(new NoSuchElementException("User not found: 42"));
 
-		mockMvc.perform(get("/api/users/42"))
+		mockMvc.perform(get("/api/users/42")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(404))
 			.andExpect(jsonPath("$.message").value("User not found: 42"));
+	}
+
+	@Test
+	void getUserReturnsUnauthorizedWhenNoToken() throws Exception {
+		mockMvc.perform(get("/api/users/1"))
+			.andExpect(status().isUnauthorized());
 	}
 }

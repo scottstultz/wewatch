@@ -73,6 +73,24 @@ public class UserService {
 		return userRepository.save(existingUser);
 	}
 
+	public User findOrCreateByGoogleIdentity(String providerId, String email, String displayName) {
+		return userRepository.findByProviderAndProviderId("google", providerId)
+			.orElseGet(() -> {
+				Instant now = Instant.now();
+				return userRepository.findByEmail(email)
+					.map(existing -> {
+						existing.setProvider("google");
+						existing.setProviderId(providerId);
+						existing.setUpdatedAt(now);
+						return userRepository.save(existing);
+					})
+					.orElseGet(() -> {
+						String name = (displayName != null && !displayName.isBlank()) ? displayName : email;
+						return userRepository.save(new User(null, email, name, now, now, "google", providerId));
+					});
+			});
+	}
+
 	public List<User> findByFilters(String email, String displayName) {
 		return userRepository.findByFilters(normalize(email), normalize(displayName));
 	}
