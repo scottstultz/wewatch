@@ -15,19 +15,25 @@ import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
 
 @WebMvcTest(UserController.class)
+@Import(SecurityConfig.class)
 @ActiveProfiles("local")
 class UserControllerTest {
 
@@ -36,6 +42,26 @@ class UserControllerTest {
 
 	@MockBean
 	private UserService userService;
+
+	@MockBean
+	private JwtDecoder jwtDecoder;
+
+	private static final User TEST_USER = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
+
+	private static final Jwt TEST_JWT = Jwt.withTokenValue("test-token")
+		.header("alg", "RS256")
+		.claim("sub", "sub-123")
+		.claim("email", "test@example.com")
+		.claim("name", "Test User")
+		.issuedAt(Instant.EPOCH)
+		.expiresAt(Instant.EPOCH.plusSeconds(86400))
+		.build();
+
+	@BeforeEach
+	void setupAuth() {
+		when(jwtDecoder.decode(any())).thenReturn(TEST_JWT);
+		when(userService.findOrCreateByGoogleIdentity(any(), any(), any())).thenReturn(TEST_USER);
+	}
 
 	@Test
 	void createUserReturnsCreatedUser() throws Exception {
@@ -52,6 +78,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			post("/api/users")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -76,6 +103,7 @@ class UserControllerTest {
 	void createUserReturnsBadRequestForInvalidPayload() throws Exception {
 		mockMvc.perform(
 			post("/api/users")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -97,6 +125,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			post("/api/users")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -124,7 +153,8 @@ class UserControllerTest {
 
 		when(userService.findById(1L)).thenReturn(existingUser);
 
-		mockMvc.perform(get("/api/users/1"))
+		mockMvc.perform(get("/api/users/1")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
@@ -142,6 +172,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -171,6 +202,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -192,6 +224,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/42")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -209,6 +242,7 @@ class UserControllerTest {
 	void updateUserReturnsBadRequestForInvalidPayload() throws Exception {
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -229,6 +263,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -249,7 +284,9 @@ class UserControllerTest {
 
 		when(userService.findByFilters("user@example.com", null)).thenReturn(List.of(existingUser));
 
-		mockMvc.perform(get("/api/users").param("email", "user@example.com"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("email", "user@example.com"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$[0].id").value(1))
@@ -266,7 +303,9 @@ class UserControllerTest {
 
 		when(userService.findByFilters(null, "Scott")).thenReturn(List.of(existingUser));
 
-		mockMvc.perform(get("/api/users").param("displayName", "Scott"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("displayName", "Scott"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$[0].id").value(1))
@@ -285,6 +324,7 @@ class UserControllerTest {
 
 		mockMvc.perform(
 			get("/api/users")
+				.header("Authorization", "Bearer test-token")
 				.param("email", "user@example.com")
 				.param("displayName", "Scott")
 		)
@@ -301,7 +341,9 @@ class UserControllerTest {
 	void getUsersReturnsEmptyListWhenNoUsersMatch() throws Exception {
 		when(userService.findByFilters("missing@example.com", null)).thenReturn(List.of());
 
-		mockMvc.perform(get("/api/users").param("email", "missing@example.com"))
+		mockMvc.perform(get("/api/users")
+			.header("Authorization", "Bearer test-token")
+			.param("email", "missing@example.com"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$").isArray())
@@ -312,10 +354,17 @@ class UserControllerTest {
 	void getUserReturnsNotFoundWhenMissing() throws Exception {
 		when(userService.findById(42L)).thenThrow(new NoSuchElementException("User not found: 42"));
 
-		mockMvc.perform(get("/api/users/42"))
+		mockMvc.perform(get("/api/users/42")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(404))
 			.andExpect(jsonPath("$.message").value("User not found: 42"));
+	}
+
+	@Test
+	void getUserReturnsUnauthorizedWhenNoToken() throws Exception {
+		mockMvc.perform(get("/api/users/1"))
+			.andExpect(status().isUnauthorized());
 	}
 }

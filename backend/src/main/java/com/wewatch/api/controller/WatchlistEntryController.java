@@ -5,6 +5,7 @@ import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wewatch.api.dto.WatchlistEntryCreateRequest;
 import com.wewatch.api.dto.WatchlistEntryResponse;
 import com.wewatch.api.dto.WatchlistEntryUpdateRequest;
+import com.wewatch.api.exception.ForbiddenException;
+import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.service.WatchlistEntryService;
@@ -35,8 +38,10 @@ public class WatchlistEntryController {
 	@PostMapping
 	public ResponseEntity<WatchlistEntryResponse> createWatchlistEntry(
 		@PathVariable Long userId,
+		@AuthenticationPrincipal User authenticatedUser,
 		@Valid @RequestBody WatchlistEntryCreateRequest request
 	) {
+		requireOwner(userId, authenticatedUser);
 		WatchlistEntry createdEntry = watchlistEntryService.create(new WatchlistEntry(
 			null,
 			userId,
@@ -56,24 +61,33 @@ public class WatchlistEntryController {
 	@GetMapping
 	public List<WatchlistEntryResponse> getWatchlistEntries(
 		@PathVariable Long userId,
+		@AuthenticationPrincipal User authenticatedUser,
 		@RequestParam(required = false) WatchStatus status
 	) {
+		requireOwner(userId, authenticatedUser);
 		return watchlistEntryService.findByFilters(userId, status).stream()
 			.map(this::toResponse)
 			.toList();
 	}
 
 	@GetMapping("/{entryId}")
-	public WatchlistEntryResponse getWatchlistEntry(@PathVariable Long userId, @PathVariable Long entryId) {
+	public WatchlistEntryResponse getWatchlistEntry(
+		@PathVariable Long userId,
+		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long entryId
+	) {
+		requireOwner(userId, authenticatedUser);
 		return toResponse(watchlistEntryService.findById(userId, entryId));
 	}
 
 	@PatchMapping("/{entryId}")
 	public WatchlistEntryResponse updateWatchlistEntry(
 		@PathVariable Long userId,
+		@AuthenticationPrincipal User authenticatedUser,
 		@PathVariable Long entryId,
 		@Valid @RequestBody WatchlistEntryUpdateRequest request
 	) {
+		requireOwner(userId, authenticatedUser);
 		WatchlistEntry updated = watchlistEntryService.update(userId, entryId, new WatchlistEntry(
 			null,
 			userId,
@@ -88,9 +102,20 @@ public class WatchlistEntryController {
 	}
 
 	@DeleteMapping("/{entryId}")
-	public ResponseEntity<Void> deleteWatchlistEntry(@PathVariable Long userId, @PathVariable Long entryId) {
+	public ResponseEntity<Void> deleteWatchlistEntry(
+		@PathVariable Long userId,
+		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long entryId
+	) {
+		requireOwner(userId, authenticatedUser);
 		watchlistEntryService.deleteById(userId, entryId);
 		return ResponseEntity.noContent().build();
+	}
+
+	private void requireOwner(Long userId, User authenticatedUser) {
+		if (!authenticatedUser.getId().equals(userId)) {
+			throw new ForbiddenException("Access denied");
+		}
 	}
 
 	private WatchlistEntryResponse toResponse(WatchlistEntry watchlistEntry) {

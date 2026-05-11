@@ -16,20 +16,28 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateTitleException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.User;
+import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.service.UserService;
 
 @WebMvcTest(TitleController.class)
+@Import(SecurityConfig.class)
 @ActiveProfiles("local")
 class TitleControllerTest {
 
@@ -38,6 +46,29 @@ class TitleControllerTest {
 
 	@MockBean
 	private TitleService titleService;
+
+	@MockBean
+	private UserService userService;
+
+	@MockBean
+	private JwtDecoder jwtDecoder;
+
+	private static final User TEST_USER = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
+
+	private static final Jwt TEST_JWT = Jwt.withTokenValue("test-token")
+		.header("alg", "RS256")
+		.claim("sub", "sub-123")
+		.claim("email", "test@example.com")
+		.claim("name", "Test User")
+		.issuedAt(Instant.EPOCH)
+		.expiresAt(Instant.EPOCH.plusSeconds(86400))
+		.build();
+
+	@BeforeEach
+	void setupAuth() {
+		when(jwtDecoder.decode(any())).thenReturn(TEST_JWT);
+		when(userService.findOrCreateByGoogleIdentity(any(), any(), any())).thenReturn(TEST_USER);
+	}
 
 	@Test
 	void createTitleReturnsCreatedTitle() throws Exception {
@@ -59,6 +90,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			post("/api/titles")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -93,6 +125,7 @@ class TitleControllerTest {
 	void createTitleReturnsBadRequestForInvalidPayload() throws Exception {
 		mockMvc.perform(
 			post("/api/titles")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -115,6 +148,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			post("/api/titles")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -149,7 +183,8 @@ class TitleControllerTest {
 
 		when(titleService.findById(1L)).thenReturn(existingTitle);
 
-		mockMvc.perform(get("/api/titles/1"))
+		mockMvc.perform(get("/api/titles/1")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
@@ -188,6 +223,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			patch("/api/titles/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -243,6 +279,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			patch("/api/titles/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -266,6 +303,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			patch("/api/titles/42")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -283,6 +321,7 @@ class TitleControllerTest {
 	void updateTitleReturnsBadRequestForInvalidPayload() throws Exception {
 		mockMvc.perform(
 			patch("/api/titles/1")
+				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
@@ -316,6 +355,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			get("/api/titles")
+				.header("Authorization", "Bearer test-token")
 				.param("externalId", "603")
 				.param("externalSource", "TMDB")
 		)
@@ -348,7 +388,9 @@ class TitleControllerTest {
 
 		when(titleService.findByFilters(null, null, null, "The Matrix")).thenReturn(List.of(existingTitle));
 
-		mockMvc.perform(get("/api/titles").param("name", "The Matrix"))
+		mockMvc.perform(get("/api/titles")
+			.header("Authorization", "Bearer test-token")
+			.param("name", "The Matrix"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$[0].id").value(1))
@@ -377,6 +419,7 @@ class TitleControllerTest {
 
 		mockMvc.perform(
 			get("/api/titles")
+				.header("Authorization", "Bearer test-token")
 				.param("externalId", "603")
 				.param("externalSource", "TMDB")
 				.param("type", "MOVIE")
@@ -395,7 +438,9 @@ class TitleControllerTest {
 	void getTitlesReturnsEmptyListWhenNoTitlesMatch() throws Exception {
 		when(titleService.findByFilters(null, null, null, "Missing Title")).thenReturn(List.of());
 
-		mockMvc.perform(get("/api/titles").param("name", "Missing Title"))
+		mockMvc.perform(get("/api/titles")
+			.header("Authorization", "Bearer test-token")
+			.param("name", "Missing Title"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$").isArray())
@@ -406,10 +451,17 @@ class TitleControllerTest {
 	void getTitleReturnsNotFoundWhenMissing() throws Exception {
 		when(titleService.findById(42L)).thenThrow(new NoSuchElementException("Title not found: 42"));
 
-		mockMvc.perform(get("/api/titles/42"))
+		mockMvc.perform(get("/api/titles/42")
+			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(404))
 			.andExpect(jsonPath("$.message").value("Title not found: 42"));
+	}
+
+	@Test
+	void getTitleReturnsUnauthorizedWhenNoToken() throws Exception {
+		mockMvc.perform(get("/api/titles/1"))
+			.andExpect(status().isUnauthorized());
 	}
 }
