@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     id BIGSERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     display_name VARCHAR(255) NOT NULL,
@@ -9,10 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     CONSTRAINT uq_users_email UNIQUE (email)
 );
 
-ALTER TABLE users ADD COLUMN IF NOT EXISTS provider VARCHAR(50);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS provider_id VARCHAR(255);
-
-CREATE TABLE IF NOT EXISTS titles (
+CREATE TABLE titles (
     id BIGSERIAL PRIMARY KEY,
     external_id VARCHAR(255) NOT NULL,
     external_source VARCHAR(100) NOT NULL,
@@ -26,7 +23,7 @@ CREATE TABLE IF NOT EXISTS titles (
     CONSTRAINT uq_titles_external_source_external_id UNIQUE (external_source, external_id)
 );
 
-CREATE TABLE IF NOT EXISTS watchlist_entries (
+CREATE TABLE watchlist_entries (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL,
     title_id BIGINT NOT NULL,
