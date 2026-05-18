@@ -433,18 +433,18 @@ Example:
 - [x] Add backend health endpoint
 - [x] Create backend package structure
 - [x] Build mobile-first frontend app shell
-- [ ] Create GitHub issue / PR templates
-- [ ] Define external API integration approach
+- [x] Create GitHub issue templates (PR template still pending)
+- [x] Define external API integration approach (TMDB chosen and integrated)
 
 ### MVP Milestones
-- [ ] Search for titles
+- [x] User authentication (Google Sign-In + JWT)
+- [x] Search for titles (TMDB-backed, debounced frontend UI)
 - [ ] View title details
 - [ ] Save titles to a watchlist
 - [ ] Mark titles as watched
 - [ ] View and manage saved titles
 
 ### Future Enhancements
-- [ ] User authentication
 - [ ] Personalized recommendations
 - [ ] Streaming provider integration
 - [ ] Advanced filtering and sorting
