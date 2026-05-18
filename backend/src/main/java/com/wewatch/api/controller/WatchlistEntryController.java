@@ -1,9 +1,11 @@
 package com.wewatch.api.controller;
 
 import java.net.URI;
-import java.util.List;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -59,15 +61,15 @@ public class WatchlistEntryController {
 	}
 
 	@GetMapping
-	public List<WatchlistEntryResponse> getWatchlistEntries(
+	public Page<WatchlistEntryResponse> getWatchlistEntries(
 		@PathVariable Long userId,
 		@AuthenticationPrincipal User authenticatedUser,
-		@RequestParam(required = false) WatchStatus status
+		@RequestParam(required = false) WatchStatus status,
+		@PageableDefault(size = 20) Pageable pageable
 	) {
 		requireOwner(userId, authenticatedUser);
-		return watchlistEntryService.findByFilters(userId, status).stream()
-			.map(this::toResponse)
-			.toList();
+		return watchlistEntryService.findByFilters(userId, status, pageable)
+			.map(this::toResponse);
 	}
 
 	@GetMapping("/{entryId}")

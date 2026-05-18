@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -254,10 +257,10 @@ class TitleServiceTest {
 			Instant.now()
 		);
 
-		when(repository.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).thenReturn(List.of(existing));
+		when(repository.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix", Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(existing)));
 
-		assertThat(service.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).containsExactly(existing);
-		verify(repository).findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix");
+		assertThat(service.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix", Pageable.unpaged()).getContent()).containsExactly(existing);
+		verify(repository).findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix", Pageable.unpaged());
 	}
 
 	@Test
@@ -265,9 +268,9 @@ class TitleServiceTest {
 		TitleRepository repository = Mockito.mock(TitleRepository.class);
 		TitleService service = new TitleService(repository, validator);
 
-		when(repository.findByFilters(null, null, null, null)).thenReturn(List.of());
+		when(repository.findByFilters(null, null, null, null, Pageable.unpaged())).thenReturn(new PageImpl<>(List.of()));
 
-		assertThat(service.findByFilters("", " ", null, "")).isEmpty();
-		verify(repository).findByFilters(null, null, null, null);
+		assertThat(service.findByFilters("", " ", null, "", Pageable.unpaged()).getContent()).isEmpty();
+		verify(repository).findByFilters(null, null, null, null, Pageable.unpaged());
 	}
 }

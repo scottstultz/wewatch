@@ -2,13 +2,14 @@ package com.wewatch.api.service;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateTitleException;
@@ -58,12 +59,13 @@ public class TitleService {
 			));
 	}
 
-	public List<Title> findByFilters(String externalId, String externalSource, TitleType type, String name) {
+	public Page<Title> findByFilters(String externalId, String externalSource, TitleType type, String name, Pageable pageable) {
 		return titleRepository.findByFilters(
 			normalize(externalId),
 			normalize(externalSource),
 			type,
-			normalize(name)
+			normalize(name),
+			pageable
 		);
 	}
 

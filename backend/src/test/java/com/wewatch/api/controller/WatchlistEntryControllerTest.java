@@ -2,6 +2,7 @@ package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,6 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -257,32 +260,32 @@ class WatchlistEntryControllerTest {
 			null
 		);
 
-		when(watchlistEntryService.findByFilters(10L, null)).thenReturn(List.of(entry));
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(entry)));
 
 		mockMvc.perform(get("/api/users/10/watchlist")
 			.with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].userId").value(10))
-			.andExpect(jsonPath("$[0].titleId").value(20))
-			.andExpect(jsonPath("$[0].status").value("WANT_TO_WATCH"))
-			.andExpect(jsonPath("$[0].addedAt").value("2026-04-28T12:00:00Z"))
-			.andExpect(jsonPath("$[0].updatedAt").value("2026-04-28T12:00:00Z"));
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].userId").value(10))
+			.andExpect(jsonPath("$.content[0].titleId").value(20))
+			.andExpect(jsonPath("$.content[0].status").value("WANT_TO_WATCH"))
+			.andExpect(jsonPath("$.content[0].addedAt").value("2026-04-28T12:00:00Z"))
+			.andExpect(jsonPath("$.content[0].updatedAt").value("2026-04-28T12:00:00Z"));
 
-		verify(watchlistEntryService).findByFilters(10L, null);
+		verify(watchlistEntryService).findByFilters(eq(10L), isNull(), any(Pageable.class));
 	}
 
 	@Test
 	void getWatchlistEntriesReturnsEmptyListWhenNoEntriesExist() throws Exception {
-		when(watchlistEntryService.findByFilters(10L, null)).thenReturn(List.of());
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
 		mockMvc.perform(get("/api/users/10/watchlist")
 			.with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$").isArray())
-			.andExpect(jsonPath("$").isEmpty());
+			.andExpect(jsonPath("$.content").isArray())
+			.andExpect(jsonPath("$.content").isEmpty());
 	}
 
 	@Test
@@ -299,23 +302,23 @@ class WatchlistEntryControllerTest {
 			null
 		);
 
-		when(watchlistEntryService.findByFilters(10L, WatchStatus.WATCHING)).thenReturn(List.of(entry));
+		when(watchlistEntryService.findByFilters(eq(10L), eq(WatchStatus.WATCHING), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(entry)));
 
 		mockMvc.perform(get("/api/users/10/watchlist")
 			.with(asUser(TEST_USER))
 			.param("status", "WATCHING"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].status").value("WATCHING"))
-			.andExpect(jsonPath("$[0].startedAt").value("2026-04-28T12:00:00Z"));
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].status").value("WATCHING"))
+			.andExpect(jsonPath("$.content[0].startedAt").value("2026-04-28T12:00:00Z"));
 
-		verify(watchlistEntryService).findByFilters(10L, WatchStatus.WATCHING);
+		verify(watchlistEntryService).findByFilters(eq(10L), eq(WatchStatus.WATCHING), any(Pageable.class));
 	}
 
 	@Test
 	void getWatchlistEntriesReturnsNotFoundWhenUserMissing() throws Exception {
-		when(watchlistEntryService.findByFilters(10L, null))
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenThrow(new NoSuchElementException("User not found: 10"));
 
 		mockMvc.perform(get("/api/users/10/watchlist")

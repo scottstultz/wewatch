@@ -1,6 +1,8 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -22,6 +24,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -357,7 +361,7 @@ class TitleControllerTest {
 			createdAt
 		);
 
-		when(titleService.findByFilters("603", "TMDB", null, null)).thenReturn(List.of(existingTitle));
+		when(titleService.findByFilters(eq("603"), eq("TMDB"), isNull(), isNull(), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(existingTitle)));
 
 		mockMvc.perform(
 			get("/api/titles")
@@ -367,13 +371,13 @@ class TitleControllerTest {
 		)
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].externalId").value("603"))
-			.andExpect(jsonPath("$[0].externalSource").value("TMDB"))
-			.andExpect(jsonPath("$[0].type").value("MOVIE"))
-			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].externalId").value("603"))
+			.andExpect(jsonPath("$.content[0].externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.content[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$.content[0].name").value("The Matrix"));
 
-		verify(titleService).findByFilters("603", "TMDB", null, null);
+		verify(titleService).findByFilters(eq("603"), eq("TMDB"), isNull(), isNull(), any(Pageable.class));
 	}
 
 	@Test
@@ -392,17 +396,17 @@ class TitleControllerTest {
 			createdAt
 		);
 
-		when(titleService.findByFilters(null, null, null, "The Matrix")).thenReturn(List.of(existingTitle));
+		when(titleService.findByFilters(isNull(), isNull(), isNull(), eq("The Matrix"), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(existingTitle)));
 
 		mockMvc.perform(get("/api/titles")
 			.header("Authorization", "Bearer test-token")
 			.param("name", "The Matrix"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].name").value("The Matrix"));
 
-		verify(titleService).findByFilters(null, null, null, "The Matrix");
+		verify(titleService).findByFilters(isNull(), isNull(), isNull(), eq("The Matrix"), any(Pageable.class));
 	}
 
 	@Test
@@ -421,7 +425,7 @@ class TitleControllerTest {
 			createdAt
 		);
 
-		when(titleService.findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix")).thenReturn(List.of(existingTitle));
+		when(titleService.findByFilters(eq("603"), eq("TMDB"), eq(TitleType.MOVIE), eq("The Matrix"), any(Pageable.class))).thenReturn(new PageImpl<>(List.of(existingTitle)));
 
 		mockMvc.perform(
 			get("/api/titles")
@@ -433,24 +437,24 @@ class TitleControllerTest {
 		)
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].type").value("MOVIE"))
-			.andExpect(jsonPath("$[0].name").value("The Matrix"));
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$.content[0].name").value("The Matrix"));
 
-		verify(titleService).findByFilters("603", "TMDB", TitleType.MOVIE, "The Matrix");
+		verify(titleService).findByFilters(eq("603"), eq("TMDB"), eq(TitleType.MOVIE), eq("The Matrix"), any(Pageable.class));
 	}
 
 	@Test
 	void getTitlesReturnsEmptyListWhenNoTitlesMatch() throws Exception {
-		when(titleService.findByFilters(null, null, null, "Missing Title")).thenReturn(List.of());
+		when(titleService.findByFilters(isNull(), isNull(), isNull(), eq("Missing Title"), any(Pageable.class))).thenReturn(new PageImpl<>(List.of()));
 
 		mockMvc.perform(get("/api/titles")
 			.header("Authorization", "Bearer test-token")
 			.param("name", "Missing Title"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$").isArray())
-			.andExpect(jsonPath("$").isEmpty());
+			.andExpect(jsonPath("$.content").isArray())
+			.andExpect(jsonPath("$.content").isEmpty());
 	}
 
 	@Test

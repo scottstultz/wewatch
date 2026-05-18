@@ -1,13 +1,14 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
@@ -78,15 +79,9 @@ public class WatchlistEntryService {
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 	}
 
-	public List<WatchlistEntry> findByFilters(Long userId, WatchStatus status) {
+	public Page<WatchlistEntry> findByFilters(Long userId, WatchStatus status, Pageable pageable) {
 		userService.findById(userId);
-		List<WatchlistEntry> entries = watchlistEntryRepository.findAllByUserIdOrderByAddedAtDescIdDesc(userId);
-		if (status == null) {
-			return entries;
-		}
-		return entries.stream()
-			.filter(entry -> entry.getStatus() == status)
-			.toList();
+		return watchlistEntryRepository.findByUserId(userId, status, pageable);
 	}
 
 	public WatchlistEntry update(Long userId, Long id, WatchlistEntry watchlistEntry) {
