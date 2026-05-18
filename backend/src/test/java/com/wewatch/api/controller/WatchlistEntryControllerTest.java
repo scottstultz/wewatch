@@ -18,8 +18,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -35,10 +37,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
+import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.service.WatchlistEntryService;
 
@@ -54,6 +59,9 @@ class WatchlistEntryControllerTest {
 	private WatchlistEntryService watchlistEntryService;
 
 	@MockBean
+	private TitleService titleService;
+
+	@MockBean
 	private UserService userService;
 
 	@MockBean
@@ -61,6 +69,14 @@ class WatchlistEntryControllerTest {
 
 	private static final User TEST_USER = new User(10L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
 	private static final User OTHER_USER = new User(99L, "other@example.com", "Other User", Instant.EPOCH, Instant.EPOCH, "google", "sub-999");
+
+	private static final Title TEST_TITLE = new Title(20L, "603", "TMDB", TitleType.MOVIE, "The Matrix", null, null, "/poster.jpg", Instant.EPOCH, Instant.EPOCH);
+
+	@BeforeEach
+	void setUpTitleMocks() {
+		when(titleService.findById(20L)).thenReturn(TEST_TITLE);
+		when(titleService.findByIds(any())).thenReturn(Map.of(20L, TEST_TITLE));
+	}
 
 	private static RequestPostProcessor asUser(User user) {
 		return authentication(new UsernamePasswordAuthenticationToken(user, null, List.of()));
@@ -104,6 +120,9 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"))
 			.andExpect(jsonPath("$.externalId").value("603"))
 			.andExpect(jsonPath("$.externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.name").value("The Matrix"))
+			.andExpect(jsonPath("$.type").value("MOVIE"))
+			.andExpect(jsonPath("$.posterUrl").value("/poster.jpg"))
 			.andExpect(jsonPath("$.addedAt").value("2026-04-28T12:00:00Z"))
 			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
 

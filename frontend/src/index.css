@@ -459,3 +459,121 @@ a {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
+
+.title-add-btn {
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(37, 99, 235, 0.6);
+  border-radius: 6px;
+  background: transparent;
+  color: #60a5fa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  justify-self: start;
+}
+
+.title-add-btn:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(37, 99, 235, 0.9);
+}
+
+.title-add-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.title-status-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.title-status-badge-watching {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.title-status-badge-watched {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+}
+
+/* ── Library section tabs ─────────────────────────────────── */
+
+.library-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.library-tab {
+  padding: 7px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.library-tab:hover {
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
+}
+
+.library-tab-active {
+  border-color: rgba(37, 99, 235, 0.7);
+  background: rgba(37, 99, 235, 0.18);
+  color: #93c5fd;
+}
+
+.library-empty {
+  color: #64748b;
+  font-size: 0.9375rem;
+  padding: 8px 0;
+}
+
+.title-action-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.title-action-btn {
+  padding: 5px 9px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.title-action-btn:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.1);
+  color: #e2e8f0;
+}
+
+.title-action-btn-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.title-action-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

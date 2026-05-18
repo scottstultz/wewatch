@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { UnauthorizedError, addToWatchlist, findOrCreateTitle, getWatchlist, searchTitles } from '../services/api'
-import type { TitleSearchResponse } from '../types/api'
+import type { TitleSearchResponse, WatchStatus } from '../types/api'
 
-type CardStatus = 'idle' | 'loading' | 'saved' | 'error'
+type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
@@ -45,7 +45,8 @@ function DiscoverPage() {
           const next = { ...prev }
           data.forEach(title => {
             const k = cardKey(title)
-            if (watchedKeys.has(k)) next[k] = 'saved'
+            const existingStatus = watchedKeys.get(k)
+            if (existingStatus) next[k] = existingStatus
           })
           return next
         })
@@ -71,7 +72,7 @@ function DiscoverPage() {
     try {
       const titleId = await findOrCreateTitle(title, token)
       await addToWatchlist(user.id, titleId, token)
-      setCardStatus(prev => ({ ...prev, [key]: 'saved' }))
+      setCardStatus(prev => ({ ...prev, [key]: 'WANT_TO_WATCH' }))
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         signOut()
@@ -133,8 +134,10 @@ function DiscoverPage() {
                     {title.releaseDate && (
                       <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
                     )}
-                    {status === 'saved' ? (
-                      <span className="title-status-badge">Want to Watch</span>
+                    {(status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED') ? (
+                      <span className={`title-status-badge${status === 'WATCHING' ? ' title-status-badge-watching' : status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
+                        {status === 'WANT_TO_WATCH' ? 'Want to Watch' : status === 'WATCHING' ? 'Watching' : 'Watched'}
+                      </span>
                     ) : (
                       <button
                         className="title-add-btn"

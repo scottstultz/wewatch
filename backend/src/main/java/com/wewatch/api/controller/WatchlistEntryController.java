@@ -1,6 +1,9 @@
 package com.wewatch.api.controller;
 
 import java.net.URI;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -22,9 +25,11 @@ import com.wewatch.api.dto.WatchlistEntryCreateRequest;
 import com.wewatch.api.dto.WatchlistEntryResponse;
 import com.wewatch.api.dto.WatchlistEntryUpdateRequest;
 import com.wewatch.api.exception.ForbiddenException;
+import com.wewatch.api.model.Title;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
+import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.WatchlistEntryService;
 
 @RestController
@@ -32,9 +37,11 @@ import com.wewatch.api.service.WatchlistEntryService;
 public class WatchlistEntryController {
 
 	private final WatchlistEntryService watchlistEntryService;
+	private final TitleService titleService;
 
-	public WatchlistEntryController(WatchlistEntryService watchlistEntryService) {
+	public WatchlistEntryController(WatchlistEntryService watchlistEntryService, TitleService titleService) {
 		this.watchlistEntryService = watchlistEntryService;
+		this.titleService = titleService;
 	}
 
 	@PostMapping
@@ -54,10 +61,11 @@ public class WatchlistEntryController {
 			null,
 			null
 		));
+		Title createdTitle = titleService.findById(createdEntry.getTitleId());
 
 		return ResponseEntity
 			.created(URI.create("/api/users/" + userId + "/watchlist/" + createdEntry.getId()))
-			.body(toResponse(createdEntry));
+			.body(toResponse(createdEntry, createdTitle));
 	}
 
 	@GetMapping
@@ -68,8 +76,10 @@ public class WatchlistEntryController {
 		@PageableDefault(size = 20) Pageable pageable
 	) {
 		requireOwner(userId, authenticatedUser);
-		return watchlistEntryService.findByFilters(userId, status, pageable)
-			.map(this::toResponse);
+		Page<WatchlistEntry> entries = watchlistEntryService.findByFilters(userId, status, pageable);
+		List<Long> titleIds = entries.stream().map(WatchlistEntry::getTitleId).collect(Collectors.toList());
+		Map<Long, Title> titlesById = titleService.findByIds(titleIds);
+		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId())));
 	}
 
 	@GetMapping("/{entryId}")
@@ -79,7 +89,8 @@ public class WatchlistEntryController {
 		@PathVariable Long entryId
 	) {
 		requireOwner(userId, authenticatedUser);
-		return toResponse(watchlistEntryService.findById(userId, entryId));
+		WatchlistEntry entry = watchlistEntryService.findById(userId, entryId);
+		return toResponse(entry, titleService.findById(entry.getTitleId()));
 	}
 
 	@PatchMapping("/{entryId}")
@@ -100,7 +111,7 @@ public class WatchlistEntryController {
 			null,
 			null
 		));
-		return toResponse(updated);
+		return toResponse(updated, titleService.findById(updated.getTitleId()));
 	}
 
 	@DeleteMapping("/{entryId}")
@@ -120,18 +131,21 @@ public class WatchlistEntryController {
 		}
 	}
 
-	private WatchlistEntryResponse toResponse(WatchlistEntry watchlistEntry) {
+	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title) {
 		return new WatchlistEntryResponse(
-			watchlistEntry.getId(),
-			watchlistEntry.getUserId(),
-			watchlistEntry.getTitleId(),
-			watchlistEntry.getExternalId(),
-			watchlistEntry.getExternalSource(),
-			watchlistEntry.getStatus(),
-			watchlistEntry.getAddedAt(),
-			watchlistEntry.getUpdatedAt(),
-			watchlistEntry.getStartedAt(),
-			watchlistEntry.getCompletedAt()
+			entry.getId(),
+			entry.getUserId(),
+			entry.getTitleId(),
+			entry.getExternalId(),
+			entry.getExternalSource(),
+			title != null ? title.getName() : null,
+			title != null ? title.getType() : null,
+			title != null ? title.getPosterUrl() : null,
+			entry.getStatus(),
+			entry.getAddedAt(),
+			entry.getUpdatedAt(),
+			entry.getStartedAt(),
+			entry.getCompletedAt()
 		);
 	}
 }
