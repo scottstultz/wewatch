@@ -79,6 +79,8 @@ class WatchlistEntryControllerTest {
 			null,
 			null
 		);
+		createdEntry.setExternalId("603");
+		createdEntry.setExternalSource("TMDB");
 
 		when(watchlistEntryService.create(any(WatchlistEntry.class))).thenReturn(createdEntry);
 
@@ -100,6 +102,8 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.userId").value(10))
 			.andExpect(jsonPath("$.titleId").value(20))
 			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"))
+			.andExpect(jsonPath("$.externalId").value("603"))
+			.andExpect(jsonPath("$.externalSource").value("TMDB"))
 			.andExpect(jsonPath("$.addedAt").value("2026-04-28T12:00:00Z"))
 			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
 

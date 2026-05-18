@@ -8,6 +8,8 @@ public record WatchlistEntryResponse(
 	Long id,
 	Long userId,
 	Long titleId,
+	String externalId,
+	String externalSource,
 	WatchStatus status,
 	Instant addedAt,
 	Instant updatedAt,

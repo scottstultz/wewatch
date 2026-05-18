@@ -62,6 +62,23 @@ class UserControllerTest {
 	}
 
 	@Test
+	void getMeReturnsAuthenticatedUser() throws Exception {
+		mockMvc.perform(get("/api/users/me")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.email").value("test@example.com"))
+			.andExpect(jsonPath("$.displayName").value("Test User"));
+	}
+
+	@Test
+	void getMeReturnsUnauthorizedWhenNoToken() throws Exception {
+		mockMvc.perform(get("/api/users/me"))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
 	void getUserReturnsPersistedUser() throws Exception {
 		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
 		com.wewatch.api.model.User existingUser = new com.wewatch.api.model.User(

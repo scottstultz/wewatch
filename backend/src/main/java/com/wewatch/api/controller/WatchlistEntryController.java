@@ -125,6 +125,8 @@ public class WatchlistEntryController {
 			watchlistEntry.getId(),
 			watchlistEntry.getUserId(),
 			watchlistEntry.getTitleId(),
+			watchlistEntry.getExternalId(),
+			watchlistEntry.getExternalSource(),
 			watchlistEntry.getStatus(),
 			watchlistEntry.getAddedAt(),
 			watchlistEntry.getUpdatedAt(),

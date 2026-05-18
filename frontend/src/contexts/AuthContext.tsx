@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { clearToken, decodeToken, getStoredToken, isTokenValid, storeToken } from '../services/auth'
+import { getCurrentUser } from '../services/api'
 
 interface User {
+  id: number
   name: string
   email: string
 }
@@ -25,7 +27,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (stored && isTokenValid(stored)) {
       const payload = decodeToken(stored)!
       setToken(stored)
-      setUser({ name: payload.name, email: payload.email })
+      getCurrentUser(stored)
+        .then(backendUser => setUser({ id: backendUser.id, name: payload.name, email: payload.email }))
+        .catch(() => setUser({ id: 0, name: payload.name, email: payload.email }))
     }
   }, [])
 
@@ -34,7 +38,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!payload) return
     storeToken(credential)
     setToken(credential)
-    setUser({ name: payload.name, email: payload.email })
+    getCurrentUser(credential)
+      .then(backendUser => setUser({ id: backendUser.id, name: payload.name, email: payload.email }))
+      .catch(() => setUser({ id: 0, name: payload.name, email: payload.email }))
   }
 
   function signOut() {

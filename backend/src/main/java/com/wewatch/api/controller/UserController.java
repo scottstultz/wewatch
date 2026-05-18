@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+
 import com.wewatch.api.dto.UserResponse;
 import com.wewatch.api.dto.UserUpdateRequest;
 import com.wewatch.api.model.User;
@@ -24,6 +26,11 @@ public class UserController {
 
 	public UserController(UserService userService) {
 		this.userService = userService;
+	}
+
+	@GetMapping("/me")
+	public UserResponse getCurrentUser(@AuthenticationPrincipal User authenticatedUser) {
+		return toResponse(authenticatedUser);
 	}
 
 	@GetMapping
