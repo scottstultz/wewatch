@@ -28,6 +28,9 @@ export interface WatchlistEntryResponse {
   titleId: number
   externalId: string
   externalSource: string
+  name: string | null
+  type: TitleType | null
+  posterUrl: string | null
   status: WatchStatus
   addedAt: string
   updatedAt: string

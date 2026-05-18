@@ -2,8 +2,11 @@ package com.wewatch.api.service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -50,6 +53,11 @@ public class TitleService {
 	public Title findById(Long id) {
 		return titleRepository.findById(id)
 			.orElseThrow(() -> new NoSuchElementException("Title not found: " + id));
+	}
+
+	public Map<Long, Title> findByIds(Collection<Long> ids) {
+		return titleRepository.findAllById(ids).stream()
+			.collect(Collectors.toMap(Title::getId, t -> t));
 	}
 
 	public Title findByExternalSourceAndExternalId(String externalSource, String externalId) {

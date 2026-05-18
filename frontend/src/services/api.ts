@@ -101,3 +101,32 @@ export async function addToWatchlist(
   if (!response.ok) throw new Error(`Failed to add to watchlist: ${response.status}`)
   return response.json() as Promise<WatchlistEntryResponse>
 }
+
+export async function updateWatchlistEntry(
+  userId: number,
+  entryId: number,
+  status: string,
+  token: string,
+): Promise<WatchlistEntryResponse> {
+  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist/${entryId}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+  if (response.status === 401) throw new UnauthorizedError()
+  if (!response.ok) throw new Error(`Failed to update watchlist entry: ${response.status}`)
+  return response.json() as Promise<WatchlistEntryResponse>
+}
+
+export async function removeFromWatchlist(
+  userId: number,
+  entryId: number,
+  token: string,
+): Promise<void> {
+  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist/${entryId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (response.status === 401) throw new UnauthorizedError()
+  if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
+}

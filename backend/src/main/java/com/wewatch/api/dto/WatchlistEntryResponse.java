@@ -2,6 +2,7 @@ package com.wewatch.api.dto;
 
 import java.time.Instant;
 
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.WatchStatus;
 
 public record WatchlistEntryResponse(
@@ -10,6 +11,9 @@ public record WatchlistEntryResponse(
 	Long titleId,
 	String externalId,
 	String externalSource,
+	String name,
+	TitleType type,
+	String posterUrl,
 	WatchStatus status,
 	Instant addedAt,
 	Instant updatedAt,

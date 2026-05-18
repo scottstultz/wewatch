@@ -99,6 +99,23 @@ public class WatchlistEntryService {
 		if (watchlistEntry.getAddedAt() == null) {
 			watchlistEntry.setAddedAt(existingEntry.getAddedAt());
 		}
+		if (watchlistEntry.getStartedAt() == null) {
+			watchlistEntry.setStartedAt(existingEntry.getStartedAt());
+		}
+		if (watchlistEntry.getCompletedAt() == null) {
+			watchlistEntry.setCompletedAt(existingEntry.getCompletedAt());
+		}
+		if (watchlistEntry.getStatus() == WatchStatus.WATCHING && watchlistEntry.getStartedAt() == null) {
+			watchlistEntry.setStartedAt(Instant.now());
+		}
+		if (watchlistEntry.getStatus() == WatchStatus.WATCHED) {
+			if (watchlistEntry.getStartedAt() == null) {
+				watchlistEntry.setStartedAt(Instant.now());
+			}
+			if (watchlistEntry.getCompletedAt() == null) {
+				watchlistEntry.setCompletedAt(Instant.now());
+			}
+		}
 		watchlistEntry.setUpdatedAt(Instant.now());
 
 		validate(watchlistEntry);
