@@ -4,6 +4,9 @@ import java.net.URI;
 import java.util.List;
 
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -67,15 +70,15 @@ public class TitleController {
 	}
 
 	@GetMapping
-	public List<TitleResponse> getTitles(
+	public Page<TitleResponse> getTitles(
 		@RequestParam(required = false) String externalId,
 		@RequestParam(required = false) String externalSource,
 		@RequestParam(required = false) TitleType type,
-		@RequestParam(required = false) String name
+		@RequestParam(required = false) String name,
+		@PageableDefault(size = 20) Pageable pageable
 	) {
-		return titleService.findByFilters(externalId, externalSource, type, name).stream()
-			.map(this::toResponse)
-			.toList();
+		return titleService.findByFilters(externalId, externalSource, type, name, pageable)
+			.map(this::toResponse);
 	}
 
 	@GetMapping("/{titleId}")

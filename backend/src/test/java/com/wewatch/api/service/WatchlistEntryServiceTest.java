@@ -11,6 +11,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -242,13 +245,13 @@ class WatchlistEntryServiceTest {
 		);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findAllByUserIdOrderByAddedAtDescIdDesc(10L)).thenReturn(entries);
+		when(repository.findByUserId(10L, null, Pageable.unpaged())).thenReturn(new PageImpl<>(entries));
 
-		assertThat(service.findByFilters(10L, null)).containsExactlyElementsOf(entries);
+		assertThat(service.findByFilters(10L, null, Pageable.unpaged()).getContent()).containsExactlyElementsOf(entries);
 	}
 
 	@Test
-	void findByFiltersReturnsOnlyMatchingStatus() {
+	void findByFiltersPassesStatusToRepository() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
 		UserService userService = Mockito.mock(UserService.class);
 		WatchlistEntryService service = new WatchlistEntryService(
@@ -257,13 +260,13 @@ class WatchlistEntryServiceTest {
 			userService,
 			Mockito.mock(TitleService.class)
 		);
-		WatchlistEntry wantToWatch = new WatchlistEntry(1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, Instant.now(), Instant.now(), null, null);
 		WatchlistEntry watching = new WatchlistEntry(2L, 10L, 30L, WatchStatus.WATCHING, Instant.now(), Instant.now(), Instant.now(), null);
 
 		when(userService.findById(10L)).thenReturn(new User(10L, "user@example.com", "Scott", Instant.now(), Instant.now()));
-		when(repository.findAllByUserIdOrderByAddedAtDescIdDesc(10L)).thenReturn(List.of(wantToWatch, watching));
+		when(repository.findByUserId(10L, WatchStatus.WATCHING, Pageable.unpaged())).thenReturn(new PageImpl<>(List.of(watching)));
 
-		assertThat(service.findByFilters(10L, WatchStatus.WATCHING)).containsExactly(watching);
+		assertThat(service.findByFilters(10L, WatchStatus.WATCHING, Pageable.unpaged()).getContent()).containsExactly(watching);
+		verify(repository).findByUserId(10L, WatchStatus.WATCHING, Pageable.unpaged());
 	}
 
 	@Test
@@ -279,7 +282,7 @@ class WatchlistEntryServiceTest {
 
 		when(userService.findById(10L)).thenThrow(new NoSuchElementException("User not found: 10"));
 
-		assertThatThrownBy(() -> service.findByFilters(10L, null))
+		assertThatThrownBy(() -> service.findByFilters(10L, null, Pageable.unpaged()))
 			.isInstanceOf(NoSuchElementException.class)
 			.hasMessage("User not found: 10");
 	}
