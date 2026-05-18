@@ -35,6 +35,12 @@ public class WatchlistEntry {
 	@Column(name = "title_id", nullable = false)
 	private Long titleId;
 
+	@Column(name = "external_id", nullable = false, length = 255)
+	private String externalId;
+
+	@Column(name = "external_source", nullable = false, length = 100)
+	private String externalSource;
+
 	@NotNull
 	@Enumerated(EnumType.STRING)
 	@Column(name = "status", nullable = false, length = 32)
@@ -99,6 +105,22 @@ public class WatchlistEntry {
 
 	public void setTitleId(Long titleId) {
 		this.titleId = titleId;
+	}
+
+	public String getExternalId() {
+		return externalId;
+	}
+
+	public void setExternalId(String externalId) {
+		this.externalId = externalId;
+	}
+
+	public String getExternalSource() {
+		return externalSource;
+	}
+
+	public void setExternalSource(String externalSource) {
+		this.externalSource = externalSource;
 	}
 
 	public WatchStatus getStatus() {

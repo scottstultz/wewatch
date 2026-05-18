@@ -12,6 +12,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
+import com.wewatch.api.model.Title;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.WatchlistEntryRepository;
@@ -61,7 +62,9 @@ public class WatchlistEntryService {
 
 		validate(watchlistEntry);
 		userService.findById(watchlistEntry.getUserId());
-		titleService.findById(watchlistEntry.getTitleId());
+		Title title = titleService.findById(watchlistEntry.getTitleId());
+		watchlistEntry.setExternalId(title.getExternalId());
+		watchlistEntry.setExternalSource(title.getExternalSource());
 		watchlistEntryRepository.findByUserIdAndTitleId(watchlistEntry.getUserId(), watchlistEntry.getTitleId())
 			.ifPresent(existingEntry -> {
 				throw new DuplicateWatchlistEntryException(
@@ -90,6 +93,9 @@ public class WatchlistEntryService {
 
 		watchlistEntry.setId(existingEntry.getId());
 		watchlistEntry.setUserId(existingEntry.getUserId());
+		watchlistEntry.setTitleId(existingEntry.getTitleId());
+		watchlistEntry.setExternalId(existingEntry.getExternalId());
+		watchlistEntry.setExternalSource(existingEntry.getExternalSource());
 		if (watchlistEntry.getAddedAt() == null) {
 			watchlistEntry.setAddedAt(existingEntry.getAddedAt());
 		}

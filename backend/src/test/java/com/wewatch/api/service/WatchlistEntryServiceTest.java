@@ -64,6 +64,8 @@ class WatchlistEntryServiceTest {
 
 		assertThat(created.getAddedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
+		assertThat(created.getExternalId()).isEqualTo("603");
+		assertThat(created.getExternalSource()).isEqualTo("TMDB");
 		verify(repository).save(entry);
 	}
 
@@ -224,7 +226,7 @@ class WatchlistEntryServiceTest {
 
 		assertThat(result.getId()).isEqualTo(1L);
 		assertThat(result.getUserId()).isEqualTo(10L);
-		assertThat(result.getTitleId()).isEqualTo(30L);
+		assertThat(result.getTitleId()).isEqualTo(20L);
 		assertThat(result.getAddedAt()).isEqualTo(originalDateAdded);
 		assertThat(result.getUpdatedAt()).isNotNull();
 		verify(repository).save(updatedEntry);
