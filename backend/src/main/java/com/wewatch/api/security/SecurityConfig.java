@@ -14,7 +14,9 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import com.wewatch.api.filter.RequestCorrelationFilter;
 import com.wewatch.api.service.UserService;
 
 @Configuration
@@ -22,9 +24,11 @@ import com.wewatch.api.service.UserService;
 public class SecurityConfig {
 
 	@Bean
-	public SecurityFilterChain filterChain(HttpSecurity http, GoogleJwtAuthenticationConverter converter) throws Exception {
+	public SecurityFilterChain filterChain(HttpSecurity http, GoogleJwtAuthenticationConverter converter,
+			RequestCorrelationFilter requestCorrelationFilter) throws Exception {
 		http
 			.csrf(AbstractHttpConfigurer::disable)
+			.addFilterBefore(requestCorrelationFilter, UsernamePasswordAuthenticationFilter.class)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers("/api/health").permitAll()
