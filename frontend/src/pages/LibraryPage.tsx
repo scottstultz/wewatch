@@ -17,18 +17,13 @@ const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'WATCHED', label: 'Watched' },
 ]
 
-const NEXT_STATUS: Partial<Record<WatchStatus, WatchStatus>> = {
-  WANT_TO_WATCH: 'WATCHING',
-  WATCHING: 'WATCHED',
+function statusSelectClass(status: WatchStatus) {
+  if (status === 'WATCHING') return 'title-status-select title-status-select-watching'
+  if (status === 'WATCHED') return 'title-status-select title-status-select-watched'
+  return 'title-status-select title-status-select-want'
 }
 
 type EntryAction = 'updating' | 'removing'
-
-function badgeClass(status: WatchStatus) {
-  if (status === 'WATCHING') return 'title-status-badge title-status-badge-watching'
-  if (status === 'WATCHED') return 'title-status-badge title-status-badge-watched'
-  return 'title-status-badge'
-}
 
 function LibraryPage() {
   const { token, user, signOut } = useAuth()
@@ -65,12 +60,16 @@ function LibraryPage() {
 
   async function handleUpdateStatus(entry: WatchlistEntryResponse, newStatus: WatchStatus) {
     if (!token || !user?.id) return
+    const previousStatus = entry.status
+    setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, status: newStatus } : e))
     setEntryActions(prev => ({ ...prev, [entry.id]: 'updating' }))
     try {
       const updated = await updateWatchlistEntry(user.id, entry.id, newStatus, token)
       setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
     } catch (e) {
+      setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, status: previousStatus } : e))
       if (e instanceof UnauthorizedError) handleUnauthorized()
+      else setError('Failed to update status. Please try again.')
     } finally {
       setEntryActions(prev => { const next = { ...prev }; delete next[entry.id]; return next })
     }
@@ -126,7 +125,6 @@ function LibraryPage() {
           <div className="title-grid">
             {visible.map(entry => {
               const action = entryActions[entry.id]
-              const nextStatus = NEXT_STATUS[entry.status]
               return (
                 <article key={entry.id} className="title-card">
                   {entry.posterUrl ? (
@@ -144,19 +142,17 @@ function LibraryPage() {
                       {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
                     </span>
                     <p className="title-name">{entry.name}</p>
-                    <span className={badgeClass(entry.status)}>
-                      {STATUS_LABELS[entry.status]}
-                    </span>
+                    <select
+                      className={statusSelectClass(entry.status)}
+                      value={entry.status}
+                      disabled={!!action}
+                      onChange={(e) => handleUpdateStatus(entry, e.target.value as WatchStatus)}
+                    >
+                      <option value="WANT_TO_WATCH">Want to Watch</option>
+                      <option value="WATCHING">Watching</option>
+                      <option value="WATCHED">Watched</option>
+                    </select>
                     <div className="title-action-row">
-                      {nextStatus && (
-                        <button
-                          className="title-action-btn"
-                          disabled={!!action}
-                          onClick={() => handleUpdateStatus(entry, nextStatus)}
-                        >
-                          {action === 'updating' ? '…' : `Mark ${STATUS_LABELS[nextStatus]}`}
-                        </button>
-                      )}
                       <button
                         className="title-action-btn title-action-btn-danger"
                         disabled={!!action}

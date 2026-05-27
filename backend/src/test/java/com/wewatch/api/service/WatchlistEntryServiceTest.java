@@ -233,6 +233,80 @@ class WatchlistEntryServiceTest {
 	}
 
 	@Test
+	void updateWatchedToWatchingClearsCompletedAt() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository, validator, Mockito.mock(UserService.class), Mockito.mock(TitleService.class)
+		);
+		Instant started = Instant.parse("2026-04-28T12:00:00Z");
+		Instant completed = Instant.parse("2026-04-28T14:00:00Z");
+		WatchlistEntry existingEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WATCHED,
+			Instant.parse("2026-04-01T00:00:00Z"), Instant.parse("2026-04-28T14:00:00Z"),
+			started, completed
+		);
+		WatchlistEntry update = new WatchlistEntry(null, null, null, WatchStatus.WATCHING, null, null, null, null);
+
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(existingEntry));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry result = service.update(10L, 1L, update);
+
+		assertThat(result.getStatus()).isEqualTo(WatchStatus.WATCHING);
+		assertThat(result.getStartedAt()).isEqualTo(started);
+		assertThat(result.getCompletedAt()).isNull();
+	}
+
+	@Test
+	void updateWatchingToWantToWatchClearsStartedAt() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository, validator, Mockito.mock(UserService.class), Mockito.mock(TitleService.class)
+		);
+		Instant started = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry existingEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WATCHING,
+			Instant.parse("2026-04-01T00:00:00Z"), Instant.parse("2026-04-28T12:00:00Z"),
+			started, null
+		);
+		WatchlistEntry update = new WatchlistEntry(null, null, null, WatchStatus.WANT_TO_WATCH, null, null, null, null);
+
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(existingEntry));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry result = service.update(10L, 1L, update);
+
+		assertThat(result.getStatus()).isEqualTo(WatchStatus.WANT_TO_WATCH);
+		assertThat(result.getStartedAt()).isNull();
+		assertThat(result.getCompletedAt()).isNull();
+	}
+
+	@Test
+	void updateWatchedToWantToWatchClearsBothTimestamps() {
+		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
+		WatchlistEntryService service = new WatchlistEntryService(
+			repository, validator, Mockito.mock(UserService.class), Mockito.mock(TitleService.class)
+		);
+		Instant started = Instant.parse("2026-04-28T12:00:00Z");
+		Instant completed = Instant.parse("2026-04-28T14:00:00Z");
+		WatchlistEntry existingEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WATCHED,
+			Instant.parse("2026-04-01T00:00:00Z"), Instant.parse("2026-04-28T14:00:00Z"),
+			started, completed
+		);
+		WatchlistEntry update = new WatchlistEntry(null, null, null, WatchStatus.WANT_TO_WATCH, null, null, null, null);
+
+		when(repository.findByIdAndUserId(1L, 10L)).thenReturn(Optional.of(existingEntry));
+		when(repository.save(any(WatchlistEntry.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		WatchlistEntry result = service.update(10L, 1L, update);
+
+		assertThat(result.getStatus()).isEqualTo(WatchStatus.WANT_TO_WATCH);
+		assertThat(result.getStartedAt()).isNull();
+		assertThat(result.getCompletedAt()).isNull();
+	}
+
+	@Test
 	void findAllDelegatesToRepositoryForUser() {
 		WatchlistEntryRepository repository = Mockito.mock(WatchlistEntryRepository.class);
 		UserService userService = Mockito.mock(UserService.class);

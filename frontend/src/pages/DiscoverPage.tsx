@@ -6,6 +6,12 @@ import type { TitleSearchResponse, WatchStatus } from '../types/api'
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
+function statusSelectClass(status: WatchStatus) {
+  if (status === 'WATCHING') return 'title-status-select title-status-select-watching'
+  if (status === 'WATCHED') return 'title-status-select title-status-select-watched'
+  return 'title-status-select title-status-select-want'
+}
+
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
 }
@@ -19,6 +25,7 @@ function DiscoverPage() {
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
+  const [pendingStatus, setPendingStatus] = useState<Record<string, WatchStatus>>({})
 
   useEffect(() => {
     if (!query.trim()) {
@@ -65,14 +72,14 @@ function DiscoverPage() {
     return () => clearTimeout(timer)
   }, [query, token, signOut, navigate])
 
-  async function handleAddToWatchlist(title: TitleSearchResponse) {
+  async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
     if (!token || !user?.id) return
     const key = cardKey(title)
     setCardStatus(prev => ({ ...prev, [key]: 'loading' }))
     try {
       const titleId = await findOrCreateTitle(title, token)
-      await addToWatchlist(user.id, titleId, token)
-      setCardStatus(prev => ({ ...prev, [key]: 'WANT_TO_WATCH' }))
+      await addToWatchlist(user.id, titleId, status, token)
+      setCardStatus(prev => ({ ...prev, [key]: status }))
     } catch (e) {
       if (e instanceof UnauthorizedError) {
         signOut()
@@ -114,6 +121,8 @@ function DiscoverPage() {
             {results.map((title) => {
               const key = cardKey(title)
               const status = cardStatus[key] ?? 'idle'
+              const pending = pendingStatus[key] ?? 'WANT_TO_WATCH'
+              const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
               return (
                 <article key={key} className="title-card">
                   {title.posterUrl ? (
@@ -134,18 +143,30 @@ function DiscoverPage() {
                     {title.releaseDate && (
                       <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
                     )}
-                    {(status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED') ? (
+                    {isAdded ? (
                       <span className={`title-status-badge${status === 'WATCHING' ? ' title-status-badge-watching' : status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
                         {status === 'WANT_TO_WATCH' ? 'Want to Watch' : status === 'WATCHING' ? 'Watching' : 'Watched'}
                       </span>
                     ) : (
-                      <button
-                        className="title-add-btn"
-                        disabled={status === 'loading'}
-                        onClick={() => handleAddToWatchlist(title)}
-                      >
-                        {status === 'loading' ? 'Adding…' : status === 'error' ? 'Try again' : '+ Watchlist'}
-                      </button>
+                      <div className="title-add-row">
+                        <select
+                          className={statusSelectClass(pending)}
+                          value={pending}
+                          disabled={status === 'loading'}
+                          onChange={(e) => setPendingStatus(prev => ({ ...prev, [key]: e.target.value as WatchStatus }))}
+                        >
+                          <option value="WANT_TO_WATCH">Want to Watch</option>
+                          <option value="WATCHING">Watching</option>
+                          <option value="WATCHED">Watched</option>
+                        </select>
+                        <button
+                          className="title-add-btn"
+                          disabled={status === 'loading'}
+                          onClick={() => handleAddToWatchlist(title, pending)}
+                        >
+                          {status === 'loading' ? 'Adding…' : status === 'error' ? 'Retry' : 'Add'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </article>
