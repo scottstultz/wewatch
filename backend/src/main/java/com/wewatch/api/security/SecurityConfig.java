@@ -1,9 +1,12 @@
 package com.wewatch.api.security;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -15,6 +18,9 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import com.wewatch.api.filter.RequestCorrelationFilter;
 import com.wewatch.api.service.UserService;
@@ -23,10 +29,14 @@ import com.wewatch.api.service.UserService;
 @EnableWebSecurity
 public class SecurityConfig {
 
+	@Value("${app.cors.allowed-origins}")
+	private String allowedOrigins;
+
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, GoogleJwtAuthenticationConverter converter,
 			RequestCorrelationFilter requestCorrelationFilter) throws Exception {
 		http
+			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 			.csrf(AbstractHttpConfigurer::disable)
 			.addFilterBefore(requestCorrelationFilter, UsernamePasswordAuthenticationFilter.class)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -43,6 +53,18 @@ public class SecurityConfig {
 				.authenticationEntryPoint(this::sendUnauthorized)
 			);
 		return http.build();
+	}
+
+	@Bean
+	public CorsConfigurationSource corsConfigurationSource() {
+		CorsConfiguration config = new CorsConfiguration();
+		config.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
+		config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+		config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id"));
+		config.setExposedHeaders(List.of("X-Request-Id"));
+		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+		source.registerCorsConfiguration("/api/**", config);
+		return source;
 	}
 
 	@Bean
