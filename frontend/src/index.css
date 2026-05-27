@@ -585,6 +585,57 @@ a {
   cursor: default;
 }
 
+/* ── Status select ────────────────────────────────────────── */
+
+.title-status-select {
+  margin-top: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f8fafc;
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.title-status-select:focus {
+  border-color: rgba(37, 99, 235, 0.7);
+}
+
+.title-status-select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.title-status-select-want {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.35);
+}
+
+.title-status-select-watching {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.title-status-select-watched {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
+  border-color: rgba(100, 116, 139, 0.35);
+}
+
+/* ── Discover add row ─────────────────────────────────────── */
+
+.title-add-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 /* ── Home page panel rows ─────────────────────────────────── */
 
 .panel-empty {

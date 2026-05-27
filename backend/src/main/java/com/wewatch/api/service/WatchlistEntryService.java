@@ -10,6 +10,7 @@ import jakarta.validation.Validator;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
 import com.wewatch.api.model.Title;
@@ -116,12 +117,22 @@ public class WatchlistEntryService {
 				watchlistEntry.setCompletedAt(Instant.now());
 			}
 		}
+
+		// Clear timestamps that are incompatible with the target status (handles backward transitions)
+		if (watchlistEntry.getStatus() == WatchStatus.WANT_TO_WATCH) {
+			watchlistEntry.setStartedAt(null);
+			watchlistEntry.setCompletedAt(null);
+		} else if (watchlistEntry.getStatus() == WatchStatus.WATCHING) {
+			watchlistEntry.setCompletedAt(null);
+		}
+
 		watchlistEntry.setUpdatedAt(Instant.now());
 
 		validate(watchlistEntry);
 		return watchlistEntryRepository.save(watchlistEntry);
 	}
 
+	@Transactional
 	public void deleteById(Long userId, Long id) {
 		watchlistEntryRepository.deleteByIdAndUserId(id, userId);
 	}

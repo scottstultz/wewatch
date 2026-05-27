@@ -90,12 +90,13 @@ export async function getWatchlist(
 export async function addToWatchlist(
   userId: number,
   titleId: number,
+  status: import('../types/api').WatchStatus,
   token: string,
 ): Promise<WatchlistEntryResponse> {
   const response = await fetch(`${BASE_URL}/users/${userId}/watchlist`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ titleId, status: 'WANT_TO_WATCH' }),
+    body: JSON.stringify({ titleId, status }),
   })
   if (response.status === 401) throw new UnauthorizedError()
   if (!response.ok) throw new Error(`Failed to add to watchlist: ${response.status}`)
