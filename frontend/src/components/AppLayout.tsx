@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import TmdbAttribution from './TmdbAttribution'
+import WeWatchLogo from './WeWatchLogo'
 
 const navigationItems = [
   { to: '/home', label: 'Home' },
@@ -14,8 +15,7 @@ function AppLayout() {
       <aside className="sidebar" aria-label="Primary">
         <div className="sidebar-top">
           <div className="brand-block">
-            <p className="brand-kicker">WeWatch</p>
-            <h1 className="brand-title">Pick something worth watching.</h1>
+            <WeWatchLogo onDark height={48} />
           </div>
           <nav className="nav-stack">
             {navigationItems.map((item) => (
@@ -36,10 +36,7 @@ function AppLayout() {
 
       <div className="shell-main">
         <header className="mobile-header">
-          <div>
-            <p className="brand-kicker">WeWatch</p>
-            <h1 className="mobile-title">Your watch queue</h1>
-          </div>
+          <WeWatchLogo onDark height={36} />
         </header>
 
         <main className="page-frame">
