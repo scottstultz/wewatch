@@ -202,6 +202,7 @@ To work on WeWatch locally, install:
 - [Node.js](https://nodejs.org/) 25+ with `npm`
 - Java 21+
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a local Docker Engine installation with Docker Compose support
+- [Doppler CLI](https://docs.doppler.com/docs/install-cli) for secrets injection
 
 Notes:
 
@@ -216,20 +217,29 @@ git clone git@github.com:<your-username>/wewatch.git
 cd wewatch
 ```
 
+### Secrets
+
+WeWatch uses [Doppler](https://doppler.com) to manage secrets across local and production environments. Required secrets (`GOOGLE_CLIENT_ID`, `TMDB_API_KEY`, `VITE_GOOGLE_CLIENT_ID`) are stored in Doppler and injected at runtime — no `.env` files or shell exports needed.
+
+**First-time setup:**
+
+```bash
+# Authenticate with Doppler
+doppler login
+
+# Link this directory to the wewatch dev config
+doppler setup
+```
+
+Select the `wewatch` project and `dev` config when prompted. After this, prefix any run command with `doppler run --` to inject secrets automatically.
+
 ### Run the Backend
 
 From the repository root:
 
 ```bash
 cd backend
-./mvnw spring-boot:run
-```
-
-To run the backend with the local PostgreSQL configuration:
-
-```bash
-cd backend
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+doppler run -- ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
 ```
 
 Backend defaults:
@@ -244,13 +254,7 @@ cd backend
 ./mvnw test
 ```
 
-If you prefer a global Maven install:
-
-```bash
-cd backend
-mvn spring-boot:run -Dspring-boot.run.profiles=local
-mvn test
-```
+Note: tests use Mockito and do not require real secret values, so `doppler run --` is not needed for `mvnw test`.
 
 ### Run PostgreSQL Locally with Docker
 
@@ -289,15 +293,7 @@ Default PostgreSQL values used locally:
 - username: `wewatch`
 - password: `wewatch`
 
-These values can be overridden with environment variables before starting the backend:
-
-```bash
-export DB_HOST=localhost
-export DB_PORT=5432
-export DB_NAME=wewatch
-export DB_USER=wewatch
-export DB_PASSWORD=wewatch
-```
+These defaults are defined in `application-local.properties` and require no additional configuration for standard local development.
 
 ### Run the Frontend
 
@@ -306,7 +302,7 @@ From the repository root:
 ```bash
 cd frontend
 npm install
-npm run dev
+doppler run -- npm run dev
 ```
 
 Frontend defaults:
@@ -325,18 +321,40 @@ To test the frontend from another device on the same network:
 
 ```bash
 cd frontend
-npm run dev -- --host 0.0.0.0 --port 5173
+doppler run -- npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
 Then open `http://<your-local-ip>:5173` on the other device.
 
-### Run Both Services Together
+### Run the Full Stack with Docker (Recommended)
 
-Use two terminals:
+The simplest way to run all services together is via Docker Compose:
 
-1. Start PostgreSQL from the repo root with `docker compose up -d postgres`
-2. Start the backend in `backend/` with `./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
-3. Start the frontend in `frontend/` with `npm run dev`
+```bash
+doppler run -- docker compose up --build
+```
+
+This starts PostgreSQL, the backend, and the frontend together. The app is available at `http://localhost:3000`.
+
+Use `--build` the first time or after any code changes. Subsequent starts can omit it:
+
+```bash
+doppler run -- docker compose up
+```
+
+To stop all services:
+
+```bash
+docker compose down
+```
+
+### Run Services Individually
+
+As an alternative to Docker, use three terminals:
+
+1. Start PostgreSQL: `docker compose up -d postgres`
+2. Start the backend: `cd backend && doppler run -- ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
+3. Start the frontend: `cd frontend && doppler run -- npm run dev`
 
 Default local ports:
 
@@ -439,14 +457,15 @@ Example:
 ### MVP Milestones
 - [x] User authentication (Google Sign-In + JWT)
 - [x] Search for titles (TMDB-backed, debounced frontend UI)
-- [ ] View title details
-- [ ] Save titles to a watchlist
-- [ ] Mark titles as watched
-- [ ] View and manage saved titles
+- [x] Save titles to a watchlist
+- [x] Mark titles as watched / track status (Want to Watch, Watching, Watched)
+- [x] View and manage saved titles (Library page)
+- [x] Production deployment (Railway, we-watch.app)
+- [x] CI pipeline (GitHub Actions)
+- [x] Secrets management (Doppler)
 
 ### Future Enhancements
+- [ ] View title details (dedicated detail page)
 - [ ] Personalized recommendations
 - [ ] Streaming provider integration
 - [ ] Advanced filtering and sorting
-- [ ] Production deployment
-- [ ] CI/CD pipeline hardening
