@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import TmdbAttribution from './TmdbAttribution'
 
 const navigationItems = [
   { to: '/home', label: 'Home' },
@@ -11,23 +12,26 @@ function AppLayout() {
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="Primary">
-        <div className="brand-block">
-          <p className="brand-kicker">WeWatch</p>
-          <h1 className="brand-title">Pick something worth watching.</h1>
+        <div className="sidebar-top">
+          <div className="brand-block">
+            <p className="brand-kicker">WeWatch</p>
+            <h1 className="brand-title">Pick something worth watching.</h1>
+          </div>
+          <nav className="nav-stack">
+            {navigationItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  isActive ? 'nav-link nav-link-active' : 'nav-link'
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
         </div>
-        <nav className="nav-stack">
-          {navigationItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                isActive ? 'nav-link nav-link-active' : 'nav-link'
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
+        <TmdbAttribution />
       </aside>
 
       <div className="shell-main">
@@ -40,6 +44,9 @@ function AppLayout() {
 
         <main className="page-frame">
           <Outlet />
+          <div className="tmdb-page-footer-mobile">
+            <TmdbAttribution />
+          </div>
         </main>
 
         <nav className="mobile-nav" aria-label="Primary">
