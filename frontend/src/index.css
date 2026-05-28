@@ -428,9 +428,9 @@ a {
 
 .title-card-body {
   padding: 12px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 4px;
-  align-content: start;
 }
 
 .title-type-badge {
@@ -628,6 +628,14 @@ a {
   border-color: rgba(100, 116, 139, 0.35);
 }
 
+/* ── Status element pinned to card bottom ─────────────────── */
+
+.title-card-body > .title-status-select,
+.title-card-body > .title-status-badge,
+.title-card-body > .title-add-row {
+  margin-top: auto;
+}
+
 /* ── Discover add row ─────────────────────────────────────── */
 
 .title-add-row {
@@ -693,6 +701,7 @@ a {
 .title-row-body .title-status-badge {
   margin-top: 0;
   font-size: 0.6875rem;
+  justify-self: start;
 }
 
 /* ── TMDB Attribution ─────────────────────────────────────── */
