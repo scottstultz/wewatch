@@ -9,6 +9,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
@@ -19,12 +20,15 @@ public class UserService {
 
 	private final UserRepository userRepository;
 	private final Validator validator;
+	private final WatchlistService watchlistService;
 
-	public UserService(UserRepository userRepository, Validator validator) {
+	public UserService(UserRepository userRepository, Validator validator, WatchlistService watchlistService) {
 		this.userRepository = userRepository;
 		this.validator = validator;
+		this.watchlistService = watchlistService;
 	}
 
+	@Transactional
 	public User create(User user) {
 		Instant now = Instant.now();
 		if (user.getCreatedAt() == null) {
@@ -41,7 +45,9 @@ public class UserService {
 				throw new DuplicateEmailException(user.getEmail());
 			});
 
-		return userRepository.save(user);
+		User saved = userRepository.save(user);
+		watchlistService.provisionPersonalWatchlist(saved.getId(), saved.getDisplayName() + "'s Watchlist");
+		return saved;
 	}
 
 	public User findById(Long id) {
@@ -73,6 +79,7 @@ public class UserService {
 		return userRepository.save(existingUser);
 	}
 
+	@Transactional
 	public User findOrCreateByGoogleIdentity(String providerId, String email, String displayName) {
 		return userRepository.findByProviderAndProviderId("google", providerId)
 			.orElseGet(() -> {
@@ -86,7 +93,9 @@ public class UserService {
 					})
 					.orElseGet(() -> {
 						String name = (displayName != null && !displayName.isBlank()) ? displayName : email;
-						return userRepository.save(new User(null, email, name, now, now, "google", providerId));
+						User saved = userRepository.save(new User(null, email, name, now, now, "google", providerId));
+						watchlistService.provisionPersonalWatchlist(saved.getId(), saved.getDisplayName() + "'s Watchlist");
+						return saved;
 					});
 			});
 	}

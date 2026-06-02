@@ -18,7 +18,7 @@ import jakarta.validation.constraints.NotNull;
 @Table(
 	name = "watchlist_entries",
 	uniqueConstraints = {
-		@UniqueConstraint(name = "uq_watchlist_entries_user_title", columnNames = {"user_id", "title_id"})
+		@UniqueConstraint(name = "uq_watchlist_entries_watchlist_title", columnNames = {"watchlist_id", "title_id"})
 	}
 )
 public class WatchlistEntry {
@@ -28,8 +28,11 @@ public class WatchlistEntry {
 	private Long id;
 
 	@NotNull
-	@Column(name = "user_id", nullable = false)
-	private Long userId;
+	@Column(name = "watchlist_id", nullable = false)
+	private Long watchlistId;
+
+	@Column(name = "added_by_user_id")
+	private Long addedByUserId;
 
 	@NotNull
 	@Column(name = "title_id", nullable = false)
@@ -65,7 +68,7 @@ public class WatchlistEntry {
 
 	public WatchlistEntry(
 		Long id,
-		Long userId,
+		Long watchlistId,
 		Long titleId,
 		WatchStatus status,
 		Instant addedAt,
@@ -74,7 +77,7 @@ public class WatchlistEntry {
 		Instant completedAt
 	) {
 		this.id = id;
-		this.userId = userId;
+		this.watchlistId = watchlistId;
 		this.titleId = titleId;
 		this.status = status;
 		this.addedAt = addedAt;
@@ -91,12 +94,20 @@ public class WatchlistEntry {
 		this.id = id;
 	}
 
-	public Long getUserId() {
-		return userId;
+	public Long getWatchlistId() {
+		return watchlistId;
 	}
 
-	public void setUserId(Long userId) {
-		this.userId = userId;
+	public void setWatchlistId(Long watchlistId) {
+		this.watchlistId = watchlistId;
+	}
+
+	public Long getAddedByUserId() {
+		return addedByUserId;
+	}
+
+	public void setAddedByUserId(Long addedByUserId) {
+		this.addedByUserId = addedByUserId;
 	}
 
 	public Long getTitleId() {

@@ -134,7 +134,8 @@ public class WatchlistEntryController {
 	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title) {
 		return new WatchlistEntryResponse(
 			entry.getId(),
-			entry.getUserId(),
+			entry.getWatchlistId(),
+			entry.getAddedByUserId(),
 			entry.getTitleId(),
 			entry.getExternalId(),
 			entry.getExternalSource(),

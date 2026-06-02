@@ -7,7 +7,8 @@ import com.wewatch.api.model.WatchStatus;
 
 public record WatchlistEntryResponse(
 	Long id,
-	Long userId,
+	Long watchlistId,
+	Long addedByUserId,
 	Long titleId,
 	String externalId,
 	String externalSource,

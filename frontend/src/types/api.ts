@@ -24,7 +24,8 @@ export interface TitleResponse {
 
 export interface WatchlistEntryResponse {
   id: number
-  userId: number
+  watchlistId: number
+  addedByUserId: number | null
   titleId: number
   externalId: string
   externalSource: string

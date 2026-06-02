@@ -17,24 +17,25 @@ import com.wewatch.api.model.Title;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.WatchlistEntryRepository;
+import com.wewatch.api.repository.WatchlistRepository;
 
 @Service
 public class WatchlistEntryService {
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final Validator validator;
-	private final UserService userService;
+	private final WatchlistRepository watchlistRepository;
 	private final TitleService titleService;
 
 	public WatchlistEntryService(
 		WatchlistEntryRepository watchlistEntryRepository,
 		Validator validator,
-		UserService userService,
+		WatchlistRepository watchlistRepository,
 		TitleService titleService
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.validator = validator;
-		this.userService = userService;
+		this.watchlistRepository = watchlistRepository;
 		this.titleService = titleService;
 	}
 
@@ -62,14 +63,15 @@ public class WatchlistEntryService {
 		}
 
 		validate(watchlistEntry);
-		userService.findById(watchlistEntry.getUserId());
+		watchlistRepository.findById(watchlistEntry.getWatchlistId())
+			.orElseThrow(() -> new NoSuchElementException("Watchlist not found: " + watchlistEntry.getWatchlistId()));
 		Title title = titleService.findById(watchlistEntry.getTitleId());
 		watchlistEntry.setExternalId(title.getExternalId());
 		watchlistEntry.setExternalSource(title.getExternalSource());
-		watchlistEntryRepository.findByUserIdAndTitleId(watchlistEntry.getUserId(), watchlistEntry.getTitleId())
+		watchlistEntryRepository.findByWatchlistIdAndTitleId(watchlistEntry.getWatchlistId(), watchlistEntry.getTitleId())
 			.ifPresent(existingEntry -> {
 				throw new DuplicateWatchlistEntryException(
-					watchlistEntry.getUserId(),
+					watchlistEntry.getWatchlistId(),
 					watchlistEntry.getTitleId()
 				);
 			});
@@ -77,23 +79,26 @@ public class WatchlistEntryService {
 		return watchlistEntryRepository.save(watchlistEntry);
 	}
 
-	public WatchlistEntry findById(Long userId, Long id) {
-		userService.findById(userId);
-		return watchlistEntryRepository.findByIdAndUserId(id, userId)
+	public WatchlistEntry findById(Long watchlistId, Long id) {
+		watchlistRepository.findById(watchlistId)
+			.orElseThrow(() -> new NoSuchElementException("Watchlist not found: " + watchlistId));
+		return watchlistEntryRepository.findByIdAndWatchlistId(id, watchlistId)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 	}
 
-	public Page<WatchlistEntry> findByFilters(Long userId, WatchStatus status, Pageable pageable) {
-		userService.findById(userId);
-		return watchlistEntryRepository.findByUserId(userId, status, pageable);
+	public Page<WatchlistEntry> findByFilters(Long watchlistId, WatchStatus status, Pageable pageable) {
+		watchlistRepository.findById(watchlistId)
+			.orElseThrow(() -> new NoSuchElementException("Watchlist not found: " + watchlistId));
+		return watchlistEntryRepository.findByWatchlistId(watchlistId, status, pageable);
 	}
 
-	public WatchlistEntry update(Long userId, Long id, WatchlistEntry watchlistEntry) {
-		WatchlistEntry existingEntry = watchlistEntryRepository.findByIdAndUserId(id, userId)
+	public WatchlistEntry update(Long watchlistId, Long id, WatchlistEntry watchlistEntry) {
+		WatchlistEntry existingEntry = watchlistEntryRepository.findByIdAndWatchlistId(id, watchlistId)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
 
 		watchlistEntry.setId(existingEntry.getId());
-		watchlistEntry.setUserId(existingEntry.getUserId());
+		watchlistEntry.setWatchlistId(existingEntry.getWatchlistId());
+		watchlistEntry.setAddedByUserId(existingEntry.getAddedByUserId());
 		watchlistEntry.setTitleId(existingEntry.getTitleId());
 		watchlistEntry.setExternalId(existingEntry.getExternalId());
 		watchlistEntry.setExternalSource(existingEntry.getExternalSource());
@@ -133,8 +138,8 @@ public class WatchlistEntryService {
 	}
 
 	@Transactional
-	public void deleteById(Long userId, Long id) {
-		watchlistEntryRepository.deleteByIdAndUserId(id, userId);
+	public void deleteById(Long watchlistId, Long id) {
+		watchlistEntryRepository.deleteByIdAndWatchlistId(id, watchlistId);
 	}
 
 	private void validate(WatchlistEntry watchlistEntry) {

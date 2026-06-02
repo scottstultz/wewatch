@@ -22,6 +22,8 @@ import org.mockito.Mockito;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.model.Watchlist;
+import com.wewatch.api.model.WatchlistType;
 import com.wewatch.api.repository.UserRepository;
 
 class UserServiceTest {
@@ -43,7 +45,8 @@ class UserServiceTest {
 	@Test
 	void createSetsTimestampsWhenMissing() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User user = new User(null, "user@example.com", "Scott", null, null);
 
 		when(repository.findByEmail("user@example.com")).thenReturn(Optional.empty());
@@ -59,7 +62,8 @@ class UserServiceTest {
 	@Test
 	void createRejectsInvalidUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User user = new User(null, "", "Scott", Instant.now(), Instant.now());
 
 		assertThatThrownBy(() -> service.create(user)).isInstanceOf(ConstraintViolationException.class);
@@ -68,7 +72,8 @@ class UserServiceTest {
 	@Test
 	void createRejectsDuplicateEmail() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 		User user = new User(null, "user@example.com", "Sam", Instant.now(), Instant.now());
 
@@ -80,7 +85,8 @@ class UserServiceTest {
 	@Test
 	void findByIdReturnsPersistedUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
@@ -91,7 +97,8 @@ class UserServiceTest {
 	@Test
 	void updateAppliesProvidedFieldsOnly() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
 		User existing = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
 
@@ -110,7 +117,8 @@ class UserServiceTest {
 	@Test
 	void updateRejectsMissingUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 
 		when(repository.findById(42L)).thenReturn(Optional.empty());
 
@@ -122,7 +130,8 @@ class UserServiceTest {
 	@Test
 	void updateRejectsInvalidMergedUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
@@ -133,7 +142,8 @@ class UserServiceTest {
 	@Test
 	void updateRejectsDuplicateEmailForAnotherUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
 
@@ -147,7 +157,8 @@ class UserServiceTest {
 	@Test
 	void updateAllowsExistingEmailForSameUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
@@ -164,7 +175,8 @@ class UserServiceTest {
 	@Test
 	void findByFiltersReturnsMatchingUsers() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 
 		when(repository.findByFilters("user@example.com", "Scott")).thenReturn(List.of(existing));
@@ -176,11 +188,76 @@ class UserServiceTest {
 	@Test
 	void findByFiltersNormalizesBlankValues() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
-		UserService service = new UserService(repository, validator);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
 
 		when(repository.findByFilters(null, null)).thenReturn(List.of());
 
 		assertThat(service.findByFilters("", " ")).isEmpty();
 		verify(repository).findByFilters(null, null);
+	}
+
+	@Test
+	void createProvisionesPersonalWatchlist() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
+		User user = new User(null, "user@example.com", "Scott", null, null);
+		User savedUser = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+		Watchlist watchlist = new Watchlist(1L, "Scott's Watchlist", WatchlistType.PERSONAL, Instant.now(), Instant.now());
+
+		when(repository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+		when(repository.save(any(User.class))).thenReturn(savedUser);
+		when(watchlistService.provisionPersonalWatchlist(1L, "Scott's Watchlist")).thenReturn(watchlist);
+
+		service.create(user);
+
+		verify(watchlistService).provisionPersonalWatchlist(1L, "Scott's Watchlist");
+	}
+
+	@Test
+	void findOrCreateByGoogleIdentityProvisionesWatchlistForNewUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
+		User savedUser = new User(1L, "new@example.com", "New User", Instant.now(), Instant.now());
+
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+		when(repository.save(any(User.class))).thenReturn(savedUser);
+
+		service.findOrCreateByGoogleIdentity("sub-new", "new@example.com", "New User");
+
+		verify(watchlistService).provisionPersonalWatchlist(1L, "New User's Watchlist");
+	}
+
+	@Test
+	void findOrCreateByGoogleIdentityDoesNotProvisionWatchlistForExistingUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
+		User existingUser = new User(1L, "existing@example.com", "Existing User", Instant.now(), Instant.now());
+
+		when(repository.findByProviderAndProviderId("google", "sub-existing")).thenReturn(Optional.of(existingUser));
+
+		service.findOrCreateByGoogleIdentity("sub-existing", "existing@example.com", "Existing User");
+
+		Mockito.verifyNoInteractions(watchlistService);
+	}
+
+	@Test
+	void findOrCreateByGoogleIdentityDoesNotProvisionWatchlistWhenLinkingExistingAccount() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		UserService service = new UserService(repository, validator, watchlistService);
+		User existingUser = new User(1L, "existing@example.com", "Existing User", Instant.now(), Instant.now());
+
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
+		when(repository.save(any(User.class))).thenReturn(existingUser);
+
+		service.findOrCreateByGoogleIdentity("sub-new", "existing@example.com", "Existing User");
+
+		Mockito.verifyNoInteractions(watchlistService);
 	}
 }

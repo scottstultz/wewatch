@@ -48,7 +48,7 @@ class WatchlistEntryTest {
 	}
 
 	@Test
-	void missingUserIdFailsValidation() {
+	void missingWatchlistIdFailsValidation() {
 		WatchlistEntry entry = new WatchlistEntry(
 			1L,
 			null,
@@ -62,7 +62,7 @@ class WatchlistEntryTest {
 
 		Set<ConstraintViolation<WatchlistEntry>> violations = validator.validate(entry);
 
-		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("userId"));
+		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("watchlistId"));
 	}
 
 	@Test
