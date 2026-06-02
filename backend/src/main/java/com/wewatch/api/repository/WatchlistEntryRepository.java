@@ -13,12 +13,12 @@ import com.wewatch.api.model.WatchlistEntry;
 
 public interface WatchlistEntryRepository extends JpaRepository<WatchlistEntry, Long> {
 
-	Optional<WatchlistEntry> findByIdAndUserId(Long id, Long userId);
+	Optional<WatchlistEntry> findByIdAndWatchlistId(Long id, Long watchlistId);
 
-	Optional<WatchlistEntry> findByUserIdAndTitleId(Long userId, Long titleId);
+	Optional<WatchlistEntry> findByWatchlistIdAndTitleId(Long watchlistId, Long titleId);
 
-	@Query("SELECT w FROM WatchlistEntry w WHERE w.userId = :userId AND (:status IS NULL OR w.status = :status) ORDER BY w.addedAt DESC, w.id DESC")
-	Page<WatchlistEntry> findByUserId(@Param("userId") Long userId, @Param("status") WatchStatus status, Pageable pageable);
+	@Query("SELECT w FROM WatchlistEntry w WHERE w.watchlistId = :watchlistId AND (:status IS NULL OR w.status = :status) ORDER BY w.addedAt DESC, w.id DESC")
+	Page<WatchlistEntry> findByWatchlistId(@Param("watchlistId") Long watchlistId, @Param("status") WatchStatus status, Pageable pageable);
 
-	void deleteByIdAndUserId(Long id, Long userId);
+	void deleteByIdAndWatchlistId(Long id, Long watchlistId);
 }

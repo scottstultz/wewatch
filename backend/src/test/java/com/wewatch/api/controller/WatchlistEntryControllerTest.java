@@ -115,7 +115,7 @@ class WatchlistEntryControllerTest {
 			.andExpect(header().string("Location", "/api/users/10/watchlist/1"))
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.userId").value(10))
+			.andExpect(jsonPath("$.watchlistId").value(10))
 			.andExpect(jsonPath("$.titleId").value(20))
 			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"))
 			.andExpect(jsonPath("$.externalId").value("603"))
@@ -237,7 +237,7 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isConflict())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(409))
-			.andExpect(jsonPath("$.message").value("Watchlist entry already exists for user 10 and title 20"));
+			.andExpect(jsonPath("$.message").value("Watchlist entry already exists for watchlist 10 and title 20"));
 	}
 
 	@Test
@@ -290,7 +290,7 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.content[0].id").value(1))
-			.andExpect(jsonPath("$.content[0].userId").value(10))
+			.andExpect(jsonPath("$.content[0].watchlistId").value(10))
 			.andExpect(jsonPath("$.content[0].titleId").value(20))
 			.andExpect(jsonPath("$.content[0].status").value("WANT_TO_WATCH"))
 			.andExpect(jsonPath("$.content[0].addedAt").value("2026-04-28T12:00:00Z"))
@@ -386,7 +386,7 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.userId").value(10))
+			.andExpect(jsonPath("$.watchlistId").value(10))
 			.andExpect(jsonPath("$.titleId").value(20))
 			.andExpect(jsonPath("$.status").value("WANT_TO_WATCH"));
 
@@ -436,7 +436,7 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.userId").value(10))
+			.andExpect(jsonPath("$.watchlistId").value(10))
 			.andExpect(jsonPath("$.status").value("WATCHING"))
 			.andExpect(jsonPath("$.startedAt").value("2026-04-28T13:00:00Z"));
 
