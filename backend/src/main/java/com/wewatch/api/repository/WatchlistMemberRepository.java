@@ -13,5 +13,7 @@ public interface WatchlistMemberRepository extends JpaRepository<WatchlistMember
 
 	List<WatchlistMember> findByIdUserId(Long userId);
 
+	List<WatchlistMember> findByIdWatchlistId(Long watchlistId);
+
 	Optional<WatchlistMember> findByIdWatchlistIdAndRole(Long watchlistId, MemberRole role);
 }

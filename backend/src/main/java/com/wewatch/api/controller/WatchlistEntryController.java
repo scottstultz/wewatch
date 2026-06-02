@@ -24,59 +24,66 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wewatch.api.dto.WatchlistEntryCreateRequest;
 import com.wewatch.api.dto.WatchlistEntryResponse;
 import com.wewatch.api.dto.WatchlistEntryUpdateRequest;
-import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.WatchlistEntryService;
+import com.wewatch.api.service.WatchlistService;
 
 @RestController
-@RequestMapping("/api/users/{userId}/watchlist")
+@RequestMapping("/api/watchlists/{watchlistId}/entries")
 public class WatchlistEntryController {
 
 	private final WatchlistEntryService watchlistEntryService;
 	private final TitleService titleService;
+	private final WatchlistService watchlistService;
 
-	public WatchlistEntryController(WatchlistEntryService watchlistEntryService, TitleService titleService) {
+	public WatchlistEntryController(
+		WatchlistEntryService watchlistEntryService,
+		TitleService titleService,
+		WatchlistService watchlistService
+	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
+		this.watchlistService = watchlistService;
 	}
 
 	@PostMapping
 	public ResponseEntity<WatchlistEntryResponse> createWatchlistEntry(
-		@PathVariable Long userId,
-		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller,
 		@Valid @RequestBody WatchlistEntryCreateRequest request
 	) {
-		requireOwner(userId, authenticatedUser);
-		WatchlistEntry createdEntry = watchlistEntryService.create(new WatchlistEntry(
+		watchlistService.requireMember(watchlistId, caller.getId());
+		WatchlistEntry entry = new WatchlistEntry(
 			null,
-			userId,
+			watchlistId,
 			request.titleId(),
 			request.status(),
 			null,
 			null,
 			null,
 			null
-		));
-		Title createdTitle = titleService.findById(createdEntry.getTitleId());
-
+		);
+		entry.setAddedByUserId(caller.getId());
+		WatchlistEntry created = watchlistEntryService.create(entry);
+		Title title = titleService.findById(created.getTitleId());
 		return ResponseEntity
-			.created(URI.create("/api/users/" + userId + "/watchlist/" + createdEntry.getId()))
-			.body(toResponse(createdEntry, createdTitle));
+			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
+			.body(toResponse(created, title));
 	}
 
 	@GetMapping
 	public Page<WatchlistEntryResponse> getWatchlistEntries(
-		@PathVariable Long userId,
-		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller,
 		@RequestParam(required = false) WatchStatus status,
 		@PageableDefault(size = 20) Pageable pageable
 	) {
-		requireOwner(userId, authenticatedUser);
-		Page<WatchlistEntry> entries = watchlistEntryService.findByFilters(userId, status, pageable);
+		watchlistService.requireMember(watchlistId, caller.getId());
+		Page<WatchlistEntry> entries = watchlistEntryService.findByFilters(watchlistId, status, pageable);
 		List<Long> titleIds = entries.stream().map(WatchlistEntry::getTitleId).collect(Collectors.toList());
 		Map<Long, Title> titlesById = titleService.findByIds(titleIds);
 		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId())));
@@ -84,26 +91,26 @@ public class WatchlistEntryController {
 
 	@GetMapping("/{entryId}")
 	public WatchlistEntryResponse getWatchlistEntry(
-		@PathVariable Long userId,
-		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller,
 		@PathVariable Long entryId
 	) {
-		requireOwner(userId, authenticatedUser);
-		WatchlistEntry entry = watchlistEntryService.findById(userId, entryId);
+		watchlistService.requireMember(watchlistId, caller.getId());
+		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		return toResponse(entry, titleService.findById(entry.getTitleId()));
 	}
 
 	@PatchMapping("/{entryId}")
 	public WatchlistEntryResponse updateWatchlistEntry(
-		@PathVariable Long userId,
-		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller,
 		@PathVariable Long entryId,
 		@Valid @RequestBody WatchlistEntryUpdateRequest request
 	) {
-		requireOwner(userId, authenticatedUser);
-		WatchlistEntry updated = watchlistEntryService.update(userId, entryId, new WatchlistEntry(
+		watchlistService.requireMember(watchlistId, caller.getId());
+		WatchlistEntry updated = watchlistEntryService.update(watchlistId, entryId, new WatchlistEntry(
 			null,
-			userId,
+			watchlistId,
 			null,
 			request.status(),
 			null,
@@ -116,19 +123,13 @@ public class WatchlistEntryController {
 
 	@DeleteMapping("/{entryId}")
 	public ResponseEntity<Void> deleteWatchlistEntry(
-		@PathVariable Long userId,
-		@AuthenticationPrincipal User authenticatedUser,
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller,
 		@PathVariable Long entryId
 	) {
-		requireOwner(userId, authenticatedUser);
-		watchlistEntryService.deleteById(userId, entryId);
+		watchlistService.requireMember(watchlistId, caller.getId());
+		watchlistEntryService.deleteById(watchlistId, entryId);
 		return ResponseEntity.noContent().build();
-	}
-
-	private void requireOwner(Long userId, User authenticatedUser) {
-		if (!authenticatedUser.getId().equals(userId)) {
-			throw new ForbiddenException("Access denied");
-		}
 	}
 
 	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title) {
