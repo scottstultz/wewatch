@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { UnauthorizedError, getWatchlist } from '../services/api'
+import { useWatchlists } from '../contexts/WatchlistContext'
+import { UnauthorizedError, getWatchlistEntries } from '../services/api'
 import type { WatchlistEntryResponse } from '../types/api'
 
 function HomePage() {
-  const { token, user, signOut } = useAuth()
+  const { token, signOut } = useAuth()
+  const { personalWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -17,13 +19,13 @@ function HomePage() {
   }, [signOut, navigate])
 
   useEffect(() => {
-    if (!token || !user?.id) return
+    if (!token || !personalWatchlist) return
     let cancelled = false
 
     setIsLoading(true)
     setError(null)
 
-    getWatchlist(user.id, token)
+    getWatchlistEntries(personalWatchlist.id, token)
       .then(data => { if (!cancelled) setEntries(data) })
       .catch(e => {
         if (cancelled) return
@@ -33,7 +35,7 @@ function HomePage() {
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [token, user?.id, handleUnauthorized])
+  }, [token, personalWatchlist, handleUnauthorized])
 
   const wantToWatchCount = entries.filter(e => e.status === 'WANT_TO_WATCH').length
   const watchingCount = entries.filter(e => e.status === 'WATCHING').length

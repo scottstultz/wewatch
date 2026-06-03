@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 
 import AppLayout from './components/AppLayout'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { WatchlistProvider } from './contexts/WatchlistContext'
 import DiscoverPage from './pages/DiscoverPage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
@@ -19,7 +20,13 @@ function App() {
       <Routes>
         <Route path="/sign-in" element={<SignInPage />} />
         <Route element={<ProtectedRoute />}>
-          <Route element={<AppLayout />}>
+          <Route
+            element={
+              <WatchlistProvider>
+                <AppLayout />
+              </WatchlistProvider>
+            }
+          >
             <Route index element={<Navigate to="/home" replace />} />
             <Route path="/home" element={<HomePage />} />
             <Route path="/discover" element={<DiscoverPage />} />

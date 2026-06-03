@@ -18,7 +18,6 @@ import org.mockito.Mockito;
 import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.exception.WatchlistMemberAlreadyExistsException;
 import com.wewatch.api.model.MemberRole;
-import com.wewatch.api.model.User;
 import com.wewatch.api.model.Watchlist;
 import com.wewatch.api.model.WatchlistMember;
 import com.wewatch.api.model.WatchlistMemberId;
@@ -30,15 +29,13 @@ class WatchlistServiceTest {
 
 	private WatchlistRepository watchlistRepository;
 	private WatchlistMemberRepository watchlistMemberRepository;
-	private UserService userService;
 	private WatchlistService service;
 
 	@BeforeEach
 	void setUp() {
 		watchlistRepository = Mockito.mock(WatchlistRepository.class);
 		watchlistMemberRepository = Mockito.mock(WatchlistMemberRepository.class);
-		userService = Mockito.mock(UserService.class);
-		service = new WatchlistService(watchlistRepository, watchlistMemberRepository, userService);
+		service = new WatchlistService(watchlistRepository, watchlistMemberRepository);
 	}
 
 	// ─── provisionPersonalWatchlist ───────────────────────────────────────────
@@ -218,15 +215,13 @@ class WatchlistServiceTest {
 		Watchlist watchlist = new Watchlist(1L, "Family List", WatchlistType.SHARED, Instant.now(), Instant.now());
 		WatchlistMemberId callerMemberId = new WatchlistMemberId(1L, 10L);
 		WatchlistMember callerMember = new WatchlistMember(callerMemberId, MemberRole.OWNER, Instant.now());
-		User existingUser = new User(20L, "existing@example.com", "Existing", Instant.now(), Instant.now());
 		WatchlistMemberId existingMemberId = new WatchlistMemberId(1L, 20L);
 
 		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
 		when(watchlistMemberRepository.findById(callerMemberId)).thenReturn(Optional.of(callerMember));
-		when(userService.findByEmail("existing@example.com")).thenReturn(existingUser);
 		when(watchlistMemberRepository.existsById(existingMemberId)).thenReturn(true);
 
-		assertThatThrownBy(() -> service.addMember(1L, "existing@example.com", 10L))
+		assertThatThrownBy(() -> service.addMember(1L, 20L, 10L))
 			.isInstanceOf(WatchlistMemberAlreadyExistsException.class)
 			.hasMessageContaining("20")
 			.hasMessageContaining("1");
