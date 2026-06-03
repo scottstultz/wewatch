@@ -317,7 +317,8 @@ class WatchlistControllerTest {
 			MemberRole.MEMBER,
 			EPOCH
 		);
-		when(watchlistService.addMember(1L, "new@example.com", 10L)).thenReturn(newMember);
+		when(userService.findByEmail("new@example.com")).thenReturn(newUser);
+		when(watchlistService.addMember(1L, 20L, 10L)).thenReturn(newMember);
 		when(userService.findById(20L)).thenReturn(newUser);
 
 		mockMvc.perform(
@@ -337,7 +338,7 @@ class WatchlistControllerTest {
 			.andExpect(jsonPath("$.email").value("new@example.com"))
 			.andExpect(jsonPath("$.role").value("MEMBER"));
 
-		verify(watchlistService).addMember(1L, "new@example.com", 10L);
+		verify(watchlistService).addMember(1L, 20L, 10L);
 	}
 
 	@Test
@@ -358,7 +359,7 @@ class WatchlistControllerTest {
 
 	@Test
 	void addMemberReturnsNotFoundWhenUserNotFound() throws Exception {
-		when(watchlistService.addMember(1L, "missing@example.com", 10L))
+		when(userService.findByEmail("missing@example.com"))
 			.thenThrow(new NoSuchElementException("User not found with email: missing@example.com"));
 
 		mockMvc.perform(
@@ -377,7 +378,8 @@ class WatchlistControllerTest {
 
 	@Test
 	void addMemberReturnsConflictWhenAlreadyMember() throws Exception {
-		when(watchlistService.addMember(1L, "caller@example.com", 10L))
+		when(userService.findByEmail("caller@example.com")).thenReturn(TEST_USER);
+		when(watchlistService.addMember(1L, 10L, 10L))
 			.thenThrow(new WatchlistMemberAlreadyExistsException(1L, 10L));
 
 		mockMvc.perform(
@@ -396,8 +398,10 @@ class WatchlistControllerTest {
 
 	@Test
 	void addMemberReturnsForbiddenWhenNotOwner() throws Exception {
+		User newUser = new User(20L, "new@example.com", "New Member", EPOCH, EPOCH, "google", "sub-456");
+		when(userService.findByEmail("new@example.com")).thenReturn(newUser);
 		doThrow(new ForbiddenException("Owner role required"))
-			.when(watchlistService).addMember(1L, "new@example.com", 10L);
+			.when(watchlistService).addMember(1L, 20L, 10L);
 
 		mockMvc.perform(
 			post("/api/watchlists/1/members")

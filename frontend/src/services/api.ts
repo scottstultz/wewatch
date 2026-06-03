@@ -1,4 +1,10 @@
-import type { TitleResponse, TitleSearchResponse, WatchlistEntryResponse } from '../types/api'
+import type {
+  TitleResponse,
+  TitleSearchResponse,
+  WatchlistEntryResponse,
+  WatchlistMemberResponse,
+  WatchlistResponse,
+} from '../types/api'
 
 const BASE_URL = '/api'
 
@@ -15,14 +21,24 @@ export interface BackendUser {
   displayName: string
 }
 
-export async function getCurrentUser(token: string): Promise<BackendUser> {
-  const response = await fetch(`${BASE_URL}/users/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+async function apiFetch(url: string, token: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(url, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...init?.headers },
   })
   if (response.status === 401) throw new UnauthorizedError()
+  return response
+}
+
+// ── User ─────────────────────────────────────────────────────
+
+export async function getCurrentUser(token: string): Promise<BackendUser> {
+  const response = await apiFetch(`${BASE_URL}/users/me`, token)
   if (!response.ok) throw new Error(`Failed to fetch current user: ${response.status}`)
   return response.json() as Promise<BackendUser>
 }
+
+// ── Title search ─────────────────────────────────────────────
 
 export async function searchTitles(
   query: string,
@@ -32,20 +48,15 @@ export async function searchTitles(
   const params = new URLSearchParams({ q: query })
   if (type) params.set('type', type)
 
-  const response = await fetch(`${BASE_URL}/titles/search?${params}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-
-  if (response.status === 401) throw new UnauthorizedError()
+  const response = await apiFetch(`${BASE_URL}/titles/search?${params}`, token)
   if (!response.ok) throw new Error(`Search failed with status ${response.status}`)
-
   return response.json() as Promise<TitleSearchResponse[]>
 }
 
 export async function findOrCreateTitle(title: TitleSearchResponse, token: string): Promise<number> {
-  const createRes = await fetch(`${BASE_URL}/titles`, {
+  const createRes = await apiFetch(`${BASE_URL}/titles`, token, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       externalId: title.externalId,
       externalSource: title.externalSource,
@@ -57,15 +68,12 @@ export async function findOrCreateTitle(title: TitleSearchResponse, token: strin
     }),
   })
   if (createRes.status === 201) return ((await createRes.json()) as TitleResponse).id
-  if (createRes.status === 401) throw new UnauthorizedError()
   if (createRes.status === 409) {
     const params = new URLSearchParams({
       externalId: title.externalId,
       externalSource: title.externalSource,
     })
-    const findRes = await fetch(`${BASE_URL}/titles?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    const findRes = await apiFetch(`${BASE_URL}/titles?${params}`, token)
     if (!findRes.ok) throw new Error('Failed to find existing title')
     const page = (await findRes.json()) as { content: TitleResponse[] }
     if (!page.content.length) throw new Error('Title not found after conflict')
@@ -74,60 +82,121 @@ export async function findOrCreateTitle(title: TitleSearchResponse, token: strin
   throw new Error(`Failed to save title: ${createRes.status}`)
 }
 
-export async function getWatchlist(
+// ── Watchlist CRUD ───────────────────────────────────────────
+
+export async function getWatchlists(token: string): Promise<WatchlistResponse[]> {
+  const response = await apiFetch(`${BASE_URL}/watchlists`, token)
+  if (!response.ok) throw new Error(`Failed to fetch watchlists: ${response.status}`)
+  return response.json() as Promise<WatchlistResponse[]>
+}
+
+export async function createWatchlist(name: string, token: string): Promise<WatchlistResponse> {
+  const response = await apiFetch(`${BASE_URL}/watchlists`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) throw new Error(`Failed to create watchlist: ${response.status}`)
+  return response.json() as Promise<WatchlistResponse>
+}
+
+export async function updateWatchlist(
+  watchlistId: number,
+  name: string,
+  token: string,
+): Promise<WatchlistResponse> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!response.ok) throw new Error(`Failed to update watchlist: ${response.status}`)
+  return response.json() as Promise<WatchlistResponse>
+}
+
+export async function deleteWatchlist(watchlistId: number, token: string): Promise<void> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}`, token, {
+    method: 'DELETE',
+  })
+  if (!response.ok) throw new Error(`Failed to delete watchlist: ${response.status}`)
+}
+
+// ── Watchlist members ────────────────────────────────────────
+
+export async function addMember(
+  watchlistId: number,
+  email: string,
+  token: string,
+): Promise<WatchlistMemberResponse> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members`, token, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+  if (!response.ok) throw new Error(`Failed to add member: ${response.status}`)
+  return response.json() as Promise<WatchlistMemberResponse>
+}
+
+export async function removeMember(
+  watchlistId: number,
   userId: number,
   token: string,
-): Promise<WatchlistEntryResponse[]> {
-  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist?size=200`, {
-    headers: { Authorization: `Bearer ${token}` },
+): Promise<void> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}`, token, {
+    method: 'DELETE',
   })
-  if (response.status === 401) throw new UnauthorizedError()
-  if (!response.ok) throw new Error(`Failed to fetch watchlist: ${response.status}`)
+  if (!response.ok) throw new Error(`Failed to remove member: ${response.status}`)
+}
+
+// ── Watchlist entries ────────────────────────────────────────
+
+export async function getWatchlistEntries(
+  watchlistId: number,
+  token: string,
+): Promise<WatchlistEntryResponse[]> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries?size=200`, token)
+  if (!response.ok) throw new Error(`Failed to fetch watchlist entries: ${response.status}`)
   const page = (await response.json()) as { content: WatchlistEntryResponse[] }
   return page.content
 }
 
 export async function addToWatchlist(
-  userId: number,
+  watchlistId: number,
   titleId: number,
   status: import('../types/api').WatchStatus,
   token: string,
 ): Promise<WatchlistEntryResponse> {
-  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist`, {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries`, token, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ titleId, status }),
   })
-  if (response.status === 401) throw new UnauthorizedError()
   if (!response.ok) throw new Error(`Failed to add to watchlist: ${response.status}`)
   return response.json() as Promise<WatchlistEntryResponse>
 }
 
 export async function updateWatchlistEntry(
-  userId: number,
+  watchlistId: number,
   entryId: number,
   status: string,
   token: string,
 ): Promise<WatchlistEntryResponse> {
-  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist/${entryId}`, {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, token, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   })
-  if (response.status === 401) throw new UnauthorizedError()
   if (!response.ok) throw new Error(`Failed to update watchlist entry: ${response.status}`)
   return response.json() as Promise<WatchlistEntryResponse>
 }
 
 export async function removeFromWatchlist(
-  userId: number,
+  watchlistId: number,
   entryId: number,
   token: string,
 ): Promise<void> {
-  const response = await fetch(`${BASE_URL}/users/${userId}/watchlist/${entryId}`, {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, token, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
   })
-  if (response.status === 401) throw new UnauthorizedError()
   if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
 }

@@ -92,7 +92,8 @@ public class WatchlistController {
 		@AuthenticationPrincipal User caller,
 		@Valid @RequestBody AddMemberRequest request
 	) {
-		WatchlistMember member = watchlistService.addMember(watchlistId, request.email(), caller.getId());
+		User targetUser = userService.findByEmail(request.email());
+		WatchlistMember member = watchlistService.addMember(watchlistId, targetUser.getId(), caller.getId());
 		WatchlistMemberResponse response = toMemberResponse(member);
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/members/" + member.getId().getUserId()))

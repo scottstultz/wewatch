@@ -10,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.exception.WatchlistMemberAlreadyExistsException;
 import com.wewatch.api.model.MemberRole;
-import com.wewatch.api.model.User;
 import com.wewatch.api.model.Watchlist;
 import com.wewatch.api.model.WatchlistMember;
 import com.wewatch.api.model.WatchlistMemberId;
@@ -23,16 +22,13 @@ public class WatchlistService {
 
 	private final WatchlistRepository watchlistRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
-	private final UserService userService;
 
 	public WatchlistService(
 		WatchlistRepository watchlistRepository,
-		WatchlistMemberRepository watchlistMemberRepository,
-		UserService userService
+		WatchlistMemberRepository watchlistMemberRepository
 	) {
 		this.watchlistRepository = watchlistRepository;
 		this.watchlistMemberRepository = watchlistMemberRepository;
-		this.userService = userService;
 	}
 
 	@Transactional
@@ -110,12 +106,11 @@ public class WatchlistService {
 	}
 
 	@Transactional
-	public WatchlistMember addMember(Long watchlistId, String email, Long callerUserId) {
+	public WatchlistMember addMember(Long watchlistId, Long userId, Long callerUserId) {
 		requireOwner(watchlistId, callerUserId);
-		User user = userService.findByEmail(email);
-		WatchlistMemberId memberId = new WatchlistMemberId(watchlistId, user.getId());
+		WatchlistMemberId memberId = new WatchlistMemberId(watchlistId, userId);
 		if (watchlistMemberRepository.existsById(memberId)) {
-			throw new WatchlistMemberAlreadyExistsException(watchlistId, user.getId());
+			throw new WatchlistMemberAlreadyExistsException(watchlistId, userId);
 		}
 		WatchlistMember member = new WatchlistMember();
 		member.setId(memberId);

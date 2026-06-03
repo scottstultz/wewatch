@@ -747,3 +747,295 @@ a {
     display: none;
   }
 }
+
+/* ── Watchlist selector ──────────────────────────────────────── */
+
+.watchlist-selector {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.watchlist-pill {
+  padding: 5px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.watchlist-pill:hover {
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
+}
+
+.watchlist-pill-active {
+  border-color: rgba(125, 211, 252, 0.5);
+  background: rgba(125, 211, 252, 0.12);
+  color: #7dd3fc;
+}
+
+.watchlist-pill-new {
+  border-style: dashed;
+  color: #64748b;
+}
+
+.watchlist-pill-new:hover {
+  color: #7dd3fc;
+  border-color: rgba(125, 211, 252, 0.35);
+}
+
+/* ── Create watchlist form ───────────────────────────────────── */
+
+.watchlist-create-form,
+.watchlist-rename-form,
+.member-invite-form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.watchlist-create-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #f8fafc;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.watchlist-create-input:focus {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.watchlist-create-input::placeholder {
+  color: #475569;
+}
+
+.watchlist-create-btn {
+  padding: 7px 16px;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  border-radius: 8px;
+  background: rgba(125, 211, 252, 0.12);
+  color: #7dd3fc;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.watchlist-create-btn:hover:not(:disabled) {
+  background: rgba(125, 211, 252, 0.2);
+}
+
+.watchlist-create-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.watchlist-cancel-btn {
+  padding: 7px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.watchlist-cancel-btn:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+/* ── Members toggle ──────────────────────────────────────────── */
+
+.watchlist-members-toggle {
+  padding: 5px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  margin-bottom: 8px;
+}
+
+.watchlist-members-toggle:hover {
+  background: rgba(148, 163, 184, 0.08);
+  color: #e2e8f0;
+}
+
+/* ── Members panel ───────────────────────────────────────────── */
+
+.members-panel {
+  padding: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(12px);
+  margin-bottom: 12px;
+}
+
+.members-panel-header {
+  margin-bottom: 12px;
+}
+
+.members-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.members-panel-title {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.watchlist-rename-btn {
+  padding: 3px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.watchlist-rename-btn:hover {
+  color: #e2e8f0;
+}
+
+.member-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.member-row:last-child {
+  border-bottom: none;
+}
+
+.member-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.member-name {
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-email {
+  color: #64748b;
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.member-role {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: #64748b;
+  background: rgba(100, 116, 139, 0.15);
+  white-space: nowrap;
+}
+
+.member-role-owner {
+  color: #7dd3fc;
+  background: rgba(125, 211, 252, 0.12);
+}
+
+.members-error {
+  color: #f87171;
+  font-size: 0.8125rem;
+  margin: 8px 0;
+}
+
+/* ── Delete watchlist ────────────────────────────────────────── */
+
+.watchlist-delete-btn {
+  margin-top: 12px;
+  padding: 7px 16px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #f87171;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.watchlist-delete-btn:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.watchlist-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Discover watchlist picker ───────────────────────────────── */
+
+.discover-watchlist-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.discover-picker-label {
+  color: #64748b;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.discover-picker-select {
+  padding: 5px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #e2e8f0;
+  font-size: 0.8125rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.discover-picker-select:focus {
+  border-color: rgba(125, 211, 252, 0.5);
+}

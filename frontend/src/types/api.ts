@@ -1,5 +1,7 @@
 export type TitleType = 'MOVIE' | 'TV'
 export type WatchStatus = 'WANT_TO_WATCH' | 'WATCHING' | 'WATCHED'
+export type WatchlistType = 'PERSONAL' | 'SHARED'
+export type MemberRole = 'OWNER' | 'MEMBER'
 
 export interface TitleSearchResponse {
   externalId: string
@@ -20,6 +22,23 @@ export interface TitleResponse {
   overview: string | null
   releaseDate: string | null
   posterUrl: string | null
+}
+
+export interface WatchlistMemberResponse {
+  userId: number
+  email: string
+  displayName: string
+  role: MemberRole
+  joinedAt: string
+}
+
+export interface WatchlistResponse {
+  id: number
+  name: string
+  type: WatchlistType
+  createdAt: string
+  updatedAt: string
+  members: WatchlistMemberResponse[]
 }
 
 export interface WatchlistEntryResponse {

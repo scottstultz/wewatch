@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { UnauthorizedError, addToWatchlist, findOrCreateTitle, getWatchlist, searchTitles } from '../services/api'
+import { useWatchlists } from '../contexts/WatchlistContext'
+import { UnauthorizedError, addToWatchlist, findOrCreateTitle, getWatchlistEntries, searchTitles } from '../services/api'
 import type { TitleSearchResponse, WatchStatus } from '../types/api'
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
@@ -17,7 +18,8 @@ function cardKey(title: TitleSearchResponse) {
 }
 
 function DiscoverPage() {
-  const { token, user, signOut } = useAuth()
+  const { token, signOut } = useAuth()
+  const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<TitleSearchResponse[]>([])
@@ -27,6 +29,7 @@ function DiscoverPage() {
   const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
   const [pendingStatus, setPendingStatus] = useState<Record<string, WatchStatus>>({})
 
+  // Re-run search with "already added" detection when watchlist changes
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
@@ -35,13 +38,13 @@ function DiscoverPage() {
     }
 
     const timer = setTimeout(async () => {
-      if (!token || !user?.id) return
+      if (!token || !selectedWatchlistId) return
       setIsLoading(true)
       setError(null)
       try {
         const [data, watchlist] = await Promise.all([
           searchTitles(query, token),
-          getWatchlist(user.id, token),
+          getWatchlistEntries(selectedWatchlistId, token),
         ])
         const watchedKeys = new Map(
           watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e.status])
@@ -50,10 +53,12 @@ function DiscoverPage() {
         setSearched(true)
         setCardStatus(prev => {
           const next = { ...prev }
+          // Clear stale statuses from previous watchlist
           data.forEach(title => {
             const k = cardKey(title)
             const existingStatus = watchedKeys.get(k)
             if (existingStatus) next[k] = existingStatus
+            else if (next[k] !== 'loading') delete next[k]
           })
           return next
         })
@@ -70,15 +75,15 @@ function DiscoverPage() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [query, token, signOut, navigate])
+  }, [query, token, selectedWatchlistId, signOut, navigate])
 
   async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
-    if (!token || !user?.id) return
+    if (!token || !selectedWatchlistId) return
     const key = cardKey(title)
     setCardStatus(prev => ({ ...prev, [key]: 'loading' }))
     try {
       const titleId = await findOrCreateTitle(title, token)
-      await addToWatchlist(user.id, titleId, status, token)
+      await addToWatchlist(selectedWatchlistId, titleId, status, token)
       setCardStatus(prev => ({ ...prev, [key]: status }))
     } catch (e) {
       if (e instanceof UnauthorizedError) {
@@ -104,6 +109,22 @@ function DiscoverPage() {
             onChange={(e) => setQuery(e.target.value)}
             autoFocus
           />
+
+          {/* Watchlist picker — choose which list to add to */}
+          {watchlists.length > 1 && (
+            <div className="discover-watchlist-picker">
+              <span className="discover-picker-label">Adding to:</span>
+              <select
+                className="discover-picker-select"
+                value={selectedWatchlistId ?? ''}
+                onChange={e => selectWatchlist(Number(e.target.value))}
+              >
+                {watchlists.map(wl => (
+                  <option key={wl.id} value={wl.id}>{wl.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </section>
 
