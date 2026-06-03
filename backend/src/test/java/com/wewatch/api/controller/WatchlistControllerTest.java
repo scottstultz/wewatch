@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -78,8 +80,10 @@ class WatchlistControllerTest {
 		// Default: all member/owner guards pass — individual tests override to test 403/404
 		when(watchlistService.requireMember(any(), any())).thenReturn(null);
 		doNothing().when(watchlistService).requireOwner(any(), any());
-		// findMembersByWatchlistId + userService.findById drive toWatchlistResponse
+		// batch and single member/user lookups drive toWatchlistResponse
 		when(watchlistService.findMembersByWatchlistId(1L)).thenReturn(List.of(TEST_MEMBER));
+		when(watchlistService.findMembersByWatchlistIds(anyList())).thenReturn(List.of(TEST_MEMBER));
+		when(userService.findByIds(anyList())).thenReturn(Map.of(10L, TEST_USER));
 		when(userService.findById(10L)).thenReturn(TEST_USER);
 	}
 

@@ -2,6 +2,8 @@ package com.wewatch.api.controller;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -40,8 +42,19 @@ public class WatchlistController {
 
 	@GetMapping
 	public List<WatchlistResponse> getWatchlists(@AuthenticationPrincipal User caller) {
-		return watchlistService.findByUserId(caller.getId()).stream()
-			.map(this::toWatchlistResponse)
+		List<Watchlist> watchlists = watchlistService.findByUserId(caller.getId());
+		if (watchlists.isEmpty()) {
+			return List.of();
+		}
+		List<Long> watchlistIds = watchlists.stream().map(Watchlist::getId).toList();
+		List<WatchlistMember> allMembers = watchlistService.findMembersByWatchlistIds(watchlistIds);
+		Map<Long, User> usersById = userService.findByIds(
+			allMembers.stream().map(m -> m.getId().getUserId()).distinct().collect(Collectors.toList())
+		);
+		Map<Long, List<WatchlistMember>> membersByWatchlistId = allMembers.stream()
+			.collect(Collectors.groupingBy(m -> m.getId().getWatchlistId()));
+		return watchlists.stream()
+			.map(w -> toWatchlistResponse(w, membersByWatchlistId.getOrDefault(w.getId(), List.of()), usersById))
 			.toList();
 	}
 
@@ -111,9 +124,16 @@ public class WatchlistController {
 	}
 
 	private WatchlistResponse toWatchlistResponse(Watchlist watchlist) {
-		List<WatchlistMemberResponse> members = watchlistService.findMembersByWatchlistId(watchlist.getId())
-			.stream()
-			.map(this::toMemberResponse)
+		List<WatchlistMember> members = watchlistService.findMembersByWatchlistId(watchlist.getId());
+		Map<Long, User> usersById = userService.findByIds(
+			members.stream().map(m -> m.getId().getUserId()).collect(Collectors.toList())
+		);
+		return toWatchlistResponse(watchlist, members, usersById);
+	}
+
+	private WatchlistResponse toWatchlistResponse(Watchlist watchlist, List<WatchlistMember> members, Map<Long, User> usersById) {
+		List<WatchlistMemberResponse> memberResponses = members.stream()
+			.map(m -> toMemberResponse(m, usersById.get(m.getId().getUserId())))
 			.toList();
 		return new WatchlistResponse(
 			watchlist.getId(),
@@ -121,12 +141,16 @@ public class WatchlistController {
 			watchlist.getType(),
 			watchlist.getCreatedAt(),
 			watchlist.getUpdatedAt(),
-			members
+			memberResponses
 		);
 	}
 
 	private WatchlistMemberResponse toMemberResponse(WatchlistMember member) {
 		User user = userService.findById(member.getId().getUserId());
+		return toMemberResponse(member, user);
+	}
+
+	private WatchlistMemberResponse toMemberResponse(WatchlistMember member, User user) {
 		return new WatchlistMemberResponse(
 			user.getId(),
 			user.getEmail(),

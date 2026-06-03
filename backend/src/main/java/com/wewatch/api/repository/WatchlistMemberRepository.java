@@ -1,5 +1,6 @@
 package com.wewatch.api.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,8 @@ public interface WatchlistMemberRepository extends JpaRepository<WatchlistMember
 	List<WatchlistMember> findByIdUserId(Long userId);
 
 	List<WatchlistMember> findByIdWatchlistId(Long watchlistId);
+
+	List<WatchlistMember> findByIdWatchlistIdIn(Collection<Long> watchlistIds);
 
 	Optional<WatchlistMember> findByIdWatchlistIdAndRole(Long watchlistId, MemberRole role);
 }
