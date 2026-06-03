@@ -39,6 +39,7 @@ public class WatchlistEntryService {
 		this.titleService = titleService;
 	}
 
+	@Transactional
 	public WatchlistEntry create(WatchlistEntry watchlistEntry) {
 		Instant now = Instant.now();
 		if (watchlistEntry.getStatus() == null) {
@@ -92,6 +93,7 @@ public class WatchlistEntryService {
 		return watchlistEntryRepository.findByWatchlistId(watchlistId, status, pageable);
 	}
 
+	@Transactional
 	public WatchlistEntry update(Long watchlistId, Long id, WatchlistEntry watchlistEntry) {
 		WatchlistEntry existingEntry = watchlistEntryRepository.findByIdAndWatchlistId(id, watchlistId)
 			.orElseThrow(() -> new NoSuchElementException("Watchlist entry not found: " + id));
