@@ -7,12 +7,6 @@ import type { TitleSearchResponse, WatchStatus } from '../types/api'
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
-function statusSelectClass(status: WatchStatus) {
-  if (status === 'WATCHING') return 'title-status-select title-status-select-watching'
-  if (status === 'WATCHED') return 'title-status-select title-status-select-watched'
-  return 'title-status-select title-status-select-want'
-}
-
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
 }
@@ -27,7 +21,6 @@ function DiscoverPage() {
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
-  const [pendingStatus, setPendingStatus] = useState<Record<string, WatchStatus>>({})
 
   // Re-run search with "already added" detection when watchlist changes
   useEffect(() => {
@@ -142,8 +135,8 @@ function DiscoverPage() {
             {results.map((title) => {
               const key = cardKey(title)
               const status = cardStatus[key] ?? 'idle'
-              const pending = pendingStatus[key] ?? 'WANT_TO_WATCH'
               const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
+              const addedLabel = status === 'WATCHING' ? 'Watching' : status === 'WATCHED' ? 'Watched' : 'Want to Watch'
               return (
                 <article key={key} className="title-card">
                   {title.posterUrl ? (
@@ -165,28 +158,27 @@ function DiscoverPage() {
                       <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
                     )}
                     {isAdded ? (
-                      <span className={`title-status-badge${status === 'WATCHING' ? ' title-status-badge-watching' : status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
-                        {status === 'WANT_TO_WATCH' ? 'Want to Watch' : status === 'WATCHING' ? 'Watching' : 'Watched'}
-                      </span>
+                      <div className="discover-action-row">
+                        <span className="discover-round-btn discover-round-btn-added" aria-label="Added to watchlist">✓</span>
+                        <span className="discover-added-label">{addedLabel}</span>
+                      </div>
                     ) : (
-                      <div className="title-add-row">
-                        <select
-                          className={statusSelectClass(pending)}
-                          value={pending}
-                          disabled={status === 'loading'}
-                          onChange={(e) => setPendingStatus(prev => ({ ...prev, [key]: e.target.value as WatchStatus }))}
-                        >
-                          <option value="WANT_TO_WATCH">Want to Watch</option>
-                          <option value="WATCHING">Watching</option>
-                          <option value="WATCHED">Watched</option>
-                        </select>
+                      <div className="discover-action-row">
                         <button
-                          className="title-add-btn"
+                          className={`discover-round-btn discover-round-btn-add${status === 'error' ? ' discover-round-btn-error' : ''}`}
                           disabled={status === 'loading'}
-                          onClick={() => handleAddToWatchlist(title, pending)}
+                          onClick={() => handleAddToWatchlist(title, 'WANT_TO_WATCH')}
+                          aria-label={status === 'error' ? 'Retry adding to watchlist' : 'Add to watchlist'}
                         >
-                          {status === 'loading' ? 'Adding…' : status === 'error' ? 'Retry' : 'Add'}
+                          {status === 'loading' ? '…' : (
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                            </svg>
+                          )}
                         </button>
+                        {status === 'error' && (
+                          <span className="discover-added-label discover-error-label">Failed — tap to retry</span>
+                        )}
                       </div>
                     )}
                   </div>
