@@ -157,11 +157,29 @@ class UserControllerTest {
 	}
 
 	@Test
-	void updateUserReturnsNotFoundWhenMissing() throws Exception {
-		when(userService.update(42L, null, "Scott")).thenThrow(new NoSuchElementException("User not found: 42"));
-
+	void updateUserReturnsForbiddenForOtherUser() throws Exception {
 		mockMvc.perform(
 			patch("/api/users/42")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "displayName": "Hacked"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(403))
+			.andExpect(jsonPath("$.message").value("Cannot update another user's profile"));
+	}
+
+	@Test
+	void updateUserReturnsNotFoundWhenMissing() throws Exception {
+		when(userService.update(1L, null, "Scott")).thenThrow(new NoSuchElementException("User not found: 1"));
+
+		mockMvc.perform(
+			patch("/api/users/1")
 				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
@@ -173,7 +191,7 @@ class UserControllerTest {
 			.andExpect(status().isNotFound())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(404))
-			.andExpect(jsonPath("$.message").value("User not found: 42"));
+			.andExpect(jsonPath("$.message").value("User not found: 1"));
 	}
 
 	@Test

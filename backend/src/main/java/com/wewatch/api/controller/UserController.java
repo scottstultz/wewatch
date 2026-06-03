@@ -15,6 +15,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 
 import com.wewatch.api.dto.UserResponse;
 import com.wewatch.api.dto.UserUpdateRequest;
+import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.service.UserService;
 
@@ -49,7 +50,14 @@ public class UserController {
 	}
 
 	@PatchMapping("/{userId}")
-	public UserResponse updateUser(@PathVariable Long userId, @Valid @RequestBody UserUpdateRequest request) {
+	public UserResponse updateUser(
+		@PathVariable Long userId,
+		@AuthenticationPrincipal User caller,
+		@Valid @RequestBody UserUpdateRequest request
+	) {
+		if (!caller.getId().equals(userId)) {
+			throw new ForbiddenException("Cannot update another user's profile");
+		}
 		return toResponse(userService.update(userId, request.email(), request.displayName()));
 	}
 
