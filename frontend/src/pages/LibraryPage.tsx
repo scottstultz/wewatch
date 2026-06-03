@@ -28,10 +28,10 @@ const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'WATCHED', label: 'Watched' },
 ]
 
-function statusSelectClass(status: WatchStatus) {
-  if (status === 'WATCHING') return 'title-status-select title-status-select-watching'
-  if (status === 'WATCHED') return 'title-status-select title-status-select-watched'
-  return 'title-status-select title-status-select-want'
+function statusBadgeClass(status: WatchStatus) {
+  if (status === 'WATCHING') return 'title-status-badge title-status-badge-watching title-status-badge-btn'
+  if (status === 'WATCHED') return 'title-status-badge title-status-badge-watched title-status-badge-btn'
+  return 'title-status-badge title-status-badge-btn'
 }
 
 type EntryAction = 'updating' | 'removing'
@@ -53,6 +53,7 @@ function LibraryPage() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<WatchStatus | 'ALL'>('ALL')
   const [entryActions, setEntryActions] = useState<Record<number, EntryAction>>({})
+  const [pickingEntry, setPickingEntry] = useState<number | null>(null)
 
   // Create watchlist form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -114,6 +115,13 @@ function LibraryPage() {
       else setError('Failed to update status. Please try again.')
     } finally {
       setEntryActions(prev => { const next = { ...prev }; delete next[entry.id]; return next })
+    }
+  }
+
+  function handleStatusOptionClick(entry: WatchlistEntryResponse, newStatus: WatchStatus) {
+    setPickingEntry(null)
+    if (newStatus !== entry.status) {
+      handleUpdateStatus(entry, newStatus)
     }
   }
 
@@ -340,16 +348,37 @@ function LibraryPage() {
                       {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
                     </span>
                     <p className="title-name">{entry.name}</p>
-                    <select
-                      className={statusSelectClass(entry.status)}
-                      value={entry.status}
-                      disabled={!!action}
-                      onChange={(e) => handleUpdateStatus(entry, e.target.value as WatchStatus)}
-                    >
-                      <option value="WANT_TO_WATCH">Want to Watch</option>
-                      <option value="WATCHING">Watching</option>
-                      <option value="WATCHED">Watched</option>
-                    </select>
+                    {pickingEntry === entry.id ? (
+                      <div className="discover-status-picker">
+                        <button
+                          className={`discover-status-option discover-status-option-want${entry.status === 'WANT_TO_WATCH' ? ' discover-status-option-current' : ''}`}
+                          onClick={() => handleStatusOptionClick(entry, 'WANT_TO_WATCH')}
+                        >
+                          {entry.status === 'WANT_TO_WATCH' ? '✓ ' : ''}Want to Watch
+                        </button>
+                        <button
+                          className={`discover-status-option discover-status-option-watching${entry.status === 'WATCHING' ? ' discover-status-option-current' : ''}`}
+                          onClick={() => handleStatusOptionClick(entry, 'WATCHING')}
+                        >
+                          {entry.status === 'WATCHING' ? '✓ ' : ''}Watching
+                        </button>
+                        <button
+                          className={`discover-status-option discover-status-option-watched${entry.status === 'WATCHED' ? ' discover-status-option-current' : ''}`}
+                          onClick={() => handleStatusOptionClick(entry, 'WATCHED')}
+                        >
+                          {entry.status === 'WATCHED' ? '✓ ' : ''}Watched
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        className={statusBadgeClass(entry.status)}
+                        disabled={!!action}
+                        onClick={() => setPickingEntry(entry.id)}
+                        aria-label={`Status: ${STATUS_LABELS[entry.status]}. Tap to change.`}
+                      >
+                        {action === 'updating' ? '…' : STATUS_LABELS[entry.status]}
+                      </button>
+                    )}
                     <div className="title-action-row">
                       <button
                         className="title-action-btn title-action-btn-danger"

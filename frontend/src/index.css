@@ -513,6 +513,22 @@ a {
   color: #94a3b8;
 }
 
+.title-status-badge-btn {
+  border: none;
+  font: inherit;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.title-status-badge-btn:hover:not(:disabled) {
+  filter: brightness(1.25);
+}
+
+.title-status-badge-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 /* ── Library section tabs ─────────────────────────────────── */
 
 .library-tabs {
@@ -632,16 +648,146 @@ a {
 
 .title-card-body > .title-status-select,
 .title-card-body > .title-status-badge,
-.title-card-body > .title-add-row {
+.title-card-body > .title-add-row,
+.title-card-body > .discover-action-row,
+.title-card-body > .discover-status-picker {
   margin-top: auto;
 }
 
-/* ── Discover add row ─────────────────────────────────────── */
+/* ── Discover add row (Library) ───────────────────────────── */
 
 .title-add-row {
   display: grid;
   gap: 6px;
   margin-top: 6px;
+}
+
+/* ── Discover round action button ─────────────────────────── */
+
+.discover-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.discover-round-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.discover-round-btn-add {
+  border: 2px solid rgba(52, 211, 153, 0.6);
+  background: transparent;
+  color: #34d399;
+  cursor: pointer;
+}
+
+.discover-round-btn-add:hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.15);
+  border-color: #34d399;
+  transform: scale(1.08);
+}
+
+.discover-round-btn-add:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.discover-round-btn-error {
+  border-color: rgba(248, 113, 113, 0.6);
+  color: #f87171;
+}
+
+.discover-round-btn-error:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: #f87171;
+}
+
+.discover-round-btn-added {
+  border: none;
+  background: rgba(52, 211, 153, 0.18);
+  color: #34d399;
+  font-size: 1rem;
+  cursor: default;
+}
+
+.discover-added-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #94a3b8;
+  min-width: 0;
+}
+
+.discover-error-label {
+  color: #f87171;
+}
+
+/* ── Discover status picker ───────────────────────────────── */
+
+.discover-status-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.discover-status-option {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.discover-status-option-want {
+  color: #34d399;
+  border-color: rgba(52, 211, 153, 0.3);
+  background: rgba(52, 211, 153, 0.08);
+}
+
+.discover-status-option-want:hover {
+  background: rgba(52, 211, 153, 0.2);
+  border-color: rgba(52, 211, 153, 0.6);
+}
+
+.discover-status-option-watching {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.3);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.discover-status-option-watching:hover {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.6);
+}
+
+.discover-status-option-watched {
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.3);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.discover-status-option-watched:hover {
+  background: rgba(148, 163, 184, 0.15);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.discover-status-option-current {
+  font-weight: 700;
+  opacity: 1;
 }
 
 /* ── Home page panel rows ─────────────────────────────────── */
