@@ -1,6 +1,7 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -103,6 +104,10 @@ public class WatchlistService {
 
 	public List<WatchlistMember> findMembersByWatchlistId(Long watchlistId) {
 		return watchlistMemberRepository.findByIdWatchlistId(watchlistId);
+	}
+
+	public List<WatchlistMember> findMembersByWatchlistIds(Collection<Long> watchlistIds) {
+		return watchlistMemberRepository.findByIdWatchlistIdIn(watchlistIds);
 	}
 
 	@Transactional

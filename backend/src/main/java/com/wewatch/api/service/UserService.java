@@ -2,8 +2,12 @@ package com.wewatch.api.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -53,6 +57,11 @@ public class UserService {
 	public User findById(Long id) {
 		return userRepository.findById(id)
 			.orElseThrow(() -> new NoSuchElementException("User not found: " + id));
+	}
+
+	public Map<Long, User> findByIds(List<Long> ids) {
+		return StreamSupport.stream(userRepository.findAllById(ids).spliterator(), false)
+			.collect(Collectors.toMap(User::getId, Function.identity()));
 	}
 
 	public User findByEmail(String email) {
