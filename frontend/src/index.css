@@ -896,44 +896,97 @@ a {
 
 /* ── Watchlist selector ──────────────────────────────────────── */
 
-.watchlist-selector {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+/* ── Watchlist dropdown ─────────────────────────────────────── */
+
+.watchlist-dropdown {
+  position: relative;
+  display: inline-block;
   margin-bottom: 8px;
 }
 
-.watchlist-pill {
+.watchlist-dropdown-trigger {
   padding: 5px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(125, 211, 252, 0.5);
   border-radius: 16px;
-  background: transparent;
-  color: #94a3b8;
+  background: rgba(125, 211, 252, 0.12);
+  color: #7dd3fc;
   font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background 0.15s;
 }
 
-.watchlist-pill:hover {
-  background: rgba(148, 163, 184, 0.08);
-  color: #e2e8f0;
+.watchlist-dropdown-trigger:hover {
+  background: rgba(125, 211, 252, 0.2);
 }
 
-.watchlist-pill-active {
-  border-color: rgba(125, 211, 252, 0.5);
-  background: rgba(125, 211, 252, 0.12);
+.watchlist-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  padding: 4px 0;
+  margin: 0;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: #1e293b;
+  list-style: none;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.watchlist-dropdown-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  text-align: left;
+  gap: 8px;
+}
+
+.watchlist-dropdown-item:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: #f1f5f9;
+}
+
+.watchlist-dropdown-item-active {
   color: #7dd3fc;
 }
 
-.watchlist-pill-new {
-  border-style: dashed;
+.watchlist-default-badge {
+  font-size: 0.6875rem;
+  color: #64748b;
+  margin-left: auto;
+}
+
+.watchlist-check {
+  margin-left: auto;
+  color: #7dd3fc;
+}
+
+/* When both badge and check are present, only check gets auto margin */
+.watchlist-dropdown-item-active .watchlist-default-badge {
+  margin-left: 0;
+}
+
+.watchlist-dropdown-divider {
+  height: 1px;
+  margin: 4px 10px;
+  background: rgba(148, 163, 184, 0.15);
+  list-style: none;
+}
+
+.watchlist-dropdown-item-new {
   color: #64748b;
 }
 
-.watchlist-pill-new:hover {
+.watchlist-dropdown-item-new:hover {
   color: #7dd3fc;
-  border-color: rgba(125, 211, 252, 0.35);
 }
 
 /* ── Create watchlist form ───────────────────────────────────── */
