@@ -19,6 +19,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.tmdb.TmdbTvSeason;
 
 @RestClientTest(TmdbClient.class)
 @TestPropertySource(properties = "tmdb.api-key=test-key")
@@ -150,6 +151,110 @@ class TmdbClientTest {
 
 		assertThatThrownBy(() -> tmdbClient.search("inception", TitleType.MOVIE))
 			.isInstanceOf(TmdbApiException.class);
+	}
+
+	// ─── getSeasons ──────────────────────────────────────────────────────────
+
+	private static final String TV_DETAIL_JSON = """
+		{
+		  "id": 1399,
+		  "number_of_seasons": 8,
+		  "seasons": [
+		    {
+		      "id": 3624,
+		      "season_number": 0,
+		      "name": "Specials",
+		      "episode_count": 53,
+		      "poster_path": "/specials.jpg",
+		      "air_date": "2010-12-05"
+		    },
+		    {
+		      "id": 3625,
+		      "season_number": 1,
+		      "name": "Season 1",
+		      "episode_count": 10,
+		      "poster_path": "/season1.jpg",
+		      "air_date": "2011-04-17"
+		    }
+		  ]
+		}
+		""";
+
+	@Test
+	void getSeasonsReturnsMappedSeasonList() {
+		server.expect(requestTo(containsString("/3/tv/1399")))
+			.andRespond(withSuccess(TV_DETAIL_JSON, MediaType.APPLICATION_JSON));
+
+		List<TmdbTvSeason> seasons = tmdbClient.getSeasons("1399");
+
+		assertThat(seasons).hasSize(2);
+		assertThat(seasons.get(0).seasonNumber()).isEqualTo(0);
+		assertThat(seasons.get(0).name()).isEqualTo("Specials");
+		assertThat(seasons.get(0).episodeCount()).isEqualTo(53);
+		assertThat(seasons.get(1).seasonNumber()).isEqualTo(1);
+		assertThat(seasons.get(1).name()).isEqualTo("Season 1");
+		assertThat(seasons.get(1).episodeCount()).isEqualTo(10);
+		assertThat(seasons.get(1).posterPath()).isEqualTo("/season1.jpg");
+	}
+
+	// ─── getSeasonDetail ─────────────────────────────────────────────────────
+
+	private static final String SEASON_DETAIL_JSON = """
+		{
+		  "id": 3625,
+		  "season_number": 1,
+		  "name": "Season 1",
+		  "overview": "The first season.",
+		  "poster_path": "/season1.jpg",
+		  "air_date": "2011-04-17",
+		  "episodes": [
+		    {
+		      "id": 63056,
+		      "episode_number": 1,
+		      "name": "Winter Is Coming",
+		      "overview": "Jon Arryn has died.",
+		      "air_date": "2011-04-17",
+		      "still_path": "/ep1.jpg",
+		      "runtime": 62
+		    },
+		    {
+		      "id": 63057,
+		      "episode_number": 2,
+		      "name": "The Kingsroad",
+		      "overview": "The Stark family deals with bitter truths.",
+		      "air_date": "2011-04-24",
+		      "still_path": "/ep2.jpg",
+		      "runtime": 56
+		    },
+		    {
+		      "id": 63058,
+		      "episode_number": 3,
+		      "name": "Lord Snow",
+		      "overview": "Jon Snow arrives at the Wall.",
+		      "air_date": "2011-05-01",
+		      "still_path": null,
+		      "runtime": 58
+		    }
+		  ]
+		}
+		""";
+
+	@Test
+	void getSeasonDetailReturnsMappedEpisodeList() {
+		server.expect(requestTo(containsString("/3/tv/1399/season/1")))
+			.andRespond(withSuccess(SEASON_DETAIL_JSON, MediaType.APPLICATION_JSON));
+
+		TmdbTvSeason season = tmdbClient.getSeasonDetail("1399", 1);
+
+		assertThat(season.seasonNumber()).isEqualTo(1);
+		assertThat(season.name()).isEqualTo("Season 1");
+		assertThat(season.episodes()).hasSize(3);
+		assertThat(season.episodes().get(0).episodeNumber()).isEqualTo(1);
+		assertThat(season.episodes().get(0).name()).isEqualTo("Winter Is Coming");
+		assertThat(season.episodes().get(0).airDate()).isEqualTo("2011-04-17");
+		assertThat(season.episodes().get(0).stillPath()).isEqualTo("/ep1.jpg");
+		assertThat(season.episodes().get(0).runtime()).isEqualTo(62);
+		assertThat(season.episodes().get(2).stillPath()).isNull();
 	}
 
 }

@@ -17,6 +17,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wewatch.api.dto.EpisodeResponse;
+import com.wewatch.api.dto.SeasonDetailResponse;
+import com.wewatch.api.dto.SeasonSummaryResponse;
 import com.wewatch.api.dto.TitleCreateRequest;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
@@ -25,6 +28,7 @@ import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbTvSeason;
 
 @RestController
 @RequestMapping("/api/titles")
@@ -96,6 +100,56 @@ public class TitleController {
 			request.posterUrl(),
 			request.type()
 		));
+	}
+
+	@GetMapping("/{titleId}/seasons")
+	public List<SeasonSummaryResponse> getSeasons(@PathVariable Long titleId) {
+		Title title = titleService.findById(titleId);
+		requireTv(title);
+		return tmdbClient.getSeasons(title.getExternalId()).stream()
+			.map(season -> new SeasonSummaryResponse(
+				season.seasonNumber(),
+				season.name(),
+				season.episodeCount() != null ? season.episodeCount() : 0,
+				TmdbClient.posterUrl(season.posterPath()),
+				season.airDate()
+			))
+			.toList();
+	}
+
+	@GetMapping("/{titleId}/seasons/{seasonNumber}")
+	public SeasonDetailResponse getSeasonDetail(
+		@PathVariable Long titleId,
+		@PathVariable int seasonNumber
+	) {
+		Title title = titleService.findById(titleId);
+		requireTv(title);
+		TmdbTvSeason season = tmdbClient.getSeasonDetail(title.getExternalId(), seasonNumber);
+		List<EpisodeResponse> episodes = season.episodes() != null
+			? season.episodes().stream()
+				.map(ep -> new EpisodeResponse(
+					ep.episodeNumber(),
+					ep.name(),
+					ep.overview(),
+					ep.airDate(),
+					TmdbClient.stillUrl(ep.stillPath()),
+					ep.runtime()
+				))
+				.toList()
+			: List.of();
+		return new SeasonDetailResponse(
+			season.seasonNumber(),
+			season.name(),
+			season.overview(),
+			TmdbClient.posterUrl(season.posterPath()),
+			episodes
+		);
+	}
+
+	private void requireTv(Title title) {
+		if (title.getType() != TitleType.TV) {
+			throw new IllegalArgumentException("Season data is only available for TV shows");
+		}
 	}
 
 	private TitleResponse toResponse(Title title) {
