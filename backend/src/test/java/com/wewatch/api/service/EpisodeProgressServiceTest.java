@@ -154,24 +154,44 @@ class EpisodeProgressServiceTest {
 	// ─── bulkMarkSeason ──────────────────────────────────────────────────────
 
 	@Test
-	void bulkMarkSeasonUpdatesAndReturnsSeason() {
+	void bulkMarkSeasonCreatesRowsAndMarksWatched() {
+		// Episodes 1 and 2 already exist, episode 3 does not
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 1))
+			.thenReturn(Optional.of(new EpisodeProgress(1L, 1L, 1, 1, false, null)));
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 2))
+			.thenReturn(Optional.of(new EpisodeProgress(2L, 1L, 1, 2, false, null)));
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 3))
+			.thenReturn(Optional.empty());
+		when(episodeProgressRepository.save(any(EpisodeProgress.class)))
+			.thenAnswer(inv -> {
+				EpisodeProgress ep = inv.getArgument(0);
+				ep.setId(99L);
+				return ep;
+			});
 		when(episodeProgressRepository.updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class)))
 			.thenReturn(3);
 		EpisodeProgress ep1 = new EpisodeProgress(1L, 1L, 1, 1, true, EPOCH);
 		EpisodeProgress ep2 = new EpisodeProgress(2L, 1L, 1, 2, true, EPOCH);
-		EpisodeProgress ep3 = new EpisodeProgress(3L, 1L, 1, 3, true, EPOCH);
+		EpisodeProgress ep3 = new EpisodeProgress(99L, 1L, 1, 3, true, EPOCH);
 		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 1))
 			.thenReturn(List.of(ep1, ep2, ep3));
 
-		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 1, true);
+		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 1, true, List.of(1, 2, 3));
 
 		assertThat(result).hasSize(3);
 		assertThat(result).allMatch(EpisodeProgress::getWatched);
+		// Should have created the missing episode 3
+		verify(episodeProgressRepository).save(any(EpisodeProgress.class));
 		verify(episodeProgressRepository).updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class));
 	}
 
 	@Test
 	void bulkMarkSeasonUnwatchedClearsTimestamp() {
+		// All episodes already exist
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 2, 1))
+			.thenReturn(Optional.of(new EpisodeProgress(4L, 1L, 2, 1, true, EPOCH)));
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 2, 2))
+			.thenReturn(Optional.of(new EpisodeProgress(5L, 1L, 2, 2, true, EPOCH)));
 		when(episodeProgressRepository.updateSeasonWatched(1L, 2, false, null))
 			.thenReturn(2);
 		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 2))
@@ -180,7 +200,7 @@ class EpisodeProgressServiceTest {
 				new EpisodeProgress(5L, 1L, 2, 2, false, null)
 			));
 
-		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 2, false);
+		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 2, false, List.of(1, 2));
 
 		assertThat(result).hasSize(2);
 		assertThat(result).noneMatch(EpisodeProgress::getWatched);
@@ -189,7 +209,7 @@ class EpisodeProgressServiceTest {
 
 	@Test
 	void bulkMarkSeasonThrowsForMovieEntry() {
-		assertThatThrownBy(() -> service.bulkMarkSeason(10L, 2L, 1, true))
+		assertThatThrownBy(() -> service.bulkMarkSeason(10L, 2L, 1, true, List.of(1, 2)))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("Episode tracking is only available for TV shows");
 	}

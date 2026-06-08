@@ -74,7 +74,7 @@ public class EpisodeProgressController {
 	) {
 		watchlistService.requireEditor(watchlistId, caller.getId());
 		return episodeProgressService.bulkMarkSeason(
-			watchlistId, entryId, seasonNumber, request.watched()
+			watchlistId, entryId, seasonNumber, request.watched(), request.episodeNumbers()
 		)
 			.stream()
 			.map(this::toResponse)
