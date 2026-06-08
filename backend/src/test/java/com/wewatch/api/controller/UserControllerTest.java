@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
 
@@ -44,13 +45,15 @@ class UserControllerTest {
 	@MockBean
 	private JwtDecoder jwtDecoder;
 
+	@MockBean
+	private JwtTokenService jwtTokenService;
+
 	private static final User TEST_USER = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
 
 	private static final Jwt TEST_JWT = Jwt.withTokenValue("test-token")
-		.header("alg", "RS256")
-		.claim("sub", "sub-123")
-		.claim("email", "test@example.com")
-		.claim("name", "Test User")
+		.header("alg", "HS256")
+		.claim("sub", "1")
+		.issuer("wewatch")
 		.issuedAt(Instant.EPOCH)
 		.expiresAt(Instant.EPOCH.plusSeconds(86400))
 		.build();
@@ -58,7 +61,7 @@ class UserControllerTest {
 	@BeforeEach
 	void setupAuth() {
 		when(jwtDecoder.decode(any())).thenReturn(TEST_JWT);
-		when(userService.findOrCreateByGoogleIdentity(any(), any(), any())).thenReturn(TEST_USER);
+		when(userService.findById(1L)).thenReturn(TEST_USER);
 	}
 
 	@Test

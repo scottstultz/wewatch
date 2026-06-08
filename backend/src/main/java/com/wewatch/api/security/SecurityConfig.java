@@ -16,6 +16,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -33,7 +34,7 @@ public class SecurityConfig {
 	private String allowedOrigins;
 
 	@Bean
-	public SecurityFilterChain filterChain(HttpSecurity http, GoogleJwtAuthenticationConverter converter,
+	public SecurityFilterChain filterChain(HttpSecurity http, WeWatchJwtAuthenticationConverter converter,
 			RequestCorrelationFilter requestCorrelationFilter) throws Exception {
 		http
 			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -41,7 +42,7 @@ public class SecurityConfig {
 			.addFilterBefore(requestCorrelationFilter, UsernamePasswordAuthenticationFilter.class)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(auth -> auth
-				.requestMatchers("/api/health").permitAll()
+				.requestMatchers("/api/health", "/api/auth/**").permitAll()
 				.anyRequest().authenticated()
 			)
 			.exceptionHandling(ex -> ex
@@ -68,8 +69,13 @@ public class SecurityConfig {
 	}
 
 	@Bean
-	public GoogleJwtAuthenticationConverter googleJwtAuthenticationConverter(UserService userService) {
-		return new GoogleJwtAuthenticationConverter(userService);
+	public WeWatchJwtAuthenticationConverter weWatchJwtAuthenticationConverter(UserService userService) {
+		return new WeWatchJwtAuthenticationConverter(userService);
+	}
+
+	@Bean
+	public JwtDecoder jwtDecoder(JwtTokenService jwtTokenService) {
+		return jwtTokenService.jwtDecoder();
 	}
 
 	private void sendUnauthorized(HttpServletRequest request, HttpServletResponse response, AuthenticationException e)

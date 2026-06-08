@@ -13,9 +13,18 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import com.wewatch.api.dto.ApiErrorResponse;
+import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+	@ExceptionHandler(InvalidCredentialException.class)
+	public ResponseEntity<ApiErrorResponse> handleInvalidCredential(
+		InvalidCredentialException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request.getRequestURI());
+	}
 
 	@ExceptionHandler(NoSuchElementException.class)
 	public ResponseEntity<ApiErrorResponse> handleNotFound(NoSuchElementException exception, HttpServletRequest request) {
