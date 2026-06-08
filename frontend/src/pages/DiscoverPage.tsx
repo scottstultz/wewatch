@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
@@ -16,6 +16,7 @@ function DiscoverPage() {
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const [results, setResults] = useState<TitleSearchResponse[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -94,14 +95,26 @@ function DiscoverPage() {
         <div className="hero-copy">
           <p className="section-kicker">Discover</p>
           <h2>Find something to watch.</h2>
-          <input
-            className="search-input"
-            type="search"
-            placeholder="Search movies and TV shows…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            autoFocus
-          />
+          <div className="search-input-wrapper">
+            <input
+              ref={searchInputRef}
+              className="search-input"
+              type="search"
+              placeholder="Search movies and TV shows…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              autoFocus
+            />
+            {query && (
+              <button
+                className="search-clear-btn"
+                onClick={() => { setQuery(''); searchInputRef.current?.focus() }}
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
 
           {/* Watchlist picker — choose which list to add to */}
           {watchlists.length > 1 && (
