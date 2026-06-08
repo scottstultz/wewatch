@@ -42,6 +42,8 @@ import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbTvEpisode;
+import com.wewatch.api.tmdb.TmdbTvSeason;
 
 @WebMvcTest(TitleController.class)
 @Import(SecurityConfig.class)
@@ -537,5 +539,87 @@ class TitleControllerTest {
 		mockMvc.perform(get("/api/titles/search")
 			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isBadRequest());
+	}
+
+	// ─── GET /api/titles/{titleId}/seasons ────────────────────────────────────
+
+	private static final Title TV_TITLE = new Title(
+		5L, "1399", "TMDB", TitleType.TV, "Game of Thrones",
+		null, null, null, Instant.EPOCH, Instant.EPOCH
+	);
+
+	private static final Title MOVIE_TITLE = new Title(
+		6L, "603", "TMDB", TitleType.MOVIE, "The Matrix",
+		null, null, null, Instant.EPOCH, Instant.EPOCH
+	);
+
+	@Test
+	void getSeasonsReturnsSummariesForTvTitle() throws Exception {
+		when(titleService.findById(5L)).thenReturn(TV_TITLE);
+		when(tmdbClient.getSeasons("1399")).thenReturn(List.of(
+			new TmdbTvSeason(3625, 1, "Season 1", null, "/s1.jpg", 10, "2011-04-17", null),
+			new TmdbTvSeason(3626, 2, "Season 2", null, null, 10, "2012-04-01", null)
+		));
+
+		mockMvc.perform(get("/api/titles/5/seasons")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.length()").value(2))
+			.andExpect(jsonPath("$[0].seasonNumber").value(1))
+			.andExpect(jsonPath("$[0].name").value("Season 1"))
+			.andExpect(jsonPath("$[0].episodeCount").value(10))
+			.andExpect(jsonPath("$[0].posterUrl").value("https://image.tmdb.org/t/p/w500/s1.jpg"))
+			.andExpect(jsonPath("$[0].airDate").value("2011-04-17"))
+			.andExpect(jsonPath("$[1].seasonNumber").value(2))
+			.andExpect(jsonPath("$[1].posterUrl").doesNotExist());
+	}
+
+	@Test
+	void getSeasonsReturnsBadRequestForMovie() throws Exception {
+		when(titleService.findById(6L)).thenReturn(MOVIE_TITLE);
+
+		mockMvc.perform(get("/api/titles/6/seasons")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("Season data is only available for TV shows"));
+	}
+
+	// ─── GET /api/titles/{titleId}/seasons/{seasonNumber} ────────────────────
+
+	@Test
+	void getSeasonDetailReturnsEpisodesForTvTitle() throws Exception {
+		when(titleService.findById(5L)).thenReturn(TV_TITLE);
+		when(tmdbClient.getSeasonDetail("1399", 1)).thenReturn(new TmdbTvSeason(
+			3625, 1, "Season 1", "The first season.", "/s1.jpg", 10, "2011-04-17",
+			List.of(
+				new TmdbTvEpisode(63056, 1, "Winter Is Coming", "Jon Arryn has died.", "2011-04-17", "/ep1.jpg", 62),
+				new TmdbTvEpisode(63057, 2, "The Kingsroad", "Bitter truths.", "2011-04-24", null, 56)
+			)
+		));
+
+		mockMvc.perform(get("/api/titles/5/seasons/1")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.seasonNumber").value(1))
+			.andExpect(jsonPath("$.name").value("Season 1"))
+			.andExpect(jsonPath("$.overview").value("The first season."))
+			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/s1.jpg"))
+			.andExpect(jsonPath("$.episodes.length()").value(2))
+			.andExpect(jsonPath("$.episodes[0].episodeNumber").value(1))
+			.andExpect(jsonPath("$.episodes[0].name").value("Winter Is Coming"))
+			.andExpect(jsonPath("$.episodes[0].airDate").value("2011-04-17"))
+			.andExpect(jsonPath("$.episodes[0].stillUrl").value("https://image.tmdb.org/t/p/w300/ep1.jpg"))
+			.andExpect(jsonPath("$.episodes[0].runtimeMinutes").value(62))
+			.andExpect(jsonPath("$.episodes[1].stillUrl").doesNotExist());
+	}
+
+	@Test
+	void getSeasonDetailReturnsBadRequestForMovie() throws Exception {
+		when(titleService.findById(6L)).thenReturn(MOVIE_TITLE);
+
+		mockMvc.perform(get("/api/titles/6/seasons/1")
+			.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.message").value("Season data is only available for TV shows"));
 	}
 }

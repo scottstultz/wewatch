@@ -16,6 +16,7 @@ import com.wewatch.api.model.TitleType;
 public class TmdbClient {
 
 	private static final String POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500";
+	private static final String STILL_BASE_URL = "https://image.tmdb.org/t/p/w300";
 
 	private final RestClient restClient;
 
@@ -45,6 +46,41 @@ public class TmdbClient {
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB search failed: " + e.getMessage(), e);
 		}
+	}
+
+	public List<TmdbTvSeason> getSeasons(String tmdbId) {
+		try {
+			TmdbTvDetail detail = restClient.get()
+				.uri("/3/tv/{id}?language=en-US", tmdbId)
+				.retrieve()
+				.body(TmdbTvDetail.class);
+			return detail != null && detail.seasons() != null ? detail.seasons() : List.of();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB get seasons failed: " + e.getMessage(), e);
+		}
+	}
+
+	public TmdbTvSeason getSeasonDetail(String tmdbId, int seasonNumber) {
+		try {
+			TmdbTvSeason season = restClient.get()
+				.uri("/3/tv/{id}/season/{season}?language=en-US", tmdbId, seasonNumber)
+				.retrieve()
+				.body(TmdbTvSeason.class);
+			if (season == null) {
+				throw new TmdbApiException("TMDB returned null for season " + seasonNumber, null);
+			}
+			return season;
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB get season detail failed: " + e.getMessage(), e);
+		}
+	}
+
+	public static String posterUrl(String posterPath) {
+		return posterPath != null ? POSTER_BASE_URL + posterPath : null;
+	}
+
+	public static String stillUrl(String stillPath) {
+		return stillPath != null ? STILL_BASE_URL + stillPath : null;
 	}
 
 	private List<TmdbItem> fetchItems(String path, String query) {
