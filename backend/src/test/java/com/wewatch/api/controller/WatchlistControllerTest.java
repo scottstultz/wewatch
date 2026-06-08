@@ -72,7 +72,8 @@ class WatchlistControllerTest {
 	private static final WatchlistMember TEST_MEMBER = new WatchlistMember(
 		new WatchlistMemberId(1L, 10L),
 		MemberRole.OWNER,
-		EPOCH
+		EPOCH,
+		false
 	);
 
 	@BeforeEach
@@ -277,6 +278,73 @@ class WatchlistControllerTest {
 		)
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.status").value(400));
+	}
+
+	@Test
+	void getWatchlistsIncludesIsDefaultFlag() throws Exception {
+		WatchlistMember defaultMember = new WatchlistMember(
+			new WatchlistMemberId(1L, 10L),
+			MemberRole.OWNER,
+			EPOCH,
+			true
+		);
+		when(watchlistService.findByUserId(10L)).thenReturn(List.of(TEST_WATCHLIST));
+		when(watchlistService.findMembersByWatchlistIds(anyList())).thenReturn(List.of(defaultMember));
+
+		mockMvc.perform(get("/api/watchlists").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].isDefault").value(true));
+	}
+
+	@Test
+	void getWatchlistsIsDefaultFalseWhenNotDefault() throws Exception {
+		when(watchlistService.findByUserId(10L)).thenReturn(List.of(TEST_WATCHLIST));
+
+		mockMvc.perform(get("/api/watchlists").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].isDefault").value(false));
+	}
+
+	// ─── PATCH /api/watchlists/{watchlistId}/default ─────────────────────────
+
+	@Test
+	void setDefaultReturnsUpdatedWatchlist() throws Exception {
+		doNothing().when(watchlistService).setDefault(1L, 10L);
+		when(watchlistService.findById(1L)).thenReturn(TEST_WATCHLIST);
+		WatchlistMember defaultMember = new WatchlistMember(
+			new WatchlistMemberId(1L, 10L),
+			MemberRole.OWNER,
+			EPOCH,
+			true
+		);
+		when(watchlistService.findMembersByWatchlistId(1L)).thenReturn(List.of(defaultMember));
+
+		mockMvc.perform(patch("/api/watchlists/1/default").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.isDefault").value(true));
+
+		verify(watchlistService).setDefault(1L, 10L);
+	}
+
+	@Test
+	void setDefaultReturnsForbiddenWhenNotMember() throws Exception {
+		doThrow(new ForbiddenException("Not a member of this watchlist"))
+			.when(watchlistService).setDefault(1L, 10L);
+
+		mockMvc.perform(patch("/api/watchlists/1/default").with(asUser(TEST_USER)))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Not a member of this watchlist"));
+	}
+
+	@Test
+	void setDefaultReturnsNotFoundWhenWatchlistMissing() throws Exception {
+		doThrow(new NoSuchElementException("Watchlist not found: 1"))
+			.when(watchlistService).setDefault(1L, 10L);
+
+		mockMvc.perform(patch("/api/watchlists/1/default").with(asUser(TEST_USER)))
+			.andExpect(status().isNotFound())
+			.andExpect(jsonPath("$.message").value("Watchlist not found: 1"));
 	}
 
 	// ─── DELETE /api/watchlists/{watchlistId} ────────────────────────────────

@@ -48,6 +48,7 @@ public class WatchlistService {
 		member.setId(memberId);
 		member.setRole(MemberRole.OWNER);
 		member.setJoinedAt(now);
+		member.setDefault(true);
 		watchlistMemberRepository.save(member);
 
 		return saved;
@@ -148,5 +149,12 @@ public class WatchlistService {
 		if (member.getRole() != MemberRole.OWNER) {
 			throw new ForbiddenException("Owner role required");
 		}
+	}
+
+	@Transactional
+	public void setDefault(Long watchlistId, Long userId) {
+		requireMember(watchlistId, userId);
+		watchlistMemberRepository.clearDefault(userId);
+		watchlistMemberRepository.setDefault(watchlistId, userId);
 	}
 }

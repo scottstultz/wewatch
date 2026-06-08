@@ -7,7 +7,7 @@ import type { WatchlistEntryResponse } from '../types/api'
 
 function HomePage() {
   const { token, signOut } = useAuth()
-  const { personalWatchlist } = useWatchlists()
+  const { selectedWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -19,13 +19,13 @@ function HomePage() {
   }, [signOut, navigate])
 
   useEffect(() => {
-    if (!token || !personalWatchlist) return
+    if (!token || !selectedWatchlist) return
     let cancelled = false
 
     setIsLoading(true)
     setError(null)
 
-    getWatchlistEntries(personalWatchlist.id, token)
+    getWatchlistEntries(selectedWatchlist.id, token)
       .then(data => { if (!cancelled) setEntries(data) })
       .catch(e => {
         if (cancelled) return
@@ -35,7 +35,7 @@ function HomePage() {
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [token, personalWatchlist, handleUnauthorized])
+  }, [token, selectedWatchlist, handleUnauthorized])
 
   const wantToWatchCount = entries.filter(e => e.status === 'WANT_TO_WATCH').length
   const watchingCount = entries.filter(e => e.status === 'WATCHING').length
