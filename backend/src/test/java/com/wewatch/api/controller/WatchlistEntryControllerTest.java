@@ -44,6 +44,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
+import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.UserService;
@@ -69,6 +70,9 @@ class WatchlistEntryControllerTest {
 
 	@MockBean
 	private WatchlistService watchlistService;
+
+	@MockBean
+	private EpisodeProgressRepository episodeProgressRepository;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
@@ -499,5 +503,72 @@ class WatchlistEntryControllerTest {
 		mockMvc.perform(delete("/api/watchlists/10/entries/1").with(asUser(TEST_USER)))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("Editor role required"));
+	}
+
+	// ─── Episode progress summary on entries ────────────────────────────────
+
+	private static final Title TV_TITLE = new Title(
+		30L, "1399", "TMDB", TitleType.TV, "Game of Thrones",
+		null, null, null, Instant.EPOCH, Instant.EPOCH
+	);
+
+	@Test
+	void getEntriesIncludesEpisodeSummaryForTvWithProgress() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry tvEntry = new WatchlistEntry(
+			5L, 10L, 30L, WatchStatus.WATCHING, addedAt, addedAt, addedAt, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(tvEntry)));
+		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
+		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 12L, 8L }));
+		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 2, 5 }));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].id").value(5))
+			.andExpect(jsonPath("$.content[0].episodeProgress.watchedCount").value(8))
+			.andExpect(jsonPath("$.content[0].episodeProgress.lastWatchedSeason").value(2))
+			.andExpect(jsonPath("$.content[0].episodeProgress.lastWatchedEpisode").value(5));
+	}
+
+	@Test
+	void getEntriesOmitsSummaryForTvWithNoProgress() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry tvEntry = new WatchlistEntry(
+			5L, 10L, 30L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(tvEntry)));
+		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
+		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
+			.thenReturn(List.of());
+		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.of());
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].id").value(5))
+			.andExpect(jsonPath("$.content[0].episodeProgress").doesNotExist());
+	}
+
+	@Test
+	void getEntriesOmitsSummaryForMovie() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry movieEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(movieEntry)));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].id").value(1))
+			.andExpect(jsonPath("$.content[0].episodeProgress").doesNotExist());
 	}
 }

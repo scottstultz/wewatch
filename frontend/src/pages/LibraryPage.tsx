@@ -272,7 +272,9 @@ function LibraryPage() {
                         className="title-episodes-link"
                         onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
                       >
-                        Episodes
+                        {entry.episodeProgress
+                          ? `S${entry.episodeProgress.lastWatchedSeason} E${entry.episodeProgress.lastWatchedEpisode} · ${entry.episodeProgress.watchedCount} watched`
+                          : 'Episodes'}
                       </button>
                     )}
                     {pickingEntry === entry.id ? (
