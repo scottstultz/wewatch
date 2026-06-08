@@ -1,7 +1,7 @@
 export type TitleType = 'MOVIE' | 'TV'
 export type WatchStatus = 'WANT_TO_WATCH' | 'WATCHING' | 'WATCHED'
 export type WatchlistType = 'PERSONAL' | 'SHARED'
-export type MemberRole = 'OWNER' | 'MEMBER'
+export type MemberRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 
 export interface TitleSearchResponse {
   externalId: string

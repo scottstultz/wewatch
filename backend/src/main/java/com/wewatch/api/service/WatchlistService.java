@@ -120,7 +120,7 @@ public class WatchlistService {
 		}
 		WatchlistMember member = new WatchlistMember();
 		member.setId(memberId);
-		member.setRole(MemberRole.MEMBER);
+		member.setRole(MemberRole.EDITOR);
 		member.setJoinedAt(Instant.now());
 		return watchlistMemberRepository.save(member);
 	}
@@ -149,6 +149,33 @@ public class WatchlistService {
 		if (member.getRole() != MemberRole.OWNER) {
 			throw new ForbiddenException("Owner role required");
 		}
+	}
+
+	public WatchlistMember requireEditor(Long watchlistId, Long userId) {
+		WatchlistMember member = requireMember(watchlistId, userId);
+		if (member.getRole() == MemberRole.VIEWER) {
+			throw new ForbiddenException("Editor role required");
+		}
+		return member;
+	}
+
+	@Transactional
+	public WatchlistMember updateMemberRole(Long watchlistId, Long targetUserId, MemberRole newRole, Long callerUserId) {
+		requireOwner(watchlistId, callerUserId);
+		if (targetUserId.equals(callerUserId)) {
+			throw new ForbiddenException("Cannot change your own role");
+		}
+		if (newRole == MemberRole.OWNER) {
+			throw new IllegalArgumentException("Cannot promote to owner");
+		}
+		WatchlistMemberId memberId = new WatchlistMemberId(watchlistId, targetUserId);
+		WatchlistMember target = watchlistMemberRepository.findById(memberId)
+			.orElseThrow(() -> new NoSuchElementException("User " + targetUserId + " is not a member of watchlist " + watchlistId));
+		if (target.getRole() == MemberRole.OWNER) {
+			throw new ForbiddenException("Cannot change the owner's role");
+		}
+		target.setRole(newRole);
+		return watchlistMemberRepository.save(target);
 	}
 
 	@Transactional

@@ -386,7 +386,7 @@ class WatchlistControllerTest {
 		User newUser = new User(20L, "new@example.com", "New Member", EPOCH, EPOCH, "google", "sub-456");
 		WatchlistMember newMember = new WatchlistMember(
 			new WatchlistMemberId(1L, 20L),
-			MemberRole.MEMBER,
+			MemberRole.EDITOR,
 			EPOCH
 		);
 		when(userService.findByEmail("new@example.com")).thenReturn(newUser);
@@ -408,7 +408,7 @@ class WatchlistControllerTest {
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.userId").value(20))
 			.andExpect(jsonPath("$.email").value("new@example.com"))
-			.andExpect(jsonPath("$.role").value("MEMBER"));
+			.andExpect(jsonPath("$.role").value("EDITOR"));
 
 		verify(watchlistService).addMember(1L, 20L, 10L);
 	}
@@ -487,6 +487,93 @@ class WatchlistControllerTest {
 		)
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("Owner role required"));
+	}
+
+	// ─── PATCH /api/watchlists/{watchlistId}/members/{userId}/role ───────────
+
+	@Test
+	void updateMemberRoleReturnsUpdatedMember() throws Exception {
+		User targetUser = new User(20L, "target@example.com", "Target User", EPOCH, EPOCH, "google", "sub-456");
+		WatchlistMember updatedMember = new WatchlistMember(
+			new WatchlistMemberId(1L, 20L),
+			MemberRole.VIEWER,
+			EPOCH,
+			false
+		);
+		when(watchlistService.updateMemberRole(1L, 20L, MemberRole.VIEWER, 10L)).thenReturn(updatedMember);
+		when(userService.findById(20L)).thenReturn(targetUser);
+
+		mockMvc.perform(
+			patch("/api/watchlists/1/members/20/role")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "role": "VIEWER"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId").value(20))
+			.andExpect(jsonPath("$.role").value("VIEWER"));
+
+		verify(watchlistService).updateMemberRole(1L, 20L, MemberRole.VIEWER, 10L);
+	}
+
+	@Test
+	void updateMemberRoleReturnsForbiddenWhenNotOwner() throws Exception {
+		doThrow(new ForbiddenException("Owner role required"))
+			.when(watchlistService).updateMemberRole(1L, 20L, MemberRole.VIEWER, 10L);
+
+		mockMvc.perform(
+			patch("/api/watchlists/1/members/20/role")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "role": "VIEWER"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Owner role required"));
+	}
+
+	@Test
+	void updateMemberRoleReturnsForbiddenForSelfChange() throws Exception {
+		doThrow(new ForbiddenException("Cannot change your own role"))
+			.when(watchlistService).updateMemberRole(1L, 10L, MemberRole.VIEWER, 10L);
+
+		mockMvc.perform(
+			patch("/api/watchlists/1/members/10/role")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "role": "VIEWER"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Cannot change your own role"));
+	}
+
+	@Test
+	void updateMemberRoleReturnsBadRequestForOwnerPromotion() throws Exception {
+		doThrow(new IllegalArgumentException("Cannot promote to owner"))
+			.when(watchlistService).updateMemberRole(1L, 20L, MemberRole.OWNER, 10L);
+
+		mockMvc.perform(
+			patch("/api/watchlists/1/members/20/role")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "role": "OWNER"
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest());
 	}
 
 	// ─── DELETE /api/watchlists/{watchlistId}/members/{userId} ───────────────

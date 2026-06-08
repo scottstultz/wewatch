@@ -56,7 +56,7 @@ public class WatchlistEntryController {
 		@AuthenticationPrincipal User caller,
 		@Valid @RequestBody WatchlistEntryCreateRequest request
 	) {
-		watchlistService.requireMember(watchlistId, caller.getId());
+		watchlistService.requireEditor(watchlistId, caller.getId());
 		WatchlistEntry entry = new WatchlistEntry(
 			null,
 			watchlistId,
@@ -107,7 +107,7 @@ public class WatchlistEntryController {
 		@PathVariable Long entryId,
 		@Valid @RequestBody WatchlistEntryUpdateRequest request
 	) {
-		watchlistService.requireMember(watchlistId, caller.getId());
+		watchlistService.requireEditor(watchlistId, caller.getId());
 		WatchlistEntry updated = watchlistEntryService.update(watchlistId, entryId, new WatchlistEntry(
 			null,
 			watchlistId,
@@ -127,7 +127,7 @@ public class WatchlistEntryController {
 		@AuthenticationPrincipal User caller,
 		@PathVariable Long entryId
 	) {
-		watchlistService.requireMember(watchlistId, caller.getId());
+		watchlistService.requireEditor(watchlistId, caller.getId());
 		watchlistEntryService.deleteById(watchlistId, entryId);
 		return ResponseEntity.noContent().build();
 	}

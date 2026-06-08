@@ -64,6 +64,14 @@ public class ApiExceptionHandler {
 		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
 	}
 
+	@ExceptionHandler(IllegalArgumentException.class)
+	public ResponseEntity<ApiErrorResponse> handleIllegalArgument(
+		IllegalArgumentException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(MethodArgumentNotValidException.class)
 	public ResponseEntity<ApiErrorResponse> handleInvalidRequest(
 		MethodArgumentNotValidException exception,

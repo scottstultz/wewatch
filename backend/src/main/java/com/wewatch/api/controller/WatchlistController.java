@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.AddMemberRequest;
+import com.wewatch.api.dto.UpdateMemberRoleRequest;
 import com.wewatch.api.dto.WatchlistCreateRequest;
 import com.wewatch.api.dto.WatchlistMemberResponse;
 import com.wewatch.api.dto.WatchlistResponse;
@@ -133,6 +134,20 @@ public class WatchlistController {
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/members/" + member.getId().getUserId()))
 			.body(response);
+	}
+
+	@PatchMapping("/{watchlistId}/members/{userId}/role")
+	public WatchlistMemberResponse updateMemberRole(
+		@PathVariable Long watchlistId,
+		@PathVariable Long userId,
+		@AuthenticationPrincipal User caller,
+		@Valid @RequestBody UpdateMemberRoleRequest request
+	) {
+		WatchlistMember updated = watchlistService.updateMemberRole(
+			watchlistId, userId, request.role(), caller.getId()
+		);
+		User targetUser = userService.findById(userId);
+		return toMemberResponse(updated, targetUser);
 	}
 
 	@DeleteMapping("/{watchlistId}/members/{userId}")

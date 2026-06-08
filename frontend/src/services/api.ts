@@ -159,6 +159,21 @@ export async function removeMember(
   if (!response.ok) throw new Error(`Failed to remove member: ${response.status}`)
 }
 
+export async function updateMemberRole(
+  watchlistId: number,
+  userId: number,
+  role: import('../types/api').MemberRole,
+  token: string,
+): Promise<WatchlistMemberResponse> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}/role`, token, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role }),
+  })
+  if (!response.ok) throw new Error(`Failed to update member role: ${response.status}`)
+  return response.json() as Promise<WatchlistMemberResponse>
+}
+
 // ── Watchlist entries ────────────────────────────────────────
 
 export async function getWatchlistEntries(

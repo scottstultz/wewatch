@@ -81,8 +81,9 @@ class WatchlistEntryControllerTest {
 	void setUpMocks() {
 		when(titleService.findById(20L)).thenReturn(TEST_TITLE);
 		when(titleService.findByIds(any())).thenReturn(Map.of(20L, TEST_TITLE));
-		// Default: caller is a member — individual tests override this to test 403/404
+		// Default: caller is a member/editor — individual tests override this to test 403/404
 		when(watchlistService.requireMember(any(), any())).thenReturn(null);
+		when(watchlistService.requireEditor(any(), any())).thenReturn(null);
 	}
 
 	private static RequestPostProcessor asUser(User user) {
@@ -173,7 +174,7 @@ class WatchlistEntryControllerTest {
 	@Test
 	void createWatchlistEntryReturnsNotFoundWhenWatchlistMissing() throws Exception {
 		doThrow(new NoSuchElementException("Watchlist not found: 10"))
-			.when(watchlistService).requireMember(10L, 10L);
+			.when(watchlistService).requireEditor(10L, 10L);
 
 		mockMvc.perform(
 			post("/api/watchlists/10/entries")
@@ -192,7 +193,7 @@ class WatchlistEntryControllerTest {
 	@Test
 	void createWatchlistEntryReturnsForbiddenWhenNotMember() throws Exception {
 		doThrow(new ForbiddenException("Not a member of this watchlist"))
-			.when(watchlistService).requireMember(10L, 10L);
+			.when(watchlistService).requireEditor(10L, 10L);
 
 		mockMvc.perform(
 			post("/api/watchlists/10/entries")
@@ -206,6 +207,25 @@ class WatchlistEntryControllerTest {
 		)
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("Not a member of this watchlist"));
+	}
+
+	@Test
+	void createWatchlistEntryReturnsForbiddenWhenViewer() throws Exception {
+		doThrow(new ForbiddenException("Editor role required"))
+			.when(watchlistService).requireEditor(10L, 10L);
+
+		mockMvc.perform(
+			post("/api/watchlists/10/entries")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "titleId": 20
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Editor role required"));
 	}
 
 	@Test
@@ -448,5 +468,36 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isNoContent());
 
 		verify(watchlistEntryService).deleteById(10L, 99L);
+	}
+
+	// ─── Viewer role restrictions ────────────────────────────────────────────
+
+	@Test
+	void updateWatchlistEntryReturnsForbiddenWhenViewer() throws Exception {
+		doThrow(new ForbiddenException("Editor role required"))
+			.when(watchlistService).requireEditor(10L, 10L);
+
+		mockMvc.perform(
+			patch("/api/watchlists/10/entries/1")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WATCHED"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Editor role required"));
+	}
+
+	@Test
+	void deleteWatchlistEntryReturnsForbiddenWhenViewer() throws Exception {
+		doThrow(new ForbiddenException("Editor role required"))
+			.when(watchlistService).requireEditor(10L, 10L);
+
+		mockMvc.perform(delete("/api/watchlists/10/entries/1").with(asUser(TEST_USER)))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Editor role required"));
 	}
 }

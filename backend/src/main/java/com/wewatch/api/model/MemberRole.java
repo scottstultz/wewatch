@@ -2,5 +2,6 @@ package com.wewatch.api.model;
 
 public enum MemberRole {
     OWNER,
-    MEMBER
+    EDITOR,
+    VIEWER
 }

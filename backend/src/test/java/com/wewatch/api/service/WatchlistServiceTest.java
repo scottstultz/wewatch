@@ -147,14 +147,14 @@ class WatchlistServiceTest {
 	void requireMemberReturnsMemberWhenFound() {
 		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
 		WatchlistMemberId memberId = new WatchlistMemberId(1L, 10L);
-		WatchlistMember member = new WatchlistMember(memberId, MemberRole.MEMBER, Instant.now());
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.EDITOR, Instant.now());
 
 		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
 		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
 
 		WatchlistMember result = service.requireMember(1L, 10L);
 
-		assertThat(result.getRole()).isEqualTo(MemberRole.MEMBER);
+		assertThat(result.getRole()).isEqualTo(MemberRole.EDITOR);
 	}
 
 	@Test
@@ -185,7 +185,7 @@ class WatchlistServiceTest {
 	void requireOwnerThrowsForbiddenWhenNotOwner() {
 		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
 		WatchlistMemberId memberId = new WatchlistMemberId(1L, 10L);
-		WatchlistMember member = new WatchlistMember(memberId, MemberRole.MEMBER, Instant.now());
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.EDITOR, Instant.now());
 
 		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
 		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
@@ -193,6 +193,112 @@ class WatchlistServiceTest {
 		assertThatThrownBy(() -> service.requireOwner(1L, 10L))
 			.isInstanceOf(ForbiddenException.class)
 			.hasMessage("Owner role required");
+	}
+
+	// ─── requireEditor ────────────────────────────────────────────────────────
+
+	@Test
+	void requireEditorPassesForOwner() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId memberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.OWNER, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+		WatchlistMember result = service.requireEditor(1L, 10L);
+		assertThat(result.getRole()).isEqualTo(MemberRole.OWNER);
+	}
+
+	@Test
+	void requireEditorPassesForEditor() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId memberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.EDITOR, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+		WatchlistMember result = service.requireEditor(1L, 10L);
+		assertThat(result.getRole()).isEqualTo(MemberRole.EDITOR);
+	}
+
+	@Test
+	void requireEditorThrowsForbiddenForViewer() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId memberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.VIEWER, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+		assertThatThrownBy(() -> service.requireEditor(1L, 10L))
+			.isInstanceOf(ForbiddenException.class)
+			.hasMessage("Editor role required");
+	}
+
+	// ─── updateMemberRole ─────────────────────────────────────────────────────
+
+	@Test
+	void updateMemberRoleSucceeds() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId callerMemberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember callerMember = new WatchlistMember(callerMemberId, MemberRole.OWNER, Instant.now());
+		WatchlistMemberId targetMemberId = new WatchlistMemberId(1L, 20L);
+		WatchlistMember targetMember = new WatchlistMember(targetMemberId, MemberRole.EDITOR, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(callerMemberId)).thenReturn(Optional.of(callerMember));
+		when(watchlistMemberRepository.findById(targetMemberId)).thenReturn(Optional.of(targetMember));
+		when(watchlistMemberRepository.save(any(WatchlistMember.class))).thenAnswer(inv -> inv.getArgument(0));
+
+		WatchlistMember result = service.updateMemberRole(1L, 20L, MemberRole.VIEWER, 10L);
+		assertThat(result.getRole()).isEqualTo(MemberRole.VIEWER);
+	}
+
+	@Test
+	void updateMemberRoleThrowsForbiddenForSelfChange() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId callerMemberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember callerMember = new WatchlistMember(callerMemberId, MemberRole.OWNER, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(callerMemberId)).thenReturn(Optional.of(callerMember));
+
+		assertThatThrownBy(() -> service.updateMemberRole(1L, 10L, MemberRole.VIEWER, 10L))
+			.isInstanceOf(ForbiddenException.class)
+			.hasMessage("Cannot change your own role");
+	}
+
+	@Test
+	void updateMemberRoleThrowsForOwnerPromotion() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId callerMemberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember callerMember = new WatchlistMember(callerMemberId, MemberRole.OWNER, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(callerMemberId)).thenReturn(Optional.of(callerMember));
+
+		assertThatThrownBy(() -> service.updateMemberRole(1L, 20L, MemberRole.OWNER, 10L))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("Cannot promote to owner");
+	}
+
+	@Test
+	void updateMemberRoleThrowsForbiddenForOwnerTarget() {
+		Watchlist watchlist = new Watchlist(1L, "Test", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId callerMemberId = new WatchlistMemberId(1L, 10L);
+		WatchlistMember callerMember = new WatchlistMember(callerMemberId, MemberRole.OWNER, Instant.now());
+		WatchlistMemberId targetMemberId = new WatchlistMemberId(1L, 20L);
+		WatchlistMember targetMember = new WatchlistMember(targetMemberId, MemberRole.OWNER, Instant.now());
+
+		when(watchlistRepository.findById(1L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(callerMemberId)).thenReturn(Optional.of(callerMember));
+		when(watchlistMemberRepository.findById(targetMemberId)).thenReturn(Optional.of(targetMember));
+
+		assertThatThrownBy(() -> service.updateMemberRole(1L, 20L, MemberRole.EDITOR, 10L))
+			.isInstanceOf(ForbiddenException.class)
+			.hasMessage("Cannot change the owner's role");
 	}
 
 	// ─── delete ───────────────────────────────────────────────────────────────
@@ -238,7 +344,7 @@ class WatchlistServiceTest {
 	void setDefaultClearsPreviousThenSetsNew() {
 		Watchlist watchlist = new Watchlist(2L, "Family List", WatchlistType.SHARED, Instant.now(), Instant.now());
 		WatchlistMemberId memberId = new WatchlistMemberId(2L, 10L);
-		WatchlistMember member = new WatchlistMember(memberId, MemberRole.MEMBER, Instant.now());
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.EDITOR, Instant.now());
 
 		when(watchlistRepository.findById(2L)).thenReturn(Optional.of(watchlist));
 		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
