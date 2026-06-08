@@ -243,23 +243,38 @@ function LibraryPage() {
           <div className="title-grid">
             {visible.map(entry => {
               const action = entryActions[entry.id]
+              const isTv = entry.type === 'TV'
               return (
-                <article key={entry.id} className="title-card">
+                <article key={entry.id} className={`title-card${isTv ? ' title-card-tv' : ''}`}>
                   {entry.posterUrl ? (
                     <img
                       className="title-poster"
                       src={entry.posterUrl}
                       alt={entry.name ?? undefined}
                       loading="lazy"
+                      onClick={isTv ? () => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`) : undefined}
+                      style={isTv ? { cursor: 'pointer' } : undefined}
                     />
                   ) : (
-                    <div className="title-poster title-poster-empty" />
+                    <div
+                      className="title-poster title-poster-empty"
+                      onClick={isTv ? () => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`) : undefined}
+                      style={isTv ? { cursor: 'pointer' } : undefined}
+                    />
                   )}
                   <div className="title-card-body">
                     <span className="title-type-badge">
                       {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
                     </span>
                     <p className="title-name">{entry.name}</p>
+                    {isTv && (
+                      <button
+                        className="title-episodes-link"
+                        onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
+                      >
+                        Episodes
+                      </button>
+                    )}
                     {pickingEntry === entry.id ? (
                       <div className="discover-status-picker">
                         <button

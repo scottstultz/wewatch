@@ -6,6 +6,7 @@ import { WatchlistProvider } from './contexts/WatchlistContext'
 import DiscoverPage from './pages/DiscoverPage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
+import ShowDetailPage from './pages/ShowDetailPage'
 import ProfilePage from './pages/ProfilePage'
 import SignInPage from './pages/SignInPage'
 
@@ -31,6 +32,7 @@ function App() {
             <Route path="/home" element={<HomePage />} />
             <Route path="/discover" element={<DiscoverPage />} />
             <Route path="/library" element={<LibraryPage />} />
+            <Route path="/library/:entryId" element={<ShowDetailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>

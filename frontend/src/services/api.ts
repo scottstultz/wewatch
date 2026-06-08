@@ -1,4 +1,7 @@
 import type {
+  EpisodeProgress,
+  SeasonDetail,
+  SeasonSummary,
   TitleResponse,
   TitleSearchResponse,
   WatchlistEntryResponse,
@@ -225,4 +228,72 @@ export async function removeFromWatchlist(
     method: 'DELETE',
   })
   if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
+}
+
+// ── Seasons & episode progress ──────────────────────────────
+
+export async function getSeasons(titleId: number, token: string): Promise<SeasonSummary[]> {
+  const response = await apiFetch(`${BASE_URL}/titles/${titleId}/seasons`, token)
+  if (!response.ok) throw new Error(`Failed to fetch seasons: ${response.status}`)
+  return response.json() as Promise<SeasonSummary[]>
+}
+
+export async function getSeasonDetail(
+  titleId: number,
+  seasonNumber: number,
+  token: string,
+): Promise<SeasonDetail> {
+  const response = await apiFetch(`${BASE_URL}/titles/${titleId}/seasons/${seasonNumber}`, token)
+  if (!response.ok) throw new Error(`Failed to fetch season detail: ${response.status}`)
+  return response.json() as Promise<SeasonDetail>
+}
+
+export async function getEpisodeProgress(
+  watchlistId: number,
+  entryId: number,
+  token: string,
+  season?: number,
+): Promise<EpisodeProgress[]> {
+  const params = season != null ? `?season=${season}` : ''
+  const response = await apiFetch(
+    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes${params}`,
+    token,
+  )
+  if (!response.ok) throw new Error(`Failed to fetch episode progress: ${response.status}`)
+  return response.json() as Promise<EpisodeProgress[]>
+}
+
+export async function toggleEpisode(
+  watchlistId: number,
+  entryId: number,
+  seasonNumber: number,
+  episodeNumber: number,
+  token: string,
+): Promise<EpisodeProgress> {
+  const response = await apiFetch(
+    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}/${episodeNumber}`,
+    token,
+    { method: 'PATCH' },
+  )
+  if (!response.ok) throw new Error(`Failed to toggle episode: ${response.status}`)
+  return response.json() as Promise<EpisodeProgress>
+}
+
+export async function bulkMarkSeason(
+  watchlistId: number,
+  entryId: number,
+  seasonNumber: number,
+  watched: boolean,
+  token: string,
+): Promise<void> {
+  const response = await apiFetch(
+    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}`,
+    token,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ watched }),
+    },
+  )
+  if (!response.ok) throw new Error(`Failed to bulk mark season: ${response.status}`)
 }
