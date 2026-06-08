@@ -42,6 +42,7 @@ import com.wewatch.api.model.Watchlist;
 import com.wewatch.api.model.WatchlistMember;
 import com.wewatch.api.model.WatchlistMemberId;
 import com.wewatch.api.model.WatchlistType;
+import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.service.WatchlistService;
@@ -62,6 +63,9 @@ class WatchlistControllerTest {
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
+
+	@MockBean
+	private JwtTokenService jwtTokenService;
 
 	private static final Instant EPOCH = Instant.EPOCH;
 

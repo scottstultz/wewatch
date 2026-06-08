@@ -216,7 +216,7 @@ class UserServiceTest {
 	}
 
 	@Test
-	void findOrCreateByGoogleIdentityProvisionesWatchlistForNewUser() {
+	void findOrCreateByProviderIdentityProvisionesWatchlistForNewUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
 		UserService service = new UserService(repository, validator, watchlistService);
@@ -226,13 +226,13 @@ class UserServiceTest {
 		when(repository.findByEmail("new@example.com")).thenReturn(Optional.empty());
 		when(repository.save(any(User.class))).thenReturn(savedUser);
 
-		service.findOrCreateByGoogleIdentity("sub-new", "new@example.com", "New User");
+		service.findOrCreateByProviderIdentity("google", "sub-new", "new@example.com", "New User");
 
 		verify(watchlistService).provisionPersonalWatchlist(1L, "New User's Watchlist");
 	}
 
 	@Test
-	void findOrCreateByGoogleIdentityDoesNotProvisionWatchlistForExistingUser() {
+	void findOrCreateByProviderIdentityDoesNotProvisionWatchlistForExistingUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
 		UserService service = new UserService(repository, validator, watchlistService);
@@ -240,13 +240,13 @@ class UserServiceTest {
 
 		when(repository.findByProviderAndProviderId("google", "sub-existing")).thenReturn(Optional.of(existingUser));
 
-		service.findOrCreateByGoogleIdentity("sub-existing", "existing@example.com", "Existing User");
+		service.findOrCreateByProviderIdentity("google", "sub-existing", "existing@example.com", "Existing User");
 
 		Mockito.verifyNoInteractions(watchlistService);
 	}
 
 	@Test
-	void findOrCreateByGoogleIdentityDoesNotProvisionWatchlistWhenLinkingExistingAccount() {
+	void findOrCreateByProviderIdentityDoesNotProvisionWatchlistWhenLinkingExistingAccount() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
 		UserService service = new UserService(repository, validator, watchlistService);
@@ -256,7 +256,7 @@ class UserServiceTest {
 		when(repository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
 		when(repository.save(any(User.class))).thenReturn(existingUser);
 
-		service.findOrCreateByGoogleIdentity("sub-new", "existing@example.com", "Existing User");
+		service.findOrCreateByProviderIdentity("google", "sub-new", "existing@example.com", "Existing User");
 
 		Mockito.verifyNoInteractions(watchlistService);
 	}

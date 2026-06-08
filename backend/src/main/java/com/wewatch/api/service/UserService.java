@@ -94,20 +94,20 @@ public class UserService {
 	}
 
 	@Transactional
-	public User findOrCreateByGoogleIdentity(String providerId, String email, String displayName) {
-		return userRepository.findByProviderAndProviderId("google", providerId)
+	public User findOrCreateByProviderIdentity(String provider, String providerId, String email, String displayName) {
+		return userRepository.findByProviderAndProviderId(provider, providerId)
 			.orElseGet(() -> {
 				Instant now = Instant.now();
 				return userRepository.findByEmail(email)
 					.map(existing -> {
-						existing.setProvider("google");
+						existing.setProvider(provider);
 						existing.setProviderId(providerId);
 						existing.setUpdatedAt(now);
 						return userRepository.save(existing);
 					})
 					.orElseGet(() -> {
 						String name = (displayName != null && !displayName.isBlank()) ? displayName : email;
-						User saved = userRepository.save(new User(null, email, name, now, now, "google", providerId));
+						User saved = userRepository.save(new User(null, email, name, now, now, provider, providerId));
 						watchlistService.provisionPersonalWatchlist(saved.getId(), saved.getDisplayName() + "'s Watchlist");
 						return saved;
 					});

@@ -29,6 +29,7 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.model.EpisodeProgress;
 import com.wewatch.api.model.User;
+import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.EpisodeProgressService;
 import com.wewatch.api.service.UserService;
@@ -53,6 +54,9 @@ class EpisodeProgressControllerTest {
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
+
+	@MockBean
+	private JwtTokenService jwtTokenService;
 
 	private static final User TEST_USER = new User(
 		10L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123"

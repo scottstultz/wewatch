@@ -15,6 +15,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
 
@@ -31,6 +32,9 @@ class HealthControllerTest {
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
+
+	@MockBean
+	private JwtTokenService jwtTokenService;
 
 	@Test
 	void healthEndpointReturnsUpStatus() throws Exception {
