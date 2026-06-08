@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import WatchlistDropdown from '../components/WatchlistDropdown'
 import {
   UnauthorizedError,
   addMember,
@@ -229,23 +230,12 @@ function LibraryPage() {
 
           {/* Watchlist selector */}
           {!watchlistsLoading && watchlists.length > 0 && (
-            <div className="watchlist-selector">
-              {watchlists.map(wl => (
-                <button
-                  key={wl.id}
-                  className={`watchlist-pill${wl.id === selectedWatchlistId ? ' watchlist-pill-active' : ''}`}
-                  onClick={() => selectWatchlist(wl.id)}
-                >
-                  {wl.name}
-                </button>
-              ))}
-              <button
-                className="watchlist-pill watchlist-pill-new"
-                onClick={() => setShowCreateForm(v => !v)}
-              >
-                + New
-              </button>
-            </div>
+            <WatchlistDropdown
+              watchlists={watchlists}
+              selectedWatchlistId={selectedWatchlistId}
+              onSelect={selectWatchlist}
+              onCreateNew={() => setShowCreateForm(v => !v)}
+            />
           )}
 
           {/* Create form */}
