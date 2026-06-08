@@ -1351,3 +1351,270 @@ a {
 .discover-picker-select:focus {
   border-color: rgba(125, 211, 252, 0.5);
 }
+
+/* ── Show detail page ──────────────────────────────────────── */
+
+.show-detail-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.show-detail-back-btn {
+  background: none;
+  border: none;
+  color: #7dd3fc;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0;
+  align-self: flex-start;
+}
+
+.show-detail-back-btn:hover {
+  color: #bae6fd;
+}
+
+.show-detail-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.show-detail-poster {
+  width: 80px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.show-detail-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.show-detail-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.show-detail-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.show-detail-progress {
+  height: 6px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 240px;
+}
+
+.show-detail-progress-bar {
+  height: 100%;
+  background: #7dd3fc;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.show-detail-progress-text {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+/* Season tabs */
+
+.season-tabs-wrapper {
+  padding: 0 16px;
+  margin-bottom: 12px;
+}
+
+.season-tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 4px;
+}
+
+.season-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.season-tab {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 20px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.season-tab:hover {
+  color: #e2e8f0;
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.season-tab-active {
+  background: rgba(125, 211, 252, 0.15);
+  color: #7dd3fc;
+  border-color: rgba(125, 211, 252, 0.4);
+}
+
+/* Bulk season actions */
+
+.bulk-season-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  margin-bottom: 16px;
+}
+
+.bulk-season-btn {
+  padding: 5px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.3);
+  border-radius: 8px;
+  background: rgba(125, 211, 252, 0.1);
+  color: #7dd3fc;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.bulk-season-btn:hover:not(:disabled) {
+  background: rgba(125, 211, 252, 0.2);
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.bulk-season-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bulk-season-btn-secondary {
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.25);
+  color: #94a3b8;
+}
+
+.bulk-season-btn-secondary:hover:not(:disabled) {
+  background: rgba(148, 163, 184, 0.1);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.bulk-season-count {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-left: 4px;
+}
+
+/* Episode list */
+
+.episode-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 16px;
+  gap: 2px;
+}
+
+.episode-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.episode-row:hover {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.episode-row-dimmed {
+  opacity: 0.45;
+}
+
+.episode-row-watched .episode-info .episode-name {
+  color: #64748b;
+}
+
+.episode-checkbox {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 2px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: transparent;
+  font-size: 0.875rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.episode-checkbox:hover:not(:disabled) {
+  border-color: #7dd3fc;
+}
+
+.episode-checkbox-checked {
+  background: #7dd3fc;
+  border-color: #7dd3fc;
+  color: #0f1720;
+}
+
+.episode-checkbox:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.episode-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.episode-name {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.episode-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Episodes link on Library cards */
+
+.title-episodes-link {
+  background: none;
+  border: none;
+  color: #7dd3fc;
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 2px;
+  text-align: left;
+}
+
+.title-episodes-link:hover {
+  color: #bae6fd;
+  text-decoration: underline;
+}

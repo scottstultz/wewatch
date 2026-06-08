@@ -58,3 +58,39 @@ export interface WatchlistEntryResponse {
   startedAt: string | null
   completedAt: string | null
 }
+
+// ── Season / Episode types ──────────────────────────────────
+
+export interface SeasonSummary {
+  seasonNumber: number
+  name: string
+  episodeCount: number
+  posterUrl: string | null
+  airDate: string | null
+}
+
+export interface SeasonDetail {
+  seasonNumber: number
+  name: string
+  overview: string | null
+  posterUrl: string | null
+  episodes: EpisodeDetail[]
+}
+
+export interface EpisodeDetail {
+  episodeNumber: number
+  name: string
+  overview: string | null
+  airDate: string | null
+  stillUrl: string | null
+  runtimeMinutes: number | null
+}
+
+export interface EpisodeProgress {
+  id: number
+  watchlistEntryId: number
+  seasonNumber: number
+  episodeNumber: number
+  watched: boolean
+  watchedAt: string | null
+}
