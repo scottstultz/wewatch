@@ -19,6 +19,7 @@ public record WatchlistEntryResponse(
 	Instant addedAt,
 	Instant updatedAt,
 	Instant startedAt,
-	Instant completedAt
+	Instant completedAt,
+	EpisodeProgressSummary episodeProgress
 ) {
 }

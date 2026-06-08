@@ -42,6 +42,12 @@ export interface WatchlistResponse {
   isDefault: boolean
 }
 
+export interface EpisodeProgressSummary {
+  watchedCount: number
+  lastWatchedSeason: number | null
+  lastWatchedEpisode: number | null
+}
+
 export interface WatchlistEntryResponse {
   id: number
   watchlistId: number
@@ -57,6 +63,7 @@ export interface WatchlistEntryResponse {
   updatedAt: string
   startedAt: string | null
   completedAt: string | null
+  episodeProgress: EpisodeProgressSummary | null
 }
 
 // ── Season / Episode types ──────────────────────────────────
