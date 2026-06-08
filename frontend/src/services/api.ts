@@ -121,6 +121,17 @@ export async function deleteWatchlist(watchlistId: number, token: string): Promi
   if (!response.ok) throw new Error(`Failed to delete watchlist: ${response.status}`)
 }
 
+export async function setDefaultWatchlist(
+  watchlistId: number,
+  token: string,
+): Promise<WatchlistResponse> {
+  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/default`, token, {
+    method: 'PATCH',
+  })
+  if (!response.ok) throw new Error(`Failed to set default watchlist: ${response.status}`)
+  return response.json() as Promise<WatchlistResponse>
+}
+
 // ── Watchlist members ────────────────────────────────────────
 
 export async function addMember(

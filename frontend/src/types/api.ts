@@ -39,6 +39,7 @@ export interface WatchlistResponse {
   createdAt: string
   updatedAt: string
   members: WatchlistMemberResponse[]
+  isDefault: boolean
 }
 
 export interface WatchlistEntryResponse {

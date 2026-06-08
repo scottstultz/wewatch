@@ -3,6 +3,7 @@ package com.wewatch.api.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -13,6 +14,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mockito;
 
 import com.wewatch.api.exception.ForbiddenException;
@@ -57,7 +59,7 @@ class WatchlistServiceTest {
 	}
 
 	@Test
-	void provisionPersonalWatchlistCreatesOwnerMembership() {
+	void provisionPersonalWatchlistCreatesOwnerMembershipWithDefault() {
 		Watchlist savedWatchlist = new Watchlist(1L, "Scott's Watchlist", WatchlistType.PERSONAL, Instant.now(), Instant.now());
 
 		when(watchlistRepository.save(any(Watchlist.class))).thenReturn(savedWatchlist);
@@ -71,6 +73,7 @@ class WatchlistServiceTest {
 		assertThat(captured.getId().getWatchlistId()).isEqualTo(1L);
 		assertThat(captured.getId().getUserId()).isEqualTo(42L);
 		assertThat(captured.getRole()).isEqualTo(MemberRole.OWNER);
+		assertThat(captured.isDefault()).isTrue();
 	}
 
 	@Test
@@ -225,6 +228,47 @@ class WatchlistServiceTest {
 			.isInstanceOf(WatchlistMemberAlreadyExistsException.class)
 			.hasMessageContaining("20")
 			.hasMessageContaining("1");
+	}
+
+	// ─── removeMember ─────────────────────────────────────────────────────────
+
+	// ─── setDefault ──────────────────────────────────────────────────────────
+
+	@Test
+	void setDefaultClearsPreviousThenSetsNew() {
+		Watchlist watchlist = new Watchlist(2L, "Family List", WatchlistType.SHARED, Instant.now(), Instant.now());
+		WatchlistMemberId memberId = new WatchlistMemberId(2L, 10L);
+		WatchlistMember member = new WatchlistMember(memberId, MemberRole.MEMBER, Instant.now());
+
+		when(watchlistRepository.findById(2L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+		service.setDefault(2L, 10L);
+
+		InOrder order = inOrder(watchlistMemberRepository);
+		order.verify(watchlistMemberRepository).clearDefault(10L);
+		order.verify(watchlistMemberRepository).setDefault(2L, 10L);
+	}
+
+	@Test
+	void setDefaultThrowsForbiddenWhenNotMember() {
+		Watchlist watchlist = new Watchlist(2L, "Family List", WatchlistType.SHARED, Instant.now(), Instant.now());
+
+		when(watchlistRepository.findById(2L)).thenReturn(Optional.of(watchlist));
+		when(watchlistMemberRepository.findById(new WatchlistMemberId(2L, 10L))).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.setDefault(2L, 10L))
+			.isInstanceOf(ForbiddenException.class)
+			.hasMessage("Not a member of this watchlist");
+	}
+
+	@Test
+	void setDefaultThrowsNotFoundWhenWatchlistMissing() {
+		when(watchlistRepository.findById(99L)).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.setDefault(99L, 10L))
+			.isInstanceOf(NoSuchElementException.class)
+			.hasMessageContaining("99");
 	}
 
 	// ─── removeMember ─────────────────────────────────────────────────────────

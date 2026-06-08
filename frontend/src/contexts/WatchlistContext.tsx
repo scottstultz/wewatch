@@ -8,7 +8,6 @@ interface WatchlistContextType {
   watchlists: WatchlistResponse[]
   selectedWatchlistId: number | null
   selectedWatchlist: WatchlistResponse | undefined
-  personalWatchlist: WatchlistResponse | undefined
   isLoading: boolean
   selectWatchlist: (id: number) => void
   refreshWatchlists: () => Promise<void>
@@ -28,11 +27,11 @@ export function WatchlistProvider({ children }: { children: ReactNode }) {
     try {
       const data = await getWatchlists(token)
       setWatchlists(data)
-      // Default to personal watchlist if nothing selected yet
+      // Default to the user's default watchlist if nothing selected yet
       setSelectedWatchlistId(prev => {
         if (prev && data.some(w => w.id === prev)) return prev
-        const personal = data.find(w => w.type === 'PERSONAL')
-        return personal?.id ?? data[0]?.id ?? null
+        const defaultList = data.find(w => w.isDefault)
+        return defaultList?.id ?? data[0]?.id ?? null
       })
     } catch {
       // Silently fail — pages handle their own error states
@@ -44,11 +43,6 @@ export function WatchlistProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     fetchWatchlists()
   }, [fetchWatchlists])
-
-  const personalWatchlist = useMemo(
-    () => watchlists.find(w => w.type === 'PERSONAL'),
-    [watchlists],
-  )
 
   const selectedWatchlist = useMemo(
     () => watchlists.find(w => w.id === selectedWatchlistId),
@@ -69,7 +63,6 @@ export function WatchlistProvider({ children }: { children: ReactNode }) {
         watchlists,
         selectedWatchlistId,
         selectedWatchlist,
-        personalWatchlist,
         isLoading,
         selectWatchlist,
         refreshWatchlists,

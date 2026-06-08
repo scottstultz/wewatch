@@ -11,6 +11,7 @@ public record WatchlistResponse(
 	WatchlistType type,
 	Instant createdAt,
 	Instant updatedAt,
-	List<WatchlistMemberResponse> members
+	List<WatchlistMemberResponse> members,
+	boolean isDefault
 ) {
 }

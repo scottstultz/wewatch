@@ -3,6 +3,7 @@ package com.wewatch.api.controller;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import jakarta.validation.Valid;
@@ -53,8 +54,20 @@ public class WatchlistController {
 		);
 		Map<Long, List<WatchlistMember>> membersByWatchlistId = allMembers.stream()
 			.collect(Collectors.groupingBy(m -> m.getId().getWatchlistId()));
+
+		// Build a set of watchlist IDs where the caller has is_default = true
+		Set<Long> callerDefaults = allMembers.stream()
+			.filter(m -> m.getId().getUserId().equals(caller.getId()) && m.isDefault())
+			.map(m -> m.getId().getWatchlistId())
+			.collect(Collectors.toSet());
+
 		return watchlists.stream()
-			.map(w -> toWatchlistResponse(w, membersByWatchlistId.getOrDefault(w.getId(), List.of()), usersById))
+			.map(w -> toWatchlistResponse(
+				w,
+				membersByWatchlistId.getOrDefault(w.getId(), List.of()),
+				usersById,
+				callerDefaults.contains(w.getId())
+			))
 			.toList();
 	}
 
@@ -64,7 +77,7 @@ public class WatchlistController {
 		@Valid @RequestBody WatchlistCreateRequest request
 	) {
 		Watchlist created = watchlistService.createShared(request.name(), caller.getId());
-		WatchlistResponse response = toWatchlistResponse(created);
+		WatchlistResponse response = toWatchlistResponse(created, caller.getId());
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + created.getId()))
 			.body(response);
@@ -76,7 +89,7 @@ public class WatchlistController {
 		@AuthenticationPrincipal User caller
 	) {
 		watchlistService.requireMember(watchlistId, caller.getId());
-		return toWatchlistResponse(watchlistService.findById(watchlistId));
+		return toWatchlistResponse(watchlistService.findById(watchlistId), caller.getId());
 	}
 
 	@PatchMapping("/{watchlistId}")
@@ -87,7 +100,7 @@ public class WatchlistController {
 	) {
 		watchlistService.requireOwner(watchlistId, caller.getId());
 		Watchlist updated = watchlistService.update(watchlistId, request.name());
-		return toWatchlistResponse(updated);
+		return toWatchlistResponse(updated, caller.getId());
 	}
 
 	@DeleteMapping("/{watchlistId}")
@@ -97,6 +110,15 @@ public class WatchlistController {
 	) {
 		watchlistService.delete(watchlistId, caller.getId());
 		return ResponseEntity.noContent().build();
+	}
+
+	@PatchMapping("/{watchlistId}/default")
+	public WatchlistResponse setDefault(
+		@PathVariable Long watchlistId,
+		@AuthenticationPrincipal User caller
+	) {
+		watchlistService.setDefault(watchlistId, caller.getId());
+		return toWatchlistResponse(watchlistService.findById(watchlistId), caller.getId());
 	}
 
 	@PostMapping("/{watchlistId}/members")
@@ -123,15 +145,17 @@ public class WatchlistController {
 		return ResponseEntity.noContent().build();
 	}
 
-	private WatchlistResponse toWatchlistResponse(Watchlist watchlist) {
+	private WatchlistResponse toWatchlistResponse(Watchlist watchlist, Long callerUserId) {
 		List<WatchlistMember> members = watchlistService.findMembersByWatchlistId(watchlist.getId());
 		Map<Long, User> usersById = userService.findByIds(
 			members.stream().map(m -> m.getId().getUserId()).collect(Collectors.toList())
 		);
-		return toWatchlistResponse(watchlist, members, usersById);
+		boolean isDefault = members.stream()
+			.anyMatch(m -> m.getId().getUserId().equals(callerUserId) && m.isDefault());
+		return toWatchlistResponse(watchlist, members, usersById, isDefault);
 	}
 
-	private WatchlistResponse toWatchlistResponse(Watchlist watchlist, List<WatchlistMember> members, Map<Long, User> usersById) {
+	private WatchlistResponse toWatchlistResponse(Watchlist watchlist, List<WatchlistMember> members, Map<Long, User> usersById, boolean isDefault) {
 		List<WatchlistMemberResponse> memberResponses = members.stream()
 			.map(m -> toMemberResponse(m, usersById.get(m.getId().getUserId())))
 			.toList();
@@ -141,7 +165,8 @@ public class WatchlistController {
 			watchlist.getType(),
 			watchlist.getCreatedAt(),
 			watchlist.getUpdatedAt(),
-			memberResponses
+			memberResponses,
+			isDefault
 		);
 	}
 

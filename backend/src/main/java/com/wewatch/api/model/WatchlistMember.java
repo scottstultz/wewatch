@@ -26,6 +26,10 @@ public class WatchlistMember {
 	@Column(name = "joined_at", nullable = false)
 	private Instant joinedAt;
 
+	@NotNull
+	@Column(name = "is_default", nullable = false)
+	private boolean isDefault;
+
 	public WatchlistMember() {
 	}
 
@@ -33,6 +37,14 @@ public class WatchlistMember {
 		this.id = id;
 		this.role = role;
 		this.joinedAt = joinedAt;
+		this.isDefault = false;
+	}
+
+	public WatchlistMember(WatchlistMemberId id, MemberRole role, Instant joinedAt, boolean isDefault) {
+		this.id = id;
+		this.role = role;
+		this.joinedAt = joinedAt;
+		this.isDefault = isDefault;
 	}
 
 	public WatchlistMemberId getId() {
@@ -57,5 +69,13 @@ public class WatchlistMember {
 
 	public void setJoinedAt(Instant joinedAt) {
 		this.joinedAt = joinedAt;
+	}
+
+	public boolean isDefault() {
+		return isDefault;
+	}
+
+	public void setDefault(boolean isDefault) {
+		this.isDefault = isDefault;
 	}
 }
