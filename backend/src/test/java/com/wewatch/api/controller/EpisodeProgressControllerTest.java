@@ -180,7 +180,8 @@ class EpisodeProgressControllerTest {
 	void bulkMarkSeasonReturnsUpdatedList() throws Exception {
 		EpisodeProgress ep1 = new EpisodeProgress(1L, 1L, 1, 1, true, EPOCH);
 		EpisodeProgress ep2 = new EpisodeProgress(2L, 1L, 1, 2, true, EPOCH);
-		when(episodeProgressService.bulkMarkSeason(10L, 1L, 1, true)).thenReturn(List.of(ep1, ep2));
+		when(episodeProgressService.bulkMarkSeason(10L, 1L, 1, true, List.of(1, 2)))
+			.thenReturn(List.of(ep1, ep2));
 
 		mockMvc.perform(
 			put("/api/watchlists/10/entries/1/episodes/1")
@@ -188,7 +189,8 @@ class EpisodeProgressControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "watched": true
+					  "watched": true,
+					  "episodeNumbers": [1, 2]
 					}
 					""")
 		)
@@ -209,7 +211,8 @@ class EpisodeProgressControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "watched": true
+					  "watched": true,
+					  "episodeNumbers": [1, 2]
 					}
 					""")
 		)
@@ -219,7 +222,7 @@ class EpisodeProgressControllerTest {
 
 	@Test
 	void bulkMarkSeasonReturnsBadRequestForMovie() throws Exception {
-		when(episodeProgressService.bulkMarkSeason(10L, 2L, 1, true))
+		when(episodeProgressService.bulkMarkSeason(10L, 2L, 1, true, List.of(1, 2)))
 			.thenThrow(new IllegalArgumentException("Episode tracking is only available for TV shows"));
 
 		mockMvc.perform(
@@ -228,7 +231,8 @@ class EpisodeProgressControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "watched": true
+					  "watched": true,
+					  "episodeNumbers": [1, 2]
 					}
 					""")
 		)

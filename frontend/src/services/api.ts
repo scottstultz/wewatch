@@ -284,6 +284,7 @@ export async function bulkMarkSeason(
   entryId: number,
   seasonNumber: number,
   watched: boolean,
+  episodeNumbers: number[],
   token: string,
 ): Promise<void> {
   const response = await apiFetch(
@@ -292,7 +293,7 @@ export async function bulkMarkSeason(
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ watched }),
+      body: JSON.stringify({ watched, episodeNumbers }),
     },
   )
   if (!response.ok) throw new Error(`Failed to bulk mark season: ${response.status}`)

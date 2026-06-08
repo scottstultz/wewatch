@@ -60,9 +60,23 @@ public class EpisodeProgressService {
 	}
 
 	@Transactional
-	public List<EpisodeProgress> bulkMarkSeason(Long watchlistId, Long entryId, int seasonNumber, boolean watched) {
+	public List<EpisodeProgress> bulkMarkSeason(
+		Long watchlistId, Long entryId, int seasonNumber, boolean watched, List<Integer> episodeNumbers
+	) {
 		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		requireTvShow(entry);
+
+		// Create rows for episodes that don't have progress yet
+		for (int epNum : episodeNumbers) {
+			boolean exists = episodeProgressRepository
+				.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(entry.getId(), seasonNumber, epNum)
+				.isPresent();
+			if (!exists) {
+				episodeProgressRepository.save(new EpisodeProgress(
+					null, entry.getId(), seasonNumber, epNum, false, null
+				));
+			}
+		}
 
 		Instant watchedAt = watched ? Instant.now() : null;
 		episodeProgressRepository.updateSeasonWatched(entry.getId(), seasonNumber, watched, watchedAt);

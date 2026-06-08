@@ -290,7 +290,8 @@ function ShowDetailPage() {
     if (!token || !watchlistId || !entry || activeSeason == null) return
     setIsBulkMarking(true)
     try {
-      await bulkMarkSeason(watchlistId, entry.id, activeSeason, watched, token)
+      const epNumbers = episodes.map(ep => ep.episodeNumber)
+      await bulkMarkSeason(watchlistId, entry.id, activeSeason, watched, epNumbers, token)
       // Re-fetch progress for this season and the overall progress
       const [seasonProg, allProg] = await Promise.all([
         getEpisodeProgress(watchlistId, entry.id, token, activeSeason),
