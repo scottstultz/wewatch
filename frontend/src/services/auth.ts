@@ -3,7 +3,6 @@ const TOKEN_KEY = 'wewatch_token'
 interface JwtPayload {
   sub: string
   email: string
-  name: string
   exp: number
 }
 

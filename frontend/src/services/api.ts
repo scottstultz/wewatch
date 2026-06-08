@@ -33,6 +33,19 @@ async function apiFetch(url: string, token: string, init?: RequestInit): Promise
   return response
 }
 
+// ── Auth ─────────────────────────────────────────────────────
+
+export async function exchangeToken(provider: string, credential: string): Promise<string> {
+  const response = await fetch(`${BASE_URL}/auth/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider, credential }),
+  })
+  if (!response.ok) throw new Error(`Token exchange failed: ${response.status}`)
+  const data = (await response.json()) as { token: string }
+  return data.token
+}
+
 // ── User ─────────────────────────────────────────────────────
 
 export async function getCurrentUser(token: string): Promise<BackendUser> {

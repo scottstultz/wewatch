@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
-import { clearToken, decodeToken, getStoredToken, isTokenValid, storeToken } from '../services/auth'
+import { clearToken, getStoredToken, isTokenValid, storeToken } from '../services/auth'
 import { getCurrentUser } from '../services/api'
 
 interface User {
@@ -12,7 +12,7 @@ interface User {
 interface AuthContextType {
   token: string | null
   user: User | null
-  handleCredential: (credential: string) => void
+  handleCredential: (token: string) => void
   signOut: () => void
 }
 
@@ -25,22 +25,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = getStoredToken()
     if (stored && isTokenValid(stored)) {
-      const payload = decodeToken(stored)!
       setToken(stored)
       getCurrentUser(stored)
-        .then(backendUser => setUser({ id: backendUser.id, name: payload.name, email: payload.email }))
-        .catch(() => setUser({ id: 0, name: payload.name, email: payload.email }))
+        .then(backendUser => setUser({ id: backendUser.id, name: backendUser.displayName, email: backendUser.email }))
+        .catch(() => {
+          clearToken()
+          setToken(null)
+        })
     }
   }, [])
 
-  function handleCredential(credential: string) {
-    const payload = decodeToken(credential)
-    if (!payload) return
-    storeToken(credential)
-    setToken(credential)
-    getCurrentUser(credential)
-      .then(backendUser => setUser({ id: backendUser.id, name: payload.name, email: payload.email }))
-      .catch(() => setUser({ id: 0, name: payload.name, email: payload.email }))
+  function handleCredential(newToken: string) {
+    storeToken(newToken)
+    setToken(newToken)
+    getCurrentUser(newToken)
+      .then(backendUser => setUser({ id: backendUser.id, name: backendUser.displayName, email: backendUser.email }))
+      .catch(() => {
+        clearToken()
+        setToken(null)
+      })
   }
 
   function signOut() {
