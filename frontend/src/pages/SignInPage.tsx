@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { exchangeToken } from '../services/api'
 
 function SignInPage() {
   const { token, handleCredential } = useAuth()
   const navigate = useNavigate()
   const buttonRef = useRef<HTMLDivElement>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (token) {
@@ -17,9 +19,14 @@ function SignInPage() {
       if (!buttonRef.current) return
       google.accounts.id.initialize({
         client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID as string,
-        callback: (response) => {
-          handleCredential(response.credential)
-          navigate('/home', { replace: true })
+        callback: async (response) => {
+          try {
+            const weWatchToken = await exchangeToken('google', response.credential)
+            handleCredential(weWatchToken)
+            navigate('/home', { replace: true })
+          } catch {
+            setError('Sign-in failed. Please try again.')
+          }
         },
       })
       google.accounts.id.renderButton(buttonRef.current, {
@@ -50,6 +57,7 @@ function SignInPage() {
           <h1 className="sign-in-title">Pick something worth watching.</h1>
         </div>
         <p className="sign-in-prompt">Sign in to continue</p>
+        {error && <p className="sign-in-error">{error}</p>}
         <div ref={buttonRef} className="sign-in-button-wrap" />
       </div>
     </div>
