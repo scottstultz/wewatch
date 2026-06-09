@@ -12,10 +12,12 @@ import java.util.stream.StreamSupport;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.exception.DuplicateEmailException;
+import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.UserRepository;
 
@@ -25,11 +27,14 @@ public class UserService {
 	private final UserRepository userRepository;
 	private final Validator validator;
 	private final WatchlistService watchlistService;
+	private final PasswordEncoder passwordEncoder;
 
-	public UserService(UserRepository userRepository, Validator validator, WatchlistService watchlistService) {
+	public UserService(UserRepository userRepository, Validator validator, WatchlistService watchlistService,
+			PasswordEncoder passwordEncoder) {
 		this.userRepository = userRepository;
 		this.validator = validator;
 		this.watchlistService = watchlistService;
+		this.passwordEncoder = passwordEncoder;
 	}
 
 	@Transactional
@@ -112,6 +117,39 @@ public class UserService {
 						return saved;
 					});
 			});
+	}
+
+	@Transactional
+	public User registerWithPassword(String email, String displayName, String password) {
+		userRepository.findByEmail(email).ifPresent(existing -> {
+			throw new DuplicateEmailException(email);
+		});
+
+		Instant now = Instant.now();
+		User user = new User();
+		user.setEmail(email);
+		user.setDisplayName(displayName);
+		user.setProvider("email");
+		user.setProviderId(email);
+		user.setPasswordHash(passwordEncoder.encode(password));
+		user.setCreatedAt(now);
+		user.setUpdatedAt(now);
+
+		validate(user);
+		User saved = userRepository.save(user);
+		watchlistService.provisionPersonalWatchlist(saved.getId(), saved.getDisplayName() + "'s Watchlist");
+		return saved;
+	}
+
+	public User authenticateWithPassword(String email, String password) {
+		User user = userRepository.findByEmail(email)
+			.filter(u -> u.getPasswordHash() != null)
+			.orElseThrow(InvalidCredentialsException::new);
+
+		if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+			throw new InvalidCredentialsException();
+		}
+		return user;
 	}
 
 	public List<User> findByFilters(String email, String displayName) {

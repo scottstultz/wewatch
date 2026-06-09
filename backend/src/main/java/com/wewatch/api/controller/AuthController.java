@@ -1,12 +1,17 @@
 package com.wewatch.api.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wewatch.api.dto.RegisterRequest;
 import com.wewatch.api.dto.TokenRequest;
 import com.wewatch.api.dto.TokenResponse;
 import com.wewatch.api.model.User;
@@ -22,24 +27,55 @@ public class AuthController {
 	private final GoogleTokenValidator googleTokenValidator;
 	private final UserService userService;
 	private final JwtTokenService jwtTokenService;
+	private final ObjectMapper objectMapper;
 
 	public AuthController(GoogleTokenValidator googleTokenValidator, UserService userService,
-			JwtTokenService jwtTokenService) {
+			JwtTokenService jwtTokenService, ObjectMapper objectMapper) {
 		this.googleTokenValidator = googleTokenValidator;
 		this.userService = userService;
 		this.jwtTokenService = jwtTokenService;
+		this.objectMapper = objectMapper;
 	}
 
 	@PostMapping("/token")
 	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request) {
-		if (!"google".equals(request.provider())) {
+		User user;
+		if ("google".equals(request.provider())) {
+			GoogleIdentity identity = googleTokenValidator.validate(request.credential());
+			user = userService.findOrCreateByProviderIdentity(
+				request.provider(), identity.sub(), identity.email(), identity.name());
+		} else if ("email".equals(request.provider())) {
+			EmailCredential cred = parseEmailCredential(request.credential());
+			user = userService.authenticateWithPassword(cred.email(), cred.password());
+		} else {
 			return ResponseEntity.badRequest().build();
 		}
 
-		GoogleIdentity identity = googleTokenValidator.validate(request.credential());
-		User user = userService.findOrCreateByProviderIdentity(
-			request.provider(), identity.sub(), identity.email(), identity.name());
 		String token = jwtTokenService.generateToken(user);
 		return ResponseEntity.ok(new TokenResponse(token));
+	}
+
+	@PostMapping("/register")
+	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
+		User user = userService.registerWithPassword(
+			request.email(), request.displayName(), request.password());
+		String token = jwtTokenService.generateToken(user);
+		return ResponseEntity.status(HttpStatus.CREATED).body(new TokenResponse(token));
+	}
+
+	private record EmailCredential(String email, String password) {}
+
+	private EmailCredential parseEmailCredential(String credential) {
+		try {
+			JsonNode node = objectMapper.readTree(credential);
+			String email = node.has("email") ? node.get("email").asText() : null;
+			String password = node.has("password") ? node.get("password").asText() : null;
+			if (email == null || email.isBlank() || password == null || password.isBlank()) {
+				throw new IllegalArgumentException("Email and password are required");
+			}
+			return new EmailCredential(email, password);
+		} catch (JsonProcessingException e) {
+			throw new IllegalArgumentException("Invalid credential format for email provider");
+		}
 	}
 }
