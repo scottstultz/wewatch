@@ -34,6 +34,19 @@ function statusBadgeClass(status: WatchStatus) {
 
 type EntryAction = 'updating' | 'removing'
 
+function episodeProgressLabel(ep: import('../types/api').EpisodeProgressSummary): string {
+  if (ep.nextSeason != null && ep.nextEpisode != null) {
+    let label = `Up next: S${ep.nextSeason} E${ep.nextEpisode}`
+    if (ep.nextEpisodeName) label += ` · ${ep.nextEpisodeName}`
+    if (ep.nextRuntimeMinutes) label += ` · ${ep.nextRuntimeMinutes}m`
+    return label
+  }
+  if (ep.watchedCount > 0) {
+    return `All caught up · ${ep.watchedCount} watched`
+  }
+  return 'Episodes'
+}
+
 function LibraryPage() {
   const { token, user, signOut } = useAuth()
   const {
@@ -273,7 +286,7 @@ function LibraryPage() {
                         onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
                       >
                         {entry.episodeProgress
-                          ? `S${entry.episodeProgress.lastWatchedSeason} E${entry.episodeProgress.lastWatchedEpisode} · ${entry.episodeProgress.watchedCount} watched`
+                          ? episodeProgressLabel(entry.episodeProgress)
                           : 'Episodes'}
                       </button>
                     )}

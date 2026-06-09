@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.sql.Date;
 
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -190,15 +191,29 @@ public class WatchlistEntryController {
 			lastWatched.put(entryId, new int[] { season, episode });
 		}
 
+		Map<Long, Object[]> nextEpisode = new HashMap<>();
+		for (Object[] row : episodeProgressRepository.findNextEpisodeByEntryIds(entryIds)) {
+			Long entryId = ((Number) row[0]).longValue();
+			nextEpisode.put(entryId, row);
+		}
+
 		Map<Long, EpisodeProgressSummary> result = new HashMap<>();
 		for (Map.Entry<Long, long[]> e : counts.entrySet()) {
 			long watched = e.getValue()[1];
 			if (watched == 0) continue;
 			int[] lw = lastWatched.get(e.getKey());
+			Object[] next = nextEpisode.get(e.getKey());
 			result.put(e.getKey(), new EpisodeProgressSummary(
 				watched,
 				lw != null ? lw[0] : null,
-				lw != null ? lw[1] : null
+				lw != null ? lw[1] : null,
+				next != null ? ((Number) next[1]).intValue() : null,
+				next != null ? ((Number) next[2]).intValue() : null,
+				next != null ? (String) next[3] : null,
+				next != null && next[4] != null
+					? ((Date) next[4]).toLocalDate() : null,
+				next != null && next[5] != null
+					? ((Number) next[5]).intValue() : null
 			));
 		}
 		return result;

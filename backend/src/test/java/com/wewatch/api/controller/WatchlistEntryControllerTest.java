@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.sql.Date;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -534,13 +535,45 @@ class WatchlistEntryControllerTest {
 			.thenReturn(List.<Object[]>of(new Object[] { 5L, 12L, 8L }));
 		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
 			.thenReturn(List.<Object[]>of(new Object[] { 5L, 2, 5 }));
+		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
+			.thenReturn(List.of());
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.content[0].id").value(5))
 			.andExpect(jsonPath("$.content[0].episodeProgress.watchedCount").value(8))
 			.andExpect(jsonPath("$.content[0].episodeProgress.lastWatchedSeason").value(2))
-			.andExpect(jsonPath("$.content[0].episodeProgress.lastWatchedEpisode").value(5));
+			.andExpect(jsonPath("$.content[0].episodeProgress.lastWatchedEpisode").value(5))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextSeason").doesNotExist())
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisode").doesNotExist());
+	}
+
+	@Test
+	void getEntriesIncludesNextEpisodeInSummaryWhenAvailable() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry tvEntry = new WatchlistEntry(
+			5L, 10L, 30L, WatchStatus.WATCHING, addedAt, addedAt, addedAt, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(tvEntry)));
+		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
+		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 10L, 10L }));
+		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 1, 10 }));
+		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] {
+				5L, 2, 1, "The North Remembers",
+				java.sql.Date.valueOf("2012-04-01"), 57
+			}));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextSeason").value(2))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisode").value(1))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisodeName").value("The North Remembers"))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextRuntimeMinutes").value(57));
 	}
 
 	@Test
@@ -556,6 +589,8 @@ class WatchlistEntryControllerTest {
 		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
 			.thenReturn(List.of());
 		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.of());
+		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
 			.thenReturn(List.of());
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
