@@ -81,6 +81,14 @@ public class ApiExceptionHandler {
 		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
 	}
 
+	@ExceptionHandler(RegistrationNotAllowedException.class)
+	public ResponseEntity<ApiErrorResponse> handleRegistrationNotAllowed(
+		RegistrationNotAllowedException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<ApiErrorResponse> handleIllegalArgument(
 		IllegalArgumentException exception,

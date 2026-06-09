@@ -14,7 +14,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wewatch.api.dto.RegisterRequest;
 import com.wewatch.api.dto.TokenRequest;
 import com.wewatch.api.dto.TokenResponse;
+import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.JwtTokenService;
@@ -28,13 +30,16 @@ public class AuthController {
 	private final UserService userService;
 	private final JwtTokenService jwtTokenService;
 	private final ObjectMapper objectMapper;
+	private final AllowedEmailRepository allowedEmailRepository;
 
 	public AuthController(GoogleTokenValidator googleTokenValidator, UserService userService,
-			JwtTokenService jwtTokenService, ObjectMapper objectMapper) {
+			JwtTokenService jwtTokenService, ObjectMapper objectMapper,
+			AllowedEmailRepository allowedEmailRepository) {
 		this.googleTokenValidator = googleTokenValidator;
 		this.userService = userService;
 		this.jwtTokenService = jwtTokenService;
 		this.objectMapper = objectMapper;
+		this.allowedEmailRepository = allowedEmailRepository;
 	}
 
 	@PostMapping("/token")
@@ -42,10 +47,12 @@ public class AuthController {
 		User user;
 		if ("google".equals(request.provider())) {
 			GoogleIdentity identity = googleTokenValidator.validate(request.credential());
+			requireAllowedEmail(identity.email());
 			user = userService.findOrCreateByProviderIdentity(
 				request.provider(), identity.sub(), identity.email(), identity.name());
 		} else if ("email".equals(request.provider())) {
 			EmailCredential cred = parseEmailCredential(request.credential());
+			requireAllowedEmail(cred.email());
 			user = userService.authenticateWithPassword(cred.email(), cred.password());
 		} else {
 			return ResponseEntity.badRequest().build();
@@ -57,10 +64,17 @@ public class AuthController {
 
 	@PostMapping("/register")
 	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
+		requireAllowedEmail(request.email());
 		User user = userService.registerWithPassword(
 			request.email(), request.displayName(), request.password());
 		String token = jwtTokenService.generateToken(user);
 		return ResponseEntity.status(HttpStatus.CREATED).body(new TokenResponse(token));
+	}
+
+	private void requireAllowedEmail(String email) {
+		if (!allowedEmailRepository.existsByEmail(email.toLowerCase())) {
+			throw new RegistrationNotAllowedException();
+		}
 	}
 
 	private record EmailCredential(String email, String password) {}

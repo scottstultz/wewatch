@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.time.Instant;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -21,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
@@ -46,7 +48,15 @@ class AuthControllerTest {
 	private JwtTokenService jwtTokenService;
 
 	@MockBean
+	private AllowedEmailRepository allowedEmailRepository;
+
+	@MockBean
 	private JwtDecoder jwtDecoder;
+
+	@BeforeEach
+	void setUp() {
+		when(allowedEmailRepository.existsByEmail(any())).thenReturn(true);
+	}
 
 	@Test
 	void exchangeTokenReturnsWeWatchJwt() throws Exception {
@@ -245,5 +255,58 @@ class AuthControllerTest {
 				}
 				"""))
 			.andExpect(status().isBadRequest());
+	}
+
+	// ── Email allowlist tests ────────────────────────────────
+
+	@Test
+	void exchangeTokenReturnsForbiddenForNonAllowlistedGoogleEmail() throws Exception {
+		GoogleIdentity identity = new GoogleIdentity("g-sub", "blocked@example.com", "Blocked");
+		when(googleTokenValidator.validate("cred")).thenReturn(identity);
+		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "google",
+					"credential": "cred"
+				}
+				"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
+	}
+
+	@Test
+	void exchangeTokenReturnsForbiddenForNonAllowlistedEmailProvider() throws Exception {
+		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "email",
+					"credential": "{\\"email\\":\\"blocked@example.com\\",\\"password\\":\\"password123\\"}"
+				}
+				"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
+	}
+
+	@Test
+	void registerReturnsForbiddenForNonAllowlistedEmail() throws Exception {
+		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+
+		mockMvc.perform(post("/api/auth/register")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"email": "blocked@example.com",
+					"displayName": "Blocked User",
+					"password": "password123"
+				}
+				"""))
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
 	}
 }
