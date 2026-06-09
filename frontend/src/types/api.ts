@@ -46,6 +46,11 @@ export interface EpisodeProgressSummary {
   watchedCount: number
   lastWatchedSeason: number | null
   lastWatchedEpisode: number | null
+  nextSeason: number | null
+  nextEpisode: number | null
+  nextEpisodeName: string | null
+  nextAirDate: string | null
+  nextRuntimeMinutes: number | null
 }
 
 export interface WatchlistEntryResponse {
