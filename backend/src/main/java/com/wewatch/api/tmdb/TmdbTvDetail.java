@@ -9,6 +9,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 public record TmdbTvDetail(
 	long id,
 	@JsonProperty("number_of_seasons") int numberOfSeasons,
+	String status,
+	@JsonProperty("first_air_date") String firstAirDate,
 	List<TmdbTvSeason> seasons
 ) {
 }

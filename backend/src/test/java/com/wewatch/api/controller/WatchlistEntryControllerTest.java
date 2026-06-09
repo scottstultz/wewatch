@@ -48,6 +48,7 @@ import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.service.WatchlistEntryService;
 import com.wewatch.api.service.WatchlistService;
@@ -74,6 +75,9 @@ class WatchlistEntryControllerTest {
 
 	@MockBean
 	private EpisodeProgressRepository episodeProgressRepository;
+
+	@MockBean
+	private TmdbCacheService tmdbCacheService;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
@@ -558,6 +562,49 @@ class WatchlistEntryControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.content[0].id").value(5))
 			.andExpect(jsonPath("$.content[0].episodeProgress").doesNotExist());
+	}
+
+	// ─── Prewarm cache on add ────────────────────────────────────────────────
+
+	@Test
+	void createWatchlistEntryTriggersPrewarmForTvTitle() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry createdEntry = new WatchlistEntry(
+			6L, 10L, 30L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+		when(titleService.findById(30L)).thenReturn(TV_TITLE);
+		when(watchlistEntryService.create(any(WatchlistEntry.class))).thenReturn(createdEntry);
+
+		mockMvc.perform(
+			post("/api/watchlists/10/entries")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{ "titleId": 30, "status": "WANT_TO_WATCH" }
+					""")
+		).andExpect(status().isCreated());
+
+		verify(tmdbCacheService).prewarmShow("1399");
+	}
+
+	@Test
+	void createWatchlistEntryDoesNotPrewarmForMovie() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry createdEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+		when(watchlistEntryService.create(any(WatchlistEntry.class))).thenReturn(createdEntry);
+
+		mockMvc.perform(
+			post("/api/watchlists/10/entries")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{ "titleId": 20, "status": "WANT_TO_WATCH" }
+					""")
+		).andExpect(status().isCreated());
+
+		verify(tmdbCacheService, org.mockito.Mockito.never()).prewarmShow(any());
 	}
 
 	@Test

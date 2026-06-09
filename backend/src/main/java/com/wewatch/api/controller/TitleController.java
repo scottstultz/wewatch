@@ -27,6 +27,7 @@ import com.wewatch.api.dto.TitleUpdateRequest;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 
@@ -36,10 +37,12 @@ public class TitleController {
 
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
+	private final TmdbCacheService tmdbCacheService;
 
-	public TitleController(TitleService titleService, TmdbClient tmdbClient) {
+	public TitleController(TitleService titleService, TmdbClient tmdbClient, TmdbCacheService tmdbCacheService) {
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
+		this.tmdbCacheService = tmdbCacheService;
 	}
 
 	@GetMapping("/search")
@@ -106,7 +109,7 @@ public class TitleController {
 	public List<SeasonSummaryResponse> getSeasons(@PathVariable Long titleId) {
 		Title title = titleService.findById(titleId);
 		requireTv(title);
-		return tmdbClient.getSeasons(title.getExternalId()).stream()
+		return tmdbCacheService.getSeasons(title.getExternalId()).stream()
 			.map(season -> new SeasonSummaryResponse(
 				season.seasonNumber(),
 				season.name(),
@@ -124,7 +127,7 @@ public class TitleController {
 	) {
 		Title title = titleService.findById(titleId);
 		requireTv(title);
-		TmdbTvSeason season = tmdbClient.getSeasonDetail(title.getExternalId(), seasonNumber);
+		TmdbTvSeason season = tmdbCacheService.getSeasonDetail(title.getExternalId(), seasonNumber);
 		List<EpisodeResponse> episodes = season.episodes() != null
 			? season.episodes().stream()
 				.map(ep -> new EpisodeResponse(

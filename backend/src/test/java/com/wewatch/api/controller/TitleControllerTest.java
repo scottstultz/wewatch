@@ -41,6 +41,7 @@ import com.wewatch.api.model.User;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
@@ -59,6 +60,9 @@ class TitleControllerTest {
 
 	@MockBean
 	private TmdbClient tmdbClient;
+
+	@MockBean
+	private TmdbCacheService tmdbCacheService;
 
 	@MockBean
 	private UserService userService;
@@ -559,7 +563,7 @@ class TitleControllerTest {
 	@Test
 	void getSeasonsReturnsSummariesForTvTitle() throws Exception {
 		when(titleService.findById(5L)).thenReturn(TV_TITLE);
-		when(tmdbClient.getSeasons("1399")).thenReturn(List.of(
+		when(tmdbCacheService.getSeasons("1399")).thenReturn(List.of(
 			new TmdbTvSeason(3625, 1, "Season 1", null, "/s1.jpg", 10, "2011-04-17", null),
 			new TmdbTvSeason(3626, 2, "Season 2", null, null, 10, "2012-04-01", null)
 		));
@@ -592,7 +596,7 @@ class TitleControllerTest {
 	@Test
 	void getSeasonDetailReturnsEpisodesForTvTitle() throws Exception {
 		when(titleService.findById(5L)).thenReturn(TV_TITLE);
-		when(tmdbClient.getSeasonDetail("1399", 1)).thenReturn(new TmdbTvSeason(
+		when(tmdbCacheService.getSeasonDetail("1399", 1)).thenReturn(new TmdbTvSeason(
 			3625, 1, "Season 1", "The first season.", "/s1.jpg", 10, "2011-04-17",
 			List.of(
 				new TmdbTvEpisode(63056, 1, "Winter Is Coming", "Jon Arryn has died.", "2011-04-17", "/ep1.jpg", 62),
