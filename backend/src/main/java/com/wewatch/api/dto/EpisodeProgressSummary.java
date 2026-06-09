@@ -8,6 +8,7 @@ public record EpisodeProgressSummary(
 	Integer nextEpisode,
 	String nextEpisodeName,
 	java.time.LocalDate nextAirDate,
-	Integer nextRuntimeMinutes
+	Integer nextRuntimeMinutes,
+	String showStatus
 ) {
 }
