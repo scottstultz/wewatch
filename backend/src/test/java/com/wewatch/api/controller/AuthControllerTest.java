@@ -18,6 +18,8 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.exception.DuplicateEmailException;
+import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
@@ -128,5 +130,120 @@ class AuthControllerTest {
 				}
 				"""))
 			.andExpect(status().isOk());
+	}
+
+	// ── Email sign-in tests ──────────────────────────────────
+
+	@Test
+	void exchangeTokenWithEmailProviderReturnsJwt() throws Exception {
+		User user = new User(1L, "user@example.com", "Test User", Instant.now(), Instant.now(), "email", "user@example.com");
+		when(userService.authenticateWithPassword("user@example.com", "password123")).thenReturn(user);
+		when(jwtTokenService.generateToken(user)).thenReturn("email-jwt-token");
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "email",
+					"credential": "{\\"email\\":\\"user@example.com\\",\\"password\\":\\"password123\\"}"
+				}
+				"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.token").value("email-jwt-token"));
+	}
+
+	@Test
+	void exchangeTokenWithEmailProviderReturnsUnauthorizedForBadPassword() throws Exception {
+		when(userService.authenticateWithPassword("user@example.com", "wrongpassword"))
+			.thenThrow(new InvalidCredentialsException());
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "email",
+					"credential": "{\\"email\\":\\"user@example.com\\",\\"password\\":\\"wrongpassword\\"}"
+				}
+				"""))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void exchangeTokenWithEmailProviderReturnsBadRequestForMalformedCredential() throws Exception {
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "email",
+					"credential": "not-valid-json"
+				}
+				"""))
+			.andExpect(status().isBadRequest());
+	}
+
+	// ── Registration tests ───────────────────────────────────
+
+	@Test
+	void registerReturnsCreatedWithJwt() throws Exception {
+		User user = new User(1L, "new@example.com", "New User", Instant.now(), Instant.now(), "email", "new@example.com");
+		when(userService.registerWithPassword("new@example.com", "New User", "password123")).thenReturn(user);
+		when(jwtTokenService.generateToken(user)).thenReturn("new-user-jwt");
+
+		mockMvc.perform(post("/api/auth/register")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"email": "new@example.com",
+					"displayName": "New User",
+					"password": "password123"
+				}
+				"""))
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.token").value("new-user-jwt"));
+	}
+
+	@Test
+	void registerReturnsConflictForDuplicateEmail() throws Exception {
+		when(userService.registerWithPassword("existing@example.com", "User", "password123"))
+			.thenThrow(new DuplicateEmailException("existing@example.com"));
+
+		mockMvc.perform(post("/api/auth/register")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"email": "existing@example.com",
+					"displayName": "User",
+					"password": "password123"
+				}
+				"""))
+			.andExpect(status().isConflict());
+	}
+
+	@Test
+	void registerReturnsBadRequestForMissingFields() throws Exception {
+		mockMvc.perform(post("/api/auth/register")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"email": "",
+					"displayName": "",
+					"password": ""
+				}
+				"""))
+			.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void registerReturnsBadRequestForShortPassword() throws Exception {
+		mockMvc.perform(post("/api/auth/register")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"email": "user@example.com",
+					"displayName": "User",
+					"password": "short"
+				}
+				"""))
+			.andExpect(status().isBadRequest());
 	}
 }

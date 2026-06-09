@@ -41,7 +41,32 @@ export async function exchangeToken(provider: string, credential: string): Promi
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ provider, credential }),
   })
-  if (!response.ok) throw new Error(`Token exchange failed: ${response.status}`)
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as { message?: string }
+    const err = new Error(error.message || `Token exchange failed: ${response.status}`)
+    ;(err as Error & { status: number }).status = response.status
+    throw err
+  }
+  const data = (await response.json()) as { token: string }
+  return data.token
+}
+
+export async function registerUser(
+  email: string,
+  displayName: string,
+  password: string,
+): Promise<string> {
+  const response = await fetch(`${BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, displayName, password }),
+  })
+  if (!response.ok) {
+    const error = (await response.json().catch(() => ({}))) as { message?: string }
+    const err = new Error(error.message || `Registration failed: ${response.status}`)
+    ;(err as Error & { status: number }).status = response.status
+    throw err
+  }
   const data = (await response.json()) as { token: string }
   return data.token
 }

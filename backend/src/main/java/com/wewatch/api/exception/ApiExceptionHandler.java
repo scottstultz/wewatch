@@ -18,6 +18,14 @@ import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
+	@ExceptionHandler(InvalidCredentialsException.class)
+	public ResponseEntity<ApiErrorResponse> handleInvalidCredentials(
+		InvalidCredentialsException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.UNAUTHORIZED, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(InvalidCredentialException.class)
 	public ResponseEntity<ApiErrorResponse> handleInvalidCredential(
 		InvalidCredentialException exception,

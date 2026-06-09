@@ -52,6 +52,9 @@ public class User {
 	@Column(name = "provider_id", length = 255)
 	private String providerId;
 
+	@Column(name = "password_hash", length = 255)
+	private String passwordHash;
+
 	public User() {
 	}
 
@@ -127,5 +130,13 @@ public class User {
 
 	public void setProviderId(String providerId) {
 		this.providerId = providerId;
+	}
+
+	public String getPasswordHash() {
+		return passwordHash;
+	}
+
+	public void setPasswordHash(String passwordHash) {
+		this.passwordHash = passwordHash;
 	}
 }
