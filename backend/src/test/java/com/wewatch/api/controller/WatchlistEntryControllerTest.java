@@ -582,6 +582,34 @@ class WatchlistEntryControllerTest {
 	}
 
 	@Test
+	void getEntriesReturnsNextEpisodeWithNullAirDate() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry tvEntry = new WatchlistEntry(
+			5L, 10L, 30L, WatchStatus.WATCHING, addedAt, addedAt, addedAt, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(tvEntry)));
+		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
+		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 5L, 3L }));
+		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 1, 3 }));
+		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] {
+				5L, 1, 4, "Episode 4", null, 45
+			}));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextSeason").value(1))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisode").value(4))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisodeName").value("Episode 4"))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextAirDate").doesNotExist())
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextRuntimeMinutes").value(45));
+	}
+
+	@Test
 	void getEntriesShowsStatusForCaughtUpEndedSeries() throws Exception {
 		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
 		WatchlistEntry tvEntry = new WatchlistEntry(
