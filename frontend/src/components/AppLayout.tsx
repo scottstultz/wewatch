@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 import TmdbAttribution from './TmdbAttribution'
 import WeWatchLogo from './WeWatchLogo'
 
@@ -10,6 +11,8 @@ const navigationItems = [
 ]
 
 function AppLayout() {
+  const { user, signOut } = useAuth()
+
   return (
     <div className="shell">
       <aside className="sidebar" aria-label="Primary">
@@ -31,12 +34,19 @@ function AppLayout() {
             ))}
           </nav>
         </div>
-        <TmdbAttribution />
+        <div className="sidebar-bottom">
+          <div className="sidebar-user">
+            <span className="sidebar-user-name">{user?.name}</span>
+            <button className="sign-out-btn" onClick={signOut}>Sign out</button>
+          </div>
+          <TmdbAttribution />
+        </div>
       </aside>
 
       <div className="shell-main">
         <header className="mobile-header">
           <WeWatchLogo onDark height={36} />
+          <button className="sign-out-btn sign-out-btn-mobile" onClick={signOut}>Sign out</button>
         </header>
 
         <main className="page-frame">
