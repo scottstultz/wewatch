@@ -33,7 +33,9 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
+import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.EpisodeProgressRepository;
+import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.WatchlistEntryService;
@@ -48,19 +50,22 @@ public class WatchlistEntryController {
 	private final WatchlistService watchlistService;
 	private final EpisodeProgressRepository episodeProgressRepository;
 	private final TmdbCacheService tmdbCacheService;
+	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 
 	public WatchlistEntryController(
 		WatchlistEntryService watchlistEntryService,
 		TitleService titleService,
 		WatchlistService watchlistService,
 		EpisodeProgressRepository episodeProgressRepository,
-		TmdbCacheService tmdbCacheService
+		TmdbCacheService tmdbCacheService,
+		TmdbTitleCacheRepository tmdbTitleCacheRepository
 	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
 		this.watchlistService = watchlistService;
 		this.episodeProgressRepository = episodeProgressRepository;
 		this.tmdbCacheService = tmdbCacheService;
+		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
 	}
 
 	@PostMapping
@@ -104,14 +109,15 @@ public class WatchlistEntryController {
 		Map<Long, Title> titlesById = titleService.findByIds(titleIds);
 
 		// Batch-load episode progress summaries for TV entries
-		List<Long> tvEntryIds = entries.stream()
+		Map<Long, String> tvEntryExternalIds = new HashMap<>();
+		entries.stream()
 			.filter(e -> {
 				Title t = titlesById.get(e.getTitleId());
 				return t != null && t.getType() == TitleType.TV;
 			})
-			.map(WatchlistEntry::getId)
-			.collect(Collectors.toList());
-		Map<Long, EpisodeProgressSummary> summaries = buildSummaries(tvEntryIds);
+			.forEach(e -> tvEntryExternalIds.put(e.getId(), titlesById.get(e.getTitleId()).getExternalId()));
+		Map<Long, EpisodeProgressSummary> summaries = buildSummaries(
+			new java.util.ArrayList<>(tvEntryExternalIds.keySet()), tvEntryExternalIds);
 
 		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId())));
 	}
@@ -127,7 +133,8 @@ public class WatchlistEntryController {
 		Title title = titleService.findById(entry.getTitleId());
 		EpisodeProgressSummary summary = null;
 		if (title != null && title.getType() == TitleType.TV) {
-			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(entry.getId()));
+			Map<Long, String> extIds = Map.of(entry.getId(), title.getExternalId());
+			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(entry.getId()), extIds);
 			summary = summaries.get(entry.getId());
 		}
 		return toResponse(entry, title, summary);
@@ -154,7 +161,8 @@ public class WatchlistEntryController {
 		Title title = titleService.findById(updated.getTitleId());
 		EpisodeProgressSummary summary = null;
 		if (title != null && title.getType() == TitleType.TV) {
-			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(updated.getId()));
+			Map<Long, String> extIds = Map.of(updated.getId(), title.getExternalId());
+			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(updated.getId()), extIds);
 			summary = summaries.get(updated.getId());
 		}
 		return toResponse(updated, title, summary);
@@ -171,7 +179,7 @@ public class WatchlistEntryController {
 		return ResponseEntity.noContent().build();
 	}
 
-	private Map<Long, EpisodeProgressSummary> buildSummaries(List<Long> entryIds) {
+	private Map<Long, EpisodeProgressSummary> buildSummaries(List<Long> entryIds, Map<Long, String> entryExternalIds) {
 		if (entryIds.isEmpty()) {
 			return Collections.emptyMap();
 		}
@@ -213,9 +221,37 @@ public class WatchlistEntryController {
 				next != null && next[4] != null
 					? ((Date) next[4]).toLocalDate() : null,
 				next != null && next[5] != null
-					? ((Number) next[5]).intValue() : null
+					? ((Number) next[5]).intValue() : null,
+				null
 			));
 		}
+
+		List<String> caughtUpTmdbIds = result.entrySet().stream()
+			.filter(e -> e.getValue().nextSeason() == null)
+			.map(e -> entryExternalIds.get(e.getKey()))
+			.filter(id -> id != null)
+			.distinct()
+			.collect(Collectors.toList());
+		Map<String, String> statusByTmdbId = new HashMap<>();
+		if (!caughtUpTmdbIds.isEmpty()) {
+			tmdbTitleCacheRepository.findAllById(caughtUpTmdbIds)
+				.forEach(c -> statusByTmdbId.put(c.getTmdbId(), c.getStatus()));
+		}
+
+		for (Map.Entry<Long, EpisodeProgressSummary> e : result.entrySet()) {
+			if (e.getValue().nextSeason() != null) continue;
+			String tmdbId = entryExternalIds.get(e.getKey());
+			String status = tmdbId != null ? statusByTmdbId.get(tmdbId) : null;
+			if (status != null) {
+				EpisodeProgressSummary old = e.getValue();
+				e.setValue(new EpisodeProgressSummary(
+					old.watchedCount(), old.lastWatchedSeason(), old.lastWatchedEpisode(),
+					old.nextSeason(), old.nextEpisode(), old.nextEpisodeName(),
+					old.nextAirDate(), old.nextRuntimeMinutes(), status
+				));
+			}
+		}
+
 		return result;
 	}
 

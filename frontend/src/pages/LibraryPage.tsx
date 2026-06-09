@@ -42,7 +42,9 @@ function episodeProgressLabel(ep: import('../types/api').EpisodeProgressSummary)
     return label
   }
   if (ep.watchedCount > 0) {
-    return `All caught up · ${ep.watchedCount} watched`
+    const ended = ep.showStatus === 'Ended' || ep.showStatus === 'Canceled'
+    const prefix = ended ? 'Series complete' : 'All caught up'
+    return `${prefix} · ${ep.watchedCount} watched`
   }
   return 'Episodes'
 }

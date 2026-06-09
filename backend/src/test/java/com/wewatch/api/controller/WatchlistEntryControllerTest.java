@@ -45,7 +45,9 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
+import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.EpisodeProgressRepository;
+import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.TitleService;
@@ -79,6 +81,9 @@ class WatchlistEntryControllerTest {
 
 	@MockBean
 	private TmdbCacheService tmdbCacheService;
+
+	@MockBean
+	private TmdbTitleCacheRepository tmdbTitleCacheRepository;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
@@ -574,6 +579,35 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisode").value(1))
 			.andExpect(jsonPath("$.content[0].episodeProgress.nextEpisodeName").value("The North Remembers"))
 			.andExpect(jsonPath("$.content[0].episodeProgress.nextRuntimeMinutes").value(57));
+	}
+
+	@Test
+	void getEntriesShowsStatusForCaughtUpEndedSeries() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry tvEntry = new WatchlistEntry(
+			5L, 10L, 30L, WatchStatus.WATCHED, addedAt, addedAt, addedAt, addedAt
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(tvEntry)));
+		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
+		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 73L, 73L }));
+		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
+			.thenReturn(List.<Object[]>of(new Object[] { 5L, 8, 6 }));
+		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
+			.thenReturn(List.of());
+		TmdbTitleCache cached = new TmdbTitleCache();
+		cached.setTmdbId("1399");
+		cached.setStatus("Ended");
+		when(tmdbTitleCacheRepository.findAllById(List.of("1399")))
+			.thenReturn(List.of(cached));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].episodeProgress.watchedCount").value(73))
+			.andExpect(jsonPath("$.content[0].episodeProgress.showStatus").value("Ended"))
+			.andExpect(jsonPath("$.content[0].episodeProgress.nextSeason").doesNotExist());
 	}
 
 	@Test

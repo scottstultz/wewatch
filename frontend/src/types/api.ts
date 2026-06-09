@@ -51,6 +51,7 @@ export interface EpisodeProgressSummary {
   nextEpisodeName: string | null
   nextAirDate: string | null
   nextRuntimeMinutes: number | null
+  showStatus: string | null
 }
 
 export interface WatchlistEntryResponse {
