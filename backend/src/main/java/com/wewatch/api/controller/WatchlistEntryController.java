@@ -34,6 +34,7 @@ import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.service.TitleService;
+import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.WatchlistEntryService;
 import com.wewatch.api.service.WatchlistService;
 
@@ -45,17 +46,20 @@ public class WatchlistEntryController {
 	private final TitleService titleService;
 	private final WatchlistService watchlistService;
 	private final EpisodeProgressRepository episodeProgressRepository;
+	private final TmdbCacheService tmdbCacheService;
 
 	public WatchlistEntryController(
 		WatchlistEntryService watchlistEntryService,
 		TitleService titleService,
 		WatchlistService watchlistService,
-		EpisodeProgressRepository episodeProgressRepository
+		EpisodeProgressRepository episodeProgressRepository,
+		TmdbCacheService tmdbCacheService
 	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
 		this.watchlistService = watchlistService;
 		this.episodeProgressRepository = episodeProgressRepository;
+		this.tmdbCacheService = tmdbCacheService;
 	}
 
 	@PostMapping
@@ -78,6 +82,9 @@ public class WatchlistEntryController {
 		entry.setAddedByUserId(caller.getId());
 		WatchlistEntry created = watchlistEntryService.create(entry);
 		Title title = titleService.findById(created.getTitleId());
+		if (title.getType() == TitleType.TV) {
+			tmdbCacheService.prewarmShow(title.getExternalId());
+		}
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
 			.body(toResponse(created, title, null));

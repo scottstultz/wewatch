@@ -48,16 +48,21 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TmdbTvSeason> getSeasons(String tmdbId) {
+	public TmdbTvDetail getTvDetail(String tmdbId) {
 		try {
 			TmdbTvDetail detail = restClient.get()
 				.uri("/3/tv/{id}?language=en-US", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null && detail.seasons() != null ? detail.seasons() : List.of();
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of());
 		} catch (RestClientException e) {
-			throw new TmdbApiException("TMDB get seasons failed: " + e.getMessage(), e);
+			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
+	}
+
+	public List<TmdbTvSeason> getSeasons(String tmdbId) {
+		TmdbTvDetail detail = getTvDetail(tmdbId);
+		return detail.seasons() != null ? detail.seasons() : List.of();
 	}
 
 	public TmdbTvSeason getSeasonDetail(String tmdbId, int seasonNumber) {

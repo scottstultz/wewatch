@@ -1,5 +1,6 @@
 package com.wewatch.api.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.springframework.data.domain.Page;
@@ -17,4 +18,7 @@ public interface TitleRepository extends JpaRepository<Title, Long> {
 
 	@Query("SELECT t FROM Title t WHERE (:externalId IS NULL OR t.externalId = :externalId) AND (:externalSource IS NULL OR t.externalSource = :externalSource) AND (:type IS NULL OR t.type = :type) AND (:name IS NULL OR t.name = :name)")
 	Page<Title> findByFilters(@Param("externalId") String externalId, @Param("externalSource") String externalSource, @Param("type") TitleType type, @Param("name") String name, Pageable pageable);
+
+	@Query("SELECT DISTINCT t.externalId FROM Title t WHERE t.type = :type AND t.externalId NOT IN (SELECT c.tmdbId FROM TmdbTitleCache c)")
+	List<String> findExternalIdsByTypeNotInCache(@Param("type") TitleType type);
 }
