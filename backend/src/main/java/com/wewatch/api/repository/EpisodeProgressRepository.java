@@ -34,38 +34,36 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 	List<Object[]> findLastWatchedByEntryIds(@Param("entryIds") List<Long> entryIds);
 
 	@Query(nativeQuery = true, value = """
-		WITH latest_air AS (
-		    SELECT ep.watchlist_entry_id, MAX(ec.air_date) AS latest_air_date
-		    FROM episode_progress ep
-		    JOIN watchlist_entries we ON we.id = ep.watchlist_entry_id
-		    JOIN titles t ON t.id = we.title_id
-		    JOIN tmdb_episode_cache ec
-		        ON ec.tmdb_id = t.external_id
-		       AND ec.season_number = ep.season_number
-		       AND ec.episode_number = ep.episode_number
-		    WHERE ep.watched = true
-		      AND ep.watchlist_entry_id IN (:entryIds)
-		      AND ec.air_date IS NOT NULL
-		    GROUP BY ep.watchlist_entry_id
-		),
-		ranked_next AS (
-		    SELECT la.watchlist_entry_id,
+		WITH episode_order AS (
+		    SELECT we.id AS watchlist_entry_id,
 		           ec.season_number, ec.episode_number,
 		           ec.name, ec.air_date, ec.runtime_minutes,
 		           ROW_NUMBER() OVER (
-		               PARTITION BY la.watchlist_entry_id
-		               ORDER BY ec.air_date ASC
-		           ) AS rn
-		    FROM latest_air la
-		    JOIN watchlist_entries we ON we.id = la.watchlist_entry_id
+		               PARTITION BY we.id
+		               ORDER BY ec.air_date ASC NULLS LAST,
+		                        ec.season_number ASC,
+		                        ec.episode_number ASC
+		           ) AS pos
+		    FROM watchlist_entries we
 		    JOIN titles t ON t.id = we.title_id
 		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = t.external_id
-		    WHERE ec.air_date > la.latest_air_date
-		      AND ec.air_date IS NOT NULL
+		    WHERE we.id IN (:entryIds)
+		),
+		last_watched_pos AS (
+		    SELECT eo.watchlist_entry_id, MAX(eo.pos) AS max_pos
+		    FROM episode_order eo
+		    JOIN episode_progress ep
+		        ON ep.watchlist_entry_id = eo.watchlist_entry_id
+		       AND ep.season_number = eo.season_number
+		       AND ep.episode_number = eo.episode_number
+		    WHERE ep.watched = true
+		    GROUP BY eo.watchlist_entry_id
 		)
-		SELECT watchlist_entry_id, season_number, episode_number,
-		       name, air_date, runtime_minutes
-		FROM ranked_next WHERE rn = 1
+		SELECT eo.watchlist_entry_id, eo.season_number, eo.episode_number,
+		       eo.name, eo.air_date, eo.runtime_minutes
+		FROM episode_order eo
+		JOIN last_watched_pos lw ON lw.watchlist_entry_id = eo.watchlist_entry_id
+		WHERE eo.pos = lw.max_pos + 1
 		""")
 	List<Object[]> findNextEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
 
