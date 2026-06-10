@@ -1,348 +1,121 @@
 # WeWatch
 
-WeWatch is a personal project for discovering, tracking, and organizing movies and TV shows.
-
-The goal is to build a clean, modern app that helps users answer questions like:
-
-- What should we watch tonight?
-- What have we already seen?
-- What’s on our watchlist?
-- What streaming service is it on?
-- What’s worth watching based on our tastes?
-
-This project is also being built as a portfolio-quality full-stack application, with an emphasis on clean architecture, maintainability, and iterative delivery.
+WeWatch is a full-stack app for discovering, tracking, and organizing movies and TV shows. Users sign in with Google or email+password, search for titles via the TMDB API, and manage personal or shared watchlists with episode-level tracking.
 
 ---
 
-## Goals
+## Features
 
-WeWatch is intended to explore and demonstrate:
+### Content Discovery
+- Search for movies and TV shows via TMDB
+- View title details: poster, overview, release year, content type
 
-- Full-stack application development
-- Modern frontend and backend architecture
-- API integration with movie / TV data providers
-- Authentication and user-specific watchlists
-- Search, filtering, and recommendation workflows
-- Clean project structure and scalable engineering practices
+### Watchlist Management
+- Create multiple named watchlists
+- Share watchlists with other users (roles: Owner, Editor, Viewer)
+- Track status per title: Want to Watch, Watching, Watched
+- Move titles between statuses or remove them
+- Paginated library view with status filtering
 
----
+### Episode Tracking
+- Per-episode watched/unwatched toggle for TV shows
+- Bulk mark an entire season as watched or unwatched
+- Library tiles show the next unwatched episode by air date with runtime
+- Caught-up state distinguishes ended series ("Series complete") from airing ones ("All caught up")
 
-## MVP Scope
+### Authentication
+- Google Sign-In (OAuth2 ID token exchange)
+- Email + password registration and sign-in (BCrypt)
+- Provider-agnostic self-issued JWT (HS256, 1-hour expiry)
+- Email allowlist restricts registration to approved users
+- Sign-out from sidebar (desktop) and header (mobile)
 
-### Summary
-The goal of the MVP is to deliver a focused, personal tracking experience that allows users to manage what they want to watch, are currently watching, and have already watched.
-
-This MVP intentionally avoids feature creep and prioritizes a simple, fast, and usable core experience.
-
----
-
-### Core User Actions
-
-#### 1. Discover Content
-- Search for movies and TV shows (via external API, e.g., TMDB)
-- View basic content details:
-  - Title
-  - Poster
-  - Overview
-  - Release year
-  - Content type (movie or TV show)
-
----
-
-#### 2. Track Content Status
-Users can assign and manage a status for each piece of content:
-
-- `WANT_TO_WATCH`
-- `WATCHING`
-- `WATCHED`
-
-Capabilities:
-- Add content to a status
-- Move content between statuses
-- Remove content from tracking
+### TMDB Metadata Cache
+- Server-side cache for TV show and episode metadata (7-day configurable TTL)
+- Async prewarm on watchlist add — all seasons/episodes cached immediately
+- Startup backfill for titles added before the cache was deployed
+- Cache-through reads: stale entries refreshed transparently on access
 
 ---
 
-#### 3. View Personal Library
-- View all tracked content grouped by status:
-  - Want to Watch
-  - Watching
-  - Watched
-- Quickly scan and manage items within each group
-
----
-
-### Out of Scope (MVP)
-
-To maintain focus and speed of development, the following features are explicitly excluded from the MVP:
-
-#### Social Features
-- Friends / followers
-- Shared lists
-- Activity feeds
-
-#### Advanced Tracking
-- Episode-level tracking
-- Watch progress (timestamps, percentages)
-- Watch history timeline
-
-#### Personalization
-- Recommendations
-- AI-driven suggestions
-
-#### Content Interaction
-- Ratings
-- Reviews
-
-#### UX Enhancements
-- Notifications
-- Advanced filtering and sorting
-
----
-
-### Stretch Features (Post-MVP)
-
-The following features may be considered after the MVP is complete:
-
-- Ratings (e.g., 1–5 stars or thumbs up/down)
-- Reviews and notes
-- Episode tracking for TV shows
-- Social features (friends, shared watchlists)
-- Recommendation system (rule-based or AI-powered)
-
----
-
-### Roadmap
-
-#### Phase 1 — MVP
-- Content search and detail view
-- Status-based tracking system
-- Personal library view
-- Basic persistence (user + tracked content)
-
-#### Phase 2 — Enrichment
-- Ratings
-- Reviews
-- Filtering and sorting
-
-#### Phase 3 — Engagement
-- Social features
-- Recommendations
-- Enhanced discovery
-
----
-
-### Acceptance Criteria
-
-- MVP scope is clearly defined and documented
-- Scope is constrained to core tracking functionality
-- Out-of-scope features are explicitly listed
-- Roadmap is broken into clear phases
-- `docs/roadmap.md` reflects this MVP definition
-
----
-
-## Planned Features
-
-Initial and future feature ideas include:
-
-- Search for movies and TV shows
-- View title details (poster, overview, release year, genres, ratings)
-- Add/remove titles from a personal watchlist
-- Mark titles as watched
-- Filter by genre, streaming availability, rating, etc.
-- Personalized recommendations
-- User accounts and saved preferences
-- Responsive UI for desktop and mobile use
-
-This feature set will evolve over time as the project grows.
-
----
-
-## Tech Stack (Planned)
+## Tech Stack
 
 ### Frontend
-- React
-- TypeScript
+- React + TypeScript
 - Vite
-- Tailwind CSS
+- Plain CSS (mobile-first responsive)
 
 ### Backend
-- Java
-- Spring Boot
-- REST API
+- Java 21
+- Spring Boot 3.5
+- Spring Security (JWT resource server)
+- Flyway (database migrations)
 
 ### Data / Infra
-- PostgreSQL
-- Docker
-- GitHub Actions
+- PostgreSQL 17
+- Docker / Docker Compose
+- GitHub Actions (CI)
+- Doppler (secrets management)
+- Railway (production hosting)
 
-> Final stack decisions may evolve as the project develops.
+### External APIs
+- TMDB v3 (search, title details, season/episode metadata)
 
 ---
-
-## Repository Structure
-
-```text
-wewatch/
-├── backend/        # Spring Boot API
-├── frontend/       # React frontend
-├── docs/           # Architecture notes, planning, ADRs, etc.
-├── .github/        # GitHub workflows, issue templates, PR templates
-└── README.md
-```
 
 ## Getting Started
 
 ### Prerequisites
 
-To work on WeWatch locally, install:
-
 - [Git](https://git-scm.com/)
 - [Node.js](https://nodejs.org/) 25+ with `npm`
 - Java 21+
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a local Docker Engine installation with Docker Compose support
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine with Compose
 - [Doppler CLI](https://docs.doppler.com/docs/install-cli) for secrets injection
 
-Notes:
-
-- The frontend uses Vite, React, and TypeScript.
-- The backend uses the Maven wrapper (`./mvnw`), so a global Maven install is optional.
-- PostgreSQL runs locally in Docker for backend development.
+The backend uses the Maven wrapper (`./mvnw`), so a global Maven install is optional.
 
 ### Clone the Repository
 
 ```bash
-git clone git@github.com:<your-username>/wewatch.git
+git clone git@github.com:scottstultz/wewatch.git
 cd wewatch
 ```
 
 ### Secrets
 
-WeWatch uses [Doppler](https://doppler.com) to manage secrets across local and production environments. Required secrets (`GOOGLE_CLIENT_ID`, `TMDB_API_KEY`, `VITE_GOOGLE_CLIENT_ID`) are stored in Doppler and injected at runtime — no `.env` files or shell exports needed.
+WeWatch uses [Doppler](https://doppler.com) to manage secrets. No `.env` files or shell exports needed.
 
 **First-time setup:**
 
 ```bash
-# Authenticate with Doppler
 doppler login
-
-# Link this directory to the wewatch dev config
 doppler setup
 ```
 
-Select the `wewatch` project and `dev` config when prompted. After this, prefix any run command with `doppler run --` to inject secrets automatically.
+Select the `wewatch` project and `dev` config when prompted.
 
-### Run the Backend
+**Required environment variables:**
 
-From the repository root:
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_CLIENT_ID` | Google OAuth2 client ID for verifying Google ID tokens |
+| `JWT_SECRET` | HMAC secret for signing WeWatch JWTs (min 32 chars) |
+| `TMDB_API_KEY` | TMDB v3 Bearer token |
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | PostgreSQL connection (defaults: localhost / 5432 / wewatch) |
+| `DB_USER`, `DB_PASSWORD` | PostgreSQL credentials (defaults: wewatch / wewatch) |
 
-```bash
-cd backend
-doppler run -- ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
-```
+### Run the Full Stack with Docker
 
-Backend defaults:
-
-- Base URL: `http://localhost:8080`
-- Health endpoint: `http://localhost:8080/api/health`
-
-Useful backend commands:
-
-```bash
-cd backend
-./mvnw test
-```
-
-Note: tests use Mockito and do not require real secret values, so `doppler run --` is not needed for `mvnw test`.
-
-### Run PostgreSQL Locally with Docker
-
-1. Install Docker Desktop and open it.
-2. Wait for Docker to finish starting.
-3. Verify Docker is available:
-
-```bash
-docker --version
-docker compose version
-```
-
-4. Start PostgreSQL from the repository root:
-
-```bash
-docker compose up -d postgres
-```
-
-5. Verify the database container is healthy:
-
-```bash
-docker compose ps
-```
-
-6. Stop the database when you are done:
-
-```bash
-docker compose down
-```
-
-Default PostgreSQL values used locally:
-
-- host: `localhost`
-- port: `5432`
-- database: `wewatch`
-- username: `wewatch`
-- password: `wewatch`
-
-These defaults are defined in `application-local.properties` and require no additional configuration for standard local development.
-
-### Run the Frontend
-
-From the repository root:
-
-```bash
-cd frontend
-npm install
-doppler run -- npm run dev
-```
-
-Frontend defaults:
-
-- App URL: `http://localhost:5173`
-
-Useful frontend commands:
-
-```bash
-cd frontend
-npm run build
-npm run lint
-```
-
-To test the frontend from another device on the same network:
-
-```bash
-cd frontend
-doppler run -- npm run dev -- --host 0.0.0.0 --port 5173
-```
-
-Then open `http://<your-local-ip>:5173` on the other device.
-
-### Run the Full Stack with Docker (Recommended)
-
-The simplest way to run all services together is via Docker Compose:
+The simplest way to run all services together:
 
 ```bash
 doppler run -- docker compose up --build
 ```
 
-This starts PostgreSQL, the backend, and the frontend together. The app is available at `http://localhost:3000`.
+This starts PostgreSQL, the backend, and the frontend. The app is available at `http://localhost:3000`.
 
-Use `--build` the first time or after any code changes. Subsequent starts can omit it:
-
-```bash
-doppler run -- docker compose up
-```
-
-To stop all services:
+Use `--build` the first time or after code changes. To stop:
 
 ```bash
 docker compose down
@@ -350,122 +123,118 @@ docker compose down
 
 ### Run Services Individually
 
-As an alternative to Docker, use three terminals:
+Use three terminals:
 
-1. Start PostgreSQL: `docker compose up -d postgres`
-2. Start the backend: `cd backend && doppler run -- ./mvnw spring-boot:run -Dspring-boot.run.profiles=local`
-3. Start the frontend: `cd frontend && doppler run -- npm run dev`
+1. **PostgreSQL:**
+   ```bash
+   docker compose up -d postgres
+   ```
 
-Default local ports:
+2. **Backend:**
+   ```bash
+   cd backend
+   doppler run -- ./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+   ```
 
-- Frontend: `5173`
-- Backend: `8080`
-- PostgreSQL: `5432`
+3. **Frontend:**
+   ```bash
+   cd frontend
+   npm install
+   doppler run -- npm run dev
+   ```
 
-With all services running, the frontend is available at `http://localhost:5173`, the backend API is available at `http://localhost:8080`, and PostgreSQL is available on `localhost:5432`.
+**Default local ports:**
 
-## Development Approach
+| Service | Port | URL |
+|---|---|---|
+| Frontend | 5173 | http://localhost:5173 |
+| Backend | 8080 | http://localhost:8080 |
+| PostgreSQL | 5432 | localhost:5432 |
 
-This project is being built incrementally using an issue-based workflow with small, reviewable changes.
-WeWatch uses GitHub Issues and GitHub Projects to track work.
+### Testing
 
-### Project Board
+```bash
+cd backend
+doppler run -- ./mvnw test
+```
 
-Issues move through:
+250 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
 
-- Backlog
-- Ready
-- In Progress
-- In Review
-- Done
+---
+
+## Repository Structure
+
+```text
+wewatch/
+├── backend/          # Spring Boot API (Java 21)
+│   └── src/main/resources/db/migration/   # Flyway migrations (V1–V9)
+├── frontend/         # React + TypeScript + Vite
+├── .github/          # CI workflows, issue templates
+└── README.md
+```
+
+---
+
+## Development Workflow
+
+### Issue-Based Development
+
+All work is tracked via GitHub Issues and GitHub Projects. Issues move through: Backlog, Ready, In Progress, In Review, Done.
+
+### Branch Naming
+
+```
+{type}/{issueNumber}-short-description
+```
+
+Types: `bug`, `chore`, `feature`
+
+Examples:
+- `feature/73-add-pagination`
+- `bug/164-null-air-date-next-episode`
+- `chore/71-flyway-migrations`
+
+### Commit Messages
+
+[Conventional Commits](https://www.conventionalcommits.org/) format with issue number:
+
+```
+feat: add episode-level tracking (#73)
+fix: handle null air_date in next-episode query (#164)
+chore: replace schema.sql with Flyway migrations (#71)
+```
+
+### Pull Requests
+
+PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**. Each PR maps to a GitHub issue and closes it on merge.
 
 ### Principles
 
-- Start with a small, usable MVP
-- Build in vertical slices where possible
+- Build in vertical slices
 - Favor clarity and maintainability over premature complexity
 - Treat the project like a real production app
-- Use documentation and clean workflow habits from the beginning
+- Small, focused PRs that are easy to review
 
-### Branch Naming Examples
-
-feat/12-add-search-page
-feat/18-create-title-details-endpoint
-docs/2-initial-readme
-docs/7-add-architecture-notes
-fix/31-handle-empty-watchlist
-chore/5-setup-github-actions
-
-### Commit Style Examples
-docs: add initial project README
-feat: scaffold Spring Boot backend
-feat: scaffold React frontend
-chore: add gitignore and editor config
-fix: handle empty watchlist state
-
-### Pull Request Guidelines
-
-PRs should aim to:
-
-- stay small and focused
-- map clearly to a GitHub issue
-- include a concise summary of changes
-- be easy to review and reason about
-
-Suggested PR template:
-
-    ## Summary
-    Brief description of what this PR does.
-
-    ## Changes
-    - Added ...
-    - Updated ...
-    - Refactored ...
-
-    ## Notes
-    Optional implementation notes, tradeoffs, or follow-up considerations.
-
-    Closes #<issue-number>
-
-Example:
-
-    ## Summary
-    Adds the initial README for the WeWatch project.
-
-    ## Changes
-    - Added project overview
-    - Added MVP scope
-    - Added planned tech stack
-    - Added repo structure and setup notes
-
-    Closes #2
+---
 
 ## Roadmap
 
-### Near-Term Priorities
-- [x] Establish repo structure
-- [x] Create initial README
-- [x] Scaffold frontend app
-- [x] Scaffold backend service
-- [x] Establish local development workflow
-- [x] Add backend health endpoint
-- [x] Create backend package structure
-- [x] Build mobile-first frontend app shell
-- [x] Create GitHub issue templates (PR template still pending)
-- [x] Define external API integration approach (TMDB chosen and integrated)
+### Completed
+- Content search and detail view (TMDB integration)
+- Status-based tracking (Want to Watch, Watching, Watched)
+- Personal library with pagination and status filtering
+- User authentication (Google + email/password)
+- Email allowlist for controlled access
+- Shared watchlists with member roles
+- Episode-level tracking with bulk season operations
+- TMDB metadata cache with async prewarm
+- Next unwatched episode display on library tiles
+- Production deployment (Railway, we-watch.app)
+- CI pipeline (GitHub Actions)
 
-### MVP Milestones
-- [x] User authentication (Google Sign-In + JWT)
-- [x] Search for titles (TMDB-backed, debounced frontend UI)
-- [x] Save titles to a watchlist
-- [x] Mark titles as watched / track status (Want to Watch, Watching, Watched)
-- [x] View and manage saved titles (Library page)
-- [x] Production deployment (Railway, we-watch.app)
-- [x] CI pipeline (GitHub Actions)
-- [x] Secrets management (Doppler)
-
-### Future Enhancements
-- [ ] View title details (dedicated detail page)
-- [ ] Personalized recommendations
-- [ ] Streaming provider integration
-- [ ] Advanced filtering and sorting
+### Planned
+- Title detail page
+- Streaming provider integration
+- Advanced filtering and sorting
+- Recommendation system
+- Ratings and reviews
