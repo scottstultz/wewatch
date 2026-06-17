@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
@@ -79,10 +79,14 @@ function LibraryPage() {
   } = useWatchlists()
   const navigate = useNavigate()
 
+  const [searchParams, setSearchParams] = useSearchParams()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<WatchStatus | 'ALL'>('WATCHING')
+
+  const VALID_STATUSES: (WatchStatus | 'ALL')[] = ['ALL', 'WANT_TO_WATCH', 'WATCHING', 'WATCHED']
+  const paramStatus = searchParams.get('status') as WatchStatus | 'ALL' | null
+  const activeTab: WatchStatus | 'ALL' = paramStatus && VALID_STATUSES.includes(paramStatus) ? paramStatus : 'WATCHING'
   const [entryActions, setEntryActions] = useState<Record<number, EntryAction>>({})
   const [pickingEntry, setPickingEntry] = useState<number | null>(null)
 
@@ -251,7 +255,7 @@ function LibraryPage() {
               <button
                 key={tab.value}
                 className={`library-tab${activeTab === tab.value ? ' library-tab-active' : ''}`}
-                onClick={() => setActiveTab(tab.value)}
+                onClick={() => setSearchParams({ status: tab.value }, { replace: true })}
               >
                 {tab.label}
               </button>

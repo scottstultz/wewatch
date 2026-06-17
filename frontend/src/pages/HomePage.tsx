@@ -5,6 +5,41 @@ import { useWatchlists } from '../contexts/WatchlistContext'
 import { UnauthorizedError, getWatchlistEntries } from '../services/api'
 import type { WatchlistEntryResponse } from '../types/api'
 
+interface TileRowProps {
+  entry: WatchlistEntryResponse
+  onClick: () => void
+  showStatusBadge?: boolean
+}
+
+function TileRow({ entry, onClick, showStatusBadge }: TileRowProps) {
+  return (
+    <li
+      className="title-row title-row-clickable"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+    >
+      {entry.posterUrl ? (
+        <img className="title-row-poster" src={entry.posterUrl} alt={entry.name ?? undefined} loading="lazy" />
+      ) : (
+        <div className="title-row-poster title-row-poster-empty" />
+      )}
+      <div className="title-row-body">
+        <span className="title-type-badge">
+          {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
+        </span>
+        <p className="title-name">{entry.name}</p>
+        {showStatusBadge && (
+          <span className={`title-status-badge${entry.status === 'WATCHING' ? ' title-status-badge-watching' : entry.status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
+            {entry.status === 'WANT_TO_WATCH' ? 'Want to Watch' : entry.status === 'WATCHING' ? 'Watching' : 'Watched'}
+          </span>
+        )}
+      </div>
+    </li>
+  )
+}
+
 function HomePage() {
   const { token, signOut } = useAuth()
   const { selectedWatchlist } = useWatchlists()
@@ -52,6 +87,14 @@ function HomePage() {
 
   const statValue = (n: number) => isLoading ? '–' : String(n)
 
+  function handleTileClick(entry: WatchlistEntryResponse) {
+    if (entry.type === 'TV' && selectedWatchlist) {
+      navigate(`/library/${entry.id}?wl=${selectedWatchlist.id}`)
+    } else {
+      navigate(`/library?status=${entry.status}`)
+    }
+  }
+
   return (
     <div className="page">
       <section className="hero-panel">
@@ -86,19 +129,7 @@ function HomePage() {
           ) : (
             <ul className="title-row-list">
               {continueWatching.map(entry => (
-                <li key={entry.id} className="title-row">
-                  {entry.posterUrl ? (
-                    <img className="title-row-poster" src={entry.posterUrl} alt={entry.name ?? undefined} loading="lazy" />
-                  ) : (
-                    <div className="title-row-poster title-row-poster-empty" />
-                  )}
-                  <div className="title-row-body">
-                    <span className="title-type-badge">
-                      {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
-                    </span>
-                    <p className="title-name">{entry.name}</p>
-                  </div>
-                </li>
+                <TileRow key={entry.id} entry={entry} onClick={() => handleTileClick(entry)} />
               ))}
             </ul>
           )}
@@ -113,22 +144,7 @@ function HomePage() {
           ) : (
             <ul className="title-row-list">
               {recentlyAdded.map(entry => (
-                <li key={entry.id} className="title-row">
-                  {entry.posterUrl ? (
-                    <img className="title-row-poster" src={entry.posterUrl} alt={entry.name ?? undefined} loading="lazy" />
-                  ) : (
-                    <div className="title-row-poster title-row-poster-empty" />
-                  )}
-                  <div className="title-row-body">
-                    <span className="title-type-badge">
-                      {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
-                    </span>
-                    <p className="title-name">{entry.name}</p>
-                    <span className={`title-status-badge${entry.status === 'WATCHING' ? ' title-status-badge-watching' : entry.status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
-                      {entry.status === 'WANT_TO_WATCH' ? 'Want to Watch' : entry.status === 'WATCHING' ? 'Watching' : 'Watched'}
-                    </span>
-                  </div>
-                </li>
+                <TileRow key={entry.id} entry={entry} onClick={() => handleTileClick(entry)} showStatusBadge />
               ))}
             </ul>
           )}
