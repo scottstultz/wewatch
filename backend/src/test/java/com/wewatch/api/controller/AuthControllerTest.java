@@ -55,7 +55,7 @@ class AuthControllerTest {
 
 	@BeforeEach
 	void setUp() {
-		when(allowedEmailRepository.existsByEmail(any())).thenReturn(true);
+		when(allowedEmailRepository.existsByEmailIgnoreCase(any())).thenReturn(true);
 	}
 
 	@Test
@@ -263,7 +263,7 @@ class AuthControllerTest {
 	void exchangeTokenReturnsForbiddenForNonAllowlistedGoogleEmail() throws Exception {
 		GoogleIdentity identity = new GoogleIdentity("g-sub", "blocked@example.com", "Blocked");
 		when(googleTokenValidator.validate("cred")).thenReturn(identity);
-		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+		when(allowedEmailRepository.existsByEmailIgnoreCase("blocked@example.com")).thenReturn(false);
 
 		mockMvc.perform(post("/api/auth/token")
 			.contentType(MediaType.APPLICATION_JSON)
@@ -279,7 +279,7 @@ class AuthControllerTest {
 
 	@Test
 	void exchangeTokenReturnsForbiddenForNonAllowlistedEmailProvider() throws Exception {
-		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+		when(allowedEmailRepository.existsByEmailIgnoreCase("blocked@example.com")).thenReturn(false);
 
 		mockMvc.perform(post("/api/auth/token")
 			.contentType(MediaType.APPLICATION_JSON)
@@ -295,7 +295,7 @@ class AuthControllerTest {
 
 	@Test
 	void registerReturnsForbiddenForNonAllowlistedEmail() throws Exception {
-		when(allowedEmailRepository.existsByEmail("blocked@example.com")).thenReturn(false);
+		when(allowedEmailRepository.existsByEmailIgnoreCase("blocked@example.com")).thenReturn(false);
 
 		mockMvc.perform(post("/api/auth/register")
 			.contentType(MediaType.APPLICATION_JSON)
@@ -308,5 +308,26 @@ class AuthControllerTest {
 				"""))
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
+	}
+
+	@Test
+	void exchangeTokenAllowsGoogleEmailRegardlessOfCase() throws Exception {
+		GoogleIdentity identity = new GoogleIdentity("g-sub", "User@Example.com", "Test User");
+		User user = new User(1L, "User@Example.com", "Test User", Instant.now(), Instant.now(), "google", "g-sub");
+		when(googleTokenValidator.validate("cred")).thenReturn(identity);
+		when(allowedEmailRepository.existsByEmailIgnoreCase("User@Example.com")).thenReturn(true);
+		when(userService.findOrCreateByProviderIdentity("google", "g-sub", "User@Example.com", "Test User")).thenReturn(user);
+		when(jwtTokenService.generateToken(user)).thenReturn("wewatch-jwt-token");
+
+		mockMvc.perform(post("/api/auth/token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+						"provider": "google",
+						"credential": "cred"
+					}
+					"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.token").value("wewatch-jwt-token"));
 	}
 }

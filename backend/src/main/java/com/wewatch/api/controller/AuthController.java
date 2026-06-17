@@ -72,7 +72,7 @@ public class AuthController {
 	}
 
 	private void requireAllowedEmail(String email) {
-		if (!allowedEmailRepository.existsByEmail(email.toLowerCase())) {
+		if (!allowedEmailRepository.existsByEmailIgnoreCase(email)) {
 			throw new RegistrationNotAllowedException();
 		}
 	}

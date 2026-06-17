@@ -6,5 +6,5 @@ import com.wewatch.api.model.AllowedEmail;
 
 public interface AllowedEmailRepository extends JpaRepository<AllowedEmail, Long> {
 
-	boolean existsByEmail(String email);
+	boolean existsByEmailIgnoreCase(String email);
 }
