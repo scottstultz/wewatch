@@ -82,7 +82,7 @@ function LibraryPage() {
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<WatchStatus | 'ALL'>('ALL')
+  const [activeTab, setActiveTab] = useState<WatchStatus | 'ALL'>('WATCHING')
   const [entryActions, setEntryActions] = useState<Record<number, EntryAction>>({})
   const [pickingEntry, setPickingEntry] = useState<number | null>(null)
 
@@ -268,7 +268,9 @@ function LibraryPage() {
           <p className="library-empty">
             {activeTab === 'ALL'
               ? 'This watchlist is empty. Head to Discover to add titles.'
-              : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
+              : activeTab === 'WATCHING'
+                ? 'No titles in progress. Move a title from Want to Watch to start tracking it.'
+                : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
           </p>
         )}
 
