@@ -2,13 +2,73 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import { UnauthorizedError, addToWatchlist, findOrCreateTitle, getWatchlistEntries, searchTitles } from '../services/api'
-import type { TitleSearchResponse, WatchStatus } from '../types/api'
+import {
+  UnauthorizedError,
+  addToWatchlist,
+  findOrCreateTitle,
+  getSuggestions,
+  getWatchlistEntries,
+  searchTitles,
+} from '../services/api'
+import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
+}
+
+interface TitleCardProps {
+  title: TitleSearchResponse
+  status: CardStatus
+  onAdd: (title: TitleSearchResponse, status: WatchStatus) => void
+}
+
+function TitleCard({ title, status, onAdd }: TitleCardProps) {
+  const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
+  const addedLabel = status === 'WATCHING' ? 'Watching' : status === 'WATCHED' ? 'Watched' : 'Want to Watch'
+  return (
+    <article className="title-card">
+      {title.posterUrl ? (
+        <img className="title-poster" src={title.posterUrl} alt={title.name} loading="lazy" />
+      ) : (
+        <div className="title-poster title-poster-empty" />
+      )}
+      <div className="title-card-body">
+        <span className="title-type-badge">
+          {title.type === 'MOVIE' ? 'Movie' : 'TV Show'}
+        </span>
+        <p className="title-name">{title.name}</p>
+        {title.releaseDate && (
+          <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
+        )}
+        {isAdded ? (
+          <div className="discover-action-row">
+            <span className="discover-round-btn discover-round-btn-added" aria-label="Added to watchlist">✓</span>
+            <span className="discover-added-label">{addedLabel}</span>
+          </div>
+        ) : (
+          <div className="discover-action-row">
+            <button
+              className={`discover-round-btn discover-round-btn-add${status === 'error' ? ' discover-round-btn-error' : ''}`}
+              disabled={status === 'loading'}
+              onClick={() => onAdd(title, 'WANT_TO_WATCH')}
+              aria-label={status === 'error' ? 'Retry adding to watchlist' : 'Add to watchlist'}
+            >
+              {status === 'loading' ? '…' : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+              )}
+            </button>
+            {status === 'error' && (
+              <span className="discover-added-label discover-error-label">Failed — tap to retry</span>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  )
 }
 
 function DiscoverPage() {
@@ -22,8 +82,10 @@ function DiscoverPage() {
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
+  const [suggestions, setSuggestions] = useState<SuggestionShelf[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
 
-  // Re-run search with "already added" detection when watchlist changes
+  // Search effect
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
@@ -47,7 +109,6 @@ function DiscoverPage() {
         setSearched(true)
         setCardStatus(prev => {
           const next = { ...prev }
-          // Clear stale statuses from previous watchlist
           data.forEach(title => {
             const k = cardKey(title)
             const existingStatus = watchedKeys.get(k)
@@ -69,6 +130,51 @@ function DiscoverPage() {
     }, 300)
 
     return () => clearTimeout(timer)
+  }, [query, token, selectedWatchlistId, signOut, navigate])
+
+  // Suggestions effect (when query is empty)
+  useEffect(() => {
+    if (query.trim() || !selectedWatchlistId || !token) {
+      setSuggestions([])
+      return
+    }
+
+    let cancelled = false
+    setSuggestionsLoading(true)
+
+    Promise.all([
+      getSuggestions(selectedWatchlistId, token),
+      getWatchlistEntries(selectedWatchlistId, token),
+    ])
+      .then(([shelves, entries]) => {
+        if (cancelled) return
+        setSuggestions(shelves)
+        const watchedKeys = new Map(
+          entries.map(e => [`${e.externalSource}-${e.externalId}`, e.status])
+        )
+        setCardStatus(prev => {
+          const next = { ...prev }
+          shelves.flatMap(s => s.titles).forEach(title => {
+            const k = cardKey(title)
+            const existingStatus = watchedKeys.get(k)
+            if (existingStatus) next[k] = existingStatus
+          })
+          return next
+        })
+      })
+      .catch(e => {
+        if (cancelled) return
+        if (e instanceof UnauthorizedError) {
+          signOut()
+          navigate('/sign-in', { replace: true })
+        }
+        // Fail silently — suggestions are non-critical
+      })
+      .finally(() => {
+        if (!cancelled) setSuggestionsLoading(false)
+      })
+
+    return () => { cancelled = true }
   }, [query, token, selectedWatchlistId, signOut, navigate])
 
   async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
@@ -116,7 +222,6 @@ function DiscoverPage() {
             )}
           </div>
 
-          {/* Watchlist picker — choose which list to add to */}
           {watchlists.length > 1 && (
             <div className="discover-watchlist-picker">
               <span className="discover-picker-label">Adding to:</span>
@@ -135,70 +240,49 @@ function DiscoverPage() {
       </section>
 
       <section className="stack-list">
-        {isLoading && <p className="search-status">Searching…</p>}
-
-        {error && <p className="search-status search-status-error">{error}</p>}
-
-        {!isLoading && searched && results.length === 0 && (
-          <p className="search-status">No results for &ldquo;{query}&rdquo;.</p>
+        {/* Search results */}
+        {query.trim() && (
+          <>
+            {isLoading && <p className="search-status">Searching…</p>}
+            {error && <p className="search-status search-status-error">{error}</p>}
+            {!isLoading && searched && results.length === 0 && (
+              <p className="search-status">No results for &ldquo;{query}&rdquo;.</p>
+            )}
+            {results.length > 0 && (
+              <div className="title-grid">
+                {results.map(title => (
+                  <TitleCard
+                    key={cardKey(title)}
+                    title={title}
+                    status={cardStatus[cardKey(title)] ?? 'idle'}
+                    onAdd={handleAddToWatchlist}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {results.length > 0 && (
-          <div className="title-grid">
-            {results.map((title) => {
-              const key = cardKey(title)
-              const status = cardStatus[key] ?? 'idle'
-              const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
-              const addedLabel = status === 'WATCHING' ? 'Watching' : status === 'WATCHED' ? 'Watched' : 'Want to Watch'
-              return (
-                <article key={key} className="title-card">
-                  {title.posterUrl ? (
-                    <img
-                      className="title-poster"
-                      src={title.posterUrl}
-                      alt={title.name}
-                      loading="lazy"
+        {/* Suggestion shelves (when query is empty) */}
+        {!query.trim() && (
+          <>
+            {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
+            {!suggestionsLoading && suggestions.map(shelf => (
+              <div key={shelf.reason} className="suggestion-shelf">
+                <p className="suggestion-shelf-heading">{shelf.reason}</p>
+                <div className="title-grid">
+                  {shelf.titles.map(title => (
+                    <TitleCard
+                      key={cardKey(title)}
+                      title={title}
+                      status={cardStatus[cardKey(title)] ?? 'idle'}
+                      onAdd={handleAddToWatchlist}
                     />
-                  ) : (
-                    <div className="title-poster title-poster-empty" />
-                  )}
-                  <div className="title-card-body">
-                    <span className="title-type-badge">
-                      {title.type === 'MOVIE' ? 'Movie' : 'TV Show'}
-                    </span>
-                    <p className="title-name">{title.name}</p>
-                    {title.releaseDate && (
-                      <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
-                    )}
-                    {isAdded ? (
-                      <div className="discover-action-row">
-                        <span className="discover-round-btn discover-round-btn-added" aria-label="Added to watchlist">✓</span>
-                        <span className="discover-added-label">{addedLabel}</span>
-                      </div>
-                    ) : (
-                      <div className="discover-action-row">
-                        <button
-                          className={`discover-round-btn discover-round-btn-add${status === 'error' ? ' discover-round-btn-error' : ''}`}
-                          disabled={status === 'loading'}
-                          onClick={() => handleAddToWatchlist(title, 'WANT_TO_WATCH')}
-                          aria-label={status === 'error' ? 'Retry adding to watchlist' : 'Add to watchlist'}
-                        >
-                          {status === 'loading' ? '…' : (
-                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                            </svg>
-                          )}
-                        </button>
-                        {status === 'error' && (
-                          <span className="discover-added-label discover-error-label">Failed — tap to retry</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </section>
     </div>

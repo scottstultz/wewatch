@@ -590,6 +590,21 @@ a {
   color: #f87171;
 }
 
+/* ── Suggestion shelves ───────────────────────────────────── */
+
+.suggestion-shelf {
+  margin-bottom: 2rem;
+}
+
+.suggestion-shelf-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7dd3fc;
+  margin-bottom: 0.75rem;
+}
+
 /* ── Title result grid ────────────────────────────────────── */
 
 .title-grid {

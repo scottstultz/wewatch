@@ -80,6 +80,34 @@ public class TmdbClient {
 		}
 	}
 
+	public List<TitleSearchResponse> getRecommendations(TitleType type, String tmdbId) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri("/3/{mediaType}/{id}/recommendations?language=en-US&page=1", mediaType, tmdbId)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, type)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB recommendations failed: " + e.getMessage(), e);
+		}
+	}
+
+	public List<TitleSearchResponse> getTrending(TitleType type) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri("/3/trending/{mediaType}/week?language=en-US", mediaType)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, type)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB trending failed: " + e.getMessage(), e);
+		}
+	}
+
 	public static String posterUrl(String posterPath) {
 		return posterPath != null ? POSTER_BASE_URL + posterPath : null;
 	}
