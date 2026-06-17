@@ -130,9 +130,25 @@ function ShowDetailPage() {
         if (cancelled) return
         setSeasons(seasonList)
         setAllProgress(allProg)
-        // Default to first non-specials season, or first season
-        const firstReal = seasonList.find(s => s.seasonNumber > 0)
-        setActiveSeason(firstReal?.seasonNumber ?? seasonList[0]?.seasonNumber ?? null)
+        const lastWatched = entry.episodeProgress?.lastWatchedSeason ?? null
+        const lastWatchedSeason = lastWatched != null ? seasonList.find(s => s.seasonNumber === lastWatched) ?? null : null
+        let defaultSeason: number | null = null
+        if (lastWatchedSeason != null && lastWatched != null) {
+          const watchedInSeason = allProg.filter(p => p.seasonNumber === lastWatched && p.watched).length
+          const allWatched = watchedInSeason >= lastWatchedSeason.episodeCount
+          if (allWatched) {
+            const sorted = [...seasonList].sort((a, b) => a.seasonNumber - b.seasonNumber)
+            const next = sorted.find(s => s.seasonNumber > lastWatched)
+            defaultSeason = next?.seasonNumber ?? lastWatched
+          } else {
+            defaultSeason = lastWatched
+          }
+        }
+        if (defaultSeason == null) {
+          const firstReal = seasonList.find(s => s.seasonNumber > 0)
+          defaultSeason = firstReal?.seasonNumber ?? seasonList[0]?.seasonNumber ?? null
+        }
+        setActiveSeason(defaultSeason)
       })
       .catch(e => {
         if (cancelled) return
