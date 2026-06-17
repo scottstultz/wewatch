@@ -2,6 +2,7 @@ import type {
   EpisodeProgress,
   SeasonDetail,
   SeasonSummary,
+  SuggestionShelf,
   TitleResponse,
   TitleSearchResponse,
   WatchlistEntryResponse,
@@ -266,6 +267,14 @@ export async function removeFromWatchlist(
     method: 'DELETE',
   })
   if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
+}
+
+// ── Suggestions ──────────────────────────────────────────────
+
+export async function getSuggestions(watchlistId: number, token: string): Promise<SuggestionShelf[]> {
+  const response = await apiFetch(`${BASE_URL}/suggestions?watchlistId=${watchlistId}`, token)
+  if (!response.ok) throw new Error(`Failed to fetch suggestions: ${response.status}`)
+  return response.json() as Promise<SuggestionShelf[]>
 }
 
 // ── Seasons & episode progress ──────────────────────────────

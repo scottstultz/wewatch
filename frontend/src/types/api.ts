@@ -99,6 +99,11 @@ export interface EpisodeDetail {
   runtimeMinutes: number | null
 }
 
+export interface SuggestionShelf {
+  reason: string
+  titles: TitleSearchResponse[]
+}
+
 export interface EpisodeProgress {
   id: number
   watchlistEntryId: number
