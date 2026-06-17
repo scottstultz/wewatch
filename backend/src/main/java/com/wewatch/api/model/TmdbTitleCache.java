@@ -2,8 +2,10 @@ package com.wewatch.api.model;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -37,6 +39,10 @@ public class TmdbTitleCache {
 	@Column(name = "number_of_seasons")
 	private Integer numberOfSeasons;
 
+	@Convert(converter = GenreIdsConverter.class)
+	@Column(name = "genre_ids", length = 255)
+	private List<Integer> genreIds;
+
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
 
@@ -66,6 +72,9 @@ public class TmdbTitleCache {
 
 	public Integer getNumberOfSeasons() { return numberOfSeasons; }
 	public void setNumberOfSeasons(Integer numberOfSeasons) { this.numberOfSeasons = numberOfSeasons; }
+
+	public List<Integer> getGenreIds() { return genreIds; }
+	public void setGenreIds(List<Integer> genreIds) { this.genreIds = genreIds; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }

@@ -36,6 +36,7 @@ import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.WatchlistEntryService;
@@ -51,6 +52,7 @@ public class WatchlistEntryController {
 	private final EpisodeProgressRepository episodeProgressRepository;
 	private final TmdbCacheService tmdbCacheService;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
+	private final SuggestionService suggestionService;
 
 	public WatchlistEntryController(
 		WatchlistEntryService watchlistEntryService,
@@ -58,7 +60,8 @@ public class WatchlistEntryController {
 		WatchlistService watchlistService,
 		EpisodeProgressRepository episodeProgressRepository,
 		TmdbCacheService tmdbCacheService,
-		TmdbTitleCacheRepository tmdbTitleCacheRepository
+		TmdbTitleCacheRepository tmdbTitleCacheRepository,
+		SuggestionService suggestionService
 	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
@@ -66,6 +69,7 @@ public class WatchlistEntryController {
 		this.episodeProgressRepository = episodeProgressRepository;
 		this.tmdbCacheService = tmdbCacheService;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
+		this.suggestionService = suggestionService;
 	}
 
 	@PostMapping
@@ -90,7 +94,10 @@ public class WatchlistEntryController {
 		Title title = titleService.findById(created.getTitleId());
 		if (title.getType() == TitleType.TV) {
 			tmdbCacheService.prewarmShow(title.getExternalId());
+		} else if (title.getType() == TitleType.MOVIE) {
+			tmdbCacheService.prewarmMovie(title.getExternalId());
 		}
+		suggestionService.recompute(watchlistId);
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
 			.body(toResponse(created, title, null));
@@ -148,6 +155,7 @@ public class WatchlistEntryController {
 		@Valid @RequestBody WatchlistEntryUpdateRequest request
 	) {
 		watchlistService.requireEditor(watchlistId, caller.getId());
+		suggestionService.recompute(watchlistId);
 		WatchlistEntry updated = watchlistEntryService.update(watchlistId, entryId, new WatchlistEntry(
 			null,
 			watchlistId,
@@ -176,6 +184,7 @@ public class WatchlistEntryController {
 	) {
 		watchlistService.requireEditor(watchlistId, caller.getId());
 		watchlistEntryService.deleteById(watchlistId, entryId);
+		suggestionService.recompute(watchlistId);
 		return ResponseEntity.noContent().build();
 	}
 

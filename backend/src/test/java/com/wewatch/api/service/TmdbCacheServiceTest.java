@@ -54,7 +54,8 @@ class TmdbCacheServiceTest {
 	void getSeasonsCallsTmdbOnCacheMiss() {
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
-			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)));
+			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
+			"Game of Thrones", null, null, List.of());
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -70,7 +71,7 @@ class TmdbCacheServiceTest {
 		TmdbTitleCache stale = freshTitleCache();
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(stale));
-		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of());
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of());
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);

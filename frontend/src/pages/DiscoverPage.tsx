@@ -267,21 +267,33 @@ function DiscoverPage() {
         {!query.trim() && (
           <>
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
-            {!suggestionsLoading && suggestions.map(shelf => (
-              <div key={shelf.reason} className="suggestion-shelf">
-                <p className="suggestion-shelf-heading">{shelf.reason}</p>
-                <div className="title-grid">
-                  {shelf.titles.map(title => (
-                    <TitleCard
-                      key={cardKey(title)}
-                      title={title}
-                      status={cardStatus[cardKey(title)] ?? 'idle'}
-                      onAdd={handleAddToWatchlist}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
+            {!suggestionsLoading && (() => {
+              const shownKeys = new Set<string>()
+              return suggestions.map(shelf => {
+                const dedupedTitles = shelf.titles.filter(t => {
+                  const k = cardKey(t)
+                  if (shownKeys.has(k)) return false
+                  shownKeys.add(k)
+                  return true
+                })
+                if (dedupedTitles.length === 0) return null
+                return (
+                  <div key={shelf.reason} className="suggestion-shelf">
+                    <p className="suggestion-shelf-heading">{shelf.reason}</p>
+                    <div className="suggestion-shelf-row">
+                      {dedupedTitles.map(title => (
+                        <TitleCard
+                          key={cardKey(title)}
+                          title={title}
+                          status={cardStatus[cardKey(title)] ?? 'idle'}
+                          onAdd={handleAddToWatchlist}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+            })()}
           </>
         )}
       </section>
