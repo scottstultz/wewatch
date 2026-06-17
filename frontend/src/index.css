@@ -1010,6 +1010,18 @@ a {
   align-items: flex-start;
 }
 
+.title-row-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 4px;
+  margin: -4px;
+  transition: background 0.15s;
+}
+
+.title-row-clickable:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
 .title-row-poster {
   width: 40px;
   aspect-ratio: 2 / 3;
