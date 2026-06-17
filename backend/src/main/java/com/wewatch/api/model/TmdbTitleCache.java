@@ -39,9 +39,13 @@ public class TmdbTitleCache {
 	@Column(name = "number_of_seasons")
 	private Integer numberOfSeasons;
 
-	@Convert(converter = GenreIdsConverter.class)
+	@Convert(converter = IntegerListConverter.class)
 	@Column(name = "genre_ids", length = 255)
 	private List<Integer> genreIds;
+
+	@Convert(converter = IntegerListConverter.class)
+	@Column(name = "keyword_ids", length = 500)
+	private List<Integer> keywordIds;
 
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
@@ -75,6 +79,9 @@ public class TmdbTitleCache {
 
 	public List<Integer> getGenreIds() { return genreIds; }
 	public void setGenreIds(List<Integer> genreIds) { this.genreIds = genreIds; }
+
+	public List<Integer> getKeywordIds() { return keywordIds; }
+	public void setKeywordIds(List<Integer> keywordIds) { this.keywordIds = keywordIds; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }

@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbTitleCache;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.tmdb.TmdbClient;
@@ -80,6 +81,7 @@ public class TmdbCacheService {
 		try {
 			TmdbTvDetail detail = tmdbClient.getTvDetail(tmdbId);
 			upsertTvCache(tmdbId, detail);
+			cacheKeywords(TitleType.TV, tmdbId);
 			List<TmdbTvSeason> seasons = detail.seasons() != null ? detail.seasons() : List.of();
 			for (TmdbTvSeason season : seasons) {
 				if (season.seasonNumber() == 0) continue; // skip specials season
@@ -100,8 +102,21 @@ public class TmdbCacheService {
 		try {
 			TmdbMovieDetail detail = tmdbClient.getMovieDetail(tmdbId);
 			upsertMovieCache(tmdbId, detail);
+			cacheKeywords(TitleType.MOVIE, tmdbId);
 		} catch (Exception e) {
 			log.warn("Failed to prewarm movie {}: {}", tmdbId, e.getMessage());
+		}
+	}
+
+	private void cacheKeywords(TitleType type, String tmdbId) {
+		try {
+			List<Integer> kws = tmdbClient.getKeywords(type, tmdbId);
+			titleCacheRepository.findByTmdbId(tmdbId).ifPresent(row -> {
+				row.setKeywordIds(kws);
+				titleCacheRepository.save(row);
+			});
+		} catch (Exception e) {
+			log.warn("Failed to cache keywords for {}: {}", tmdbId, e.getMessage());
 		}
 	}
 
