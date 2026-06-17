@@ -34,6 +34,24 @@ function statusBadgeClass(status: WatchStatus) {
 
 type EntryAction = 'updating' | 'removing'
 
+function isFutureDate(dateStr: string | null): boolean {
+  if (!dateStr) return false
+  try {
+    return new Date(dateStr + 'T00:00:00') > new Date()
+  } catch {
+    return false
+  }
+}
+
+function formatUpcomingDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr + 'T00:00:00')
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return dateStr
+  }
+}
+
 function episodeProgressLabel(ep: import('../types/api').EpisodeProgressSummary): string {
   if (ep.nextSeason != null && ep.nextEpisode != null) {
     let label = `Up next: S${ep.nextSeason} E${ep.nextEpisode}`
@@ -283,14 +301,21 @@ function LibraryPage() {
                     </span>
                     <p className="title-name">{entry.name}</p>
                     {isTv && (
-                      <button
-                        className="title-episodes-link"
-                        onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
-                      >
-                        {entry.episodeProgress
-                          ? episodeProgressLabel(entry.episodeProgress)
-                          : 'Episodes'}
-                      </button>
+                      <>
+                        <button
+                          className="title-episodes-link"
+                          onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
+                        >
+                          {entry.episodeProgress
+                            ? episodeProgressLabel(entry.episodeProgress)
+                            : 'Episodes'}
+                        </button>
+                        {entry.episodeProgress?.nextAirDate != null && isFutureDate(entry.episodeProgress.nextAirDate) && (
+                          <span className="title-upcoming-date">
+                            Airs {formatUpcomingDate(entry.episodeProgress.nextAirDate)}
+                          </span>
+                        )}
+                      </>
                     )}
                     {pickingEntry === entry.id ? (
                       <div className="discover-status-picker">
