@@ -605,6 +605,20 @@ a {
   margin-bottom: 0.75rem;
 }
 
+.suggestion-shelf-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+}
+
+.suggestion-shelf-row .title-card {
+  flex: 0 0 160px;
+  min-width: 0;
+}
+
 /* ── Title result grid ────────────────────────────────────── */
 
 .title-grid {

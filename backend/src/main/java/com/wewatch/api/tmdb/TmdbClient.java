@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.util.stream.Collectors;
+
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.TitleType;
@@ -54,7 +56,7 @@ public class TmdbClient {
 				.uri("/3/tv/{id}?language=en-US", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of());
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of());
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
@@ -105,6 +107,48 @@ public class TmdbClient {
 			return items.stream().map(item -> toResponse(item, type)).toList();
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB trending failed: " + e.getMessage(), e);
+		}
+	}
+
+	public TmdbMovieDetail getMovieDetail(String tmdbId) {
+		try {
+			TmdbMovieDetail detail = restClient.get()
+				.uri("/3/movie/{id}?language=en-US", tmdbId)
+				.retrieve()
+				.body(TmdbMovieDetail.class);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of());
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
+		}
+	}
+
+	public List<TitleSearchResponse> getSimilar(TitleType type, String tmdbId) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri("/3/{mediaType}/{id}/similar?language=en-US&page=1", mediaType, tmdbId)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, type)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB similar failed: " + e.getMessage(), e);
+		}
+	}
+
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, int voteCountGte) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri("/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US",
+					mediaType, genres, voteCountGte)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, type)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB discover failed: " + e.getMessage(), e);
 		}
 	}
 

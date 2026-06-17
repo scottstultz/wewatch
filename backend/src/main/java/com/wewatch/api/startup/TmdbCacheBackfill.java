@@ -26,14 +26,21 @@ public class TmdbCacheBackfill {
 	}
 
 	@EventListener(ApplicationReadyEvent.class)
-	public void backfillMissingShows() {
-		List<String> uncachedIds = titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV);
-		if (uncachedIds.isEmpty()) {
-			return;
+	public void backfillMissingTitles() {
+		List<String> uncachedShows = titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV);
+		if (!uncachedShows.isEmpty()) {
+			log.info("Backfilling TMDB episode cache for {} TV title(s) not yet cached", uncachedShows.size());
+			for (String tmdbId : uncachedShows) {
+				tmdbCacheService.prewarmShow(tmdbId);
+			}
 		}
-		log.info("Backfilling TMDB episode cache for {} TV title(s) not yet cached", uncachedIds.size());
-		for (String tmdbId : uncachedIds) {
-			tmdbCacheService.prewarmShow(tmdbId);
+
+		List<String> uncachedMovies = titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE);
+		if (!uncachedMovies.isEmpty()) {
+			log.info("Backfilling TMDB metadata cache for {} movie(s) not yet cached", uncachedMovies.size());
+			for (String tmdbId : uncachedMovies) {
+				tmdbCacheService.prewarmMovie(tmdbId);
+			}
 		}
 	}
 }

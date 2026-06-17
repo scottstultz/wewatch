@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.SuggestionShelfResponse;
-import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.User;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.WatchlistService;
@@ -33,10 +32,6 @@ public class SuggestionController {
 		@AuthenticationPrincipal User caller
 	) {
 		watchlistService.requireMember(watchlistId, caller.getId());
-		List<TitleSearchResponse> titles = suggestionService.topPicks(watchlistId);
-		if (titles.isEmpty()) {
-			return ResponseEntity.ok(List.of());
-		}
-		return ResponseEntity.ok(List.of(new SuggestionShelfResponse("Top picks for you", titles)));
+		return ResponseEntity.ok(suggestionService.topPicks(watchlistId));
 	}
 }

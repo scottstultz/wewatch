@@ -22,6 +22,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.model.TitleType;
@@ -72,16 +73,17 @@ class SuggestionControllerTest {
 	}
 
 	@Test
-	void getSuggestionsReturnsShelf() throws Exception {
+	void getSuggestionsReturnsShelves() throws Exception {
 		TitleSearchResponse title = new TitleSearchResponse(
 			"1234", "TMDB", TitleType.TV, "Severance", "Employees discover the dark truth.", LocalDate.of(2022, 2, 18), null);
+		SuggestionShelfResponse shelf = new SuggestionShelfResponse("Because you added The Bear", List.of(title));
 
-		when(suggestionService.topPicks(42L)).thenReturn(List.of(title));
+		when(suggestionService.topPicks(42L)).thenReturn(List.of(shelf));
 
 		mockMvc.perform(get("/api/suggestions?watchlistId=42")
 				.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$[0].reason").value("Top picks for you"))
+			.andExpect(jsonPath("$[0].reason").value("Because you added The Bear"))
 			.andExpect(jsonPath("$[0].titles[0].name").value("Severance"))
 			.andExpect(jsonPath("$[0].titles[0].externalId").value("1234"));
 	}

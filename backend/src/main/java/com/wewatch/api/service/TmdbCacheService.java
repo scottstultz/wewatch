@@ -18,6 +18,8 @@ import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbGenre;
+import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
@@ -51,7 +53,7 @@ public class TmdbCacheService {
 			return tmdbClient.getSeasons(tmdbId);
 		}
 		TmdbTvDetail detail = tmdbClient.getTvDetail(tmdbId);
-		upsertTitleCache(tmdbId, detail);
+		upsertTvCache(tmdbId, detail);
 		return detail.seasons() != null ? detail.seasons() : List.of();
 	}
 
@@ -77,7 +79,7 @@ public class TmdbCacheService {
 	public void prewarmShow(String tmdbId) {
 		try {
 			TmdbTvDetail detail = tmdbClient.getTvDetail(tmdbId);
-			upsertTitleCache(tmdbId, detail);
+			upsertTvCache(tmdbId, detail);
 			List<TmdbTvSeason> seasons = detail.seasons() != null ? detail.seasons() : List.of();
 			for (TmdbTvSeason season : seasons) {
 				if (season.seasonNumber() == 0) continue; // skip specials season
@@ -93,18 +95,48 @@ public class TmdbCacheService {
 		}
 	}
 
+	@Async
+	public void prewarmMovie(String tmdbId) {
+		try {
+			TmdbMovieDetail detail = tmdbClient.getMovieDetail(tmdbId);
+			upsertMovieCache(tmdbId, detail);
+		} catch (Exception e) {
+			log.warn("Failed to prewarm movie {}: {}", tmdbId, e.getMessage());
+		}
+	}
+
 	private boolean isStale(Instant fetchedAt) {
 		return fetchedAt.isBefore(Instant.now().minus(ttlDays, ChronoUnit.DAYS));
 	}
 
-	private void upsertTitleCache(String tmdbId, TmdbTvDetail detail) {
+	private void upsertTvCache(String tmdbId, TmdbTvDetail detail) {
 		TmdbTitleCache row = titleCacheRepository.findByTmdbId(tmdbId).orElse(new TmdbTitleCache());
 		row.setTmdbId(tmdbId);
 		row.setType("TV");
-		row.setName(tmdbId); // name not in TmdbTvDetail — populated from titles table by callers if needed
+		row.setName(detail.name() != null ? detail.name() : tmdbId);
+		row.setOverview(detail.overview());
+		row.setPosterPath(detail.posterPath());
 		row.setStatus(detail.status());
 		row.setFirstAirDate(parseDate(detail.firstAirDate()));
 		row.setNumberOfSeasons(detail.numberOfSeasons());
+		if (detail.genres() != null) {
+			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
+		}
+		row.setFetchedAt(Instant.now());
+		titleCacheRepository.save(row);
+	}
+
+	private void upsertMovieCache(String tmdbId, TmdbMovieDetail detail) {
+		TmdbTitleCache row = titleCacheRepository.findByTmdbId(tmdbId).orElse(new TmdbTitleCache());
+		row.setTmdbId(tmdbId);
+		row.setType("MOVIE");
+		row.setName(detail.title() != null ? detail.title() : tmdbId);
+		row.setOverview(detail.overview());
+		row.setPosterPath(detail.posterPath());
+		row.setStatus(detail.status());
+		if (detail.genres() != null) {
+			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
+		}
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 	}
