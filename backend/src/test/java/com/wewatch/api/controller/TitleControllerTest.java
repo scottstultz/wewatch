@@ -494,7 +494,8 @@ class TitleControllerTest {
 				"Inception",
 				"A thief who steals corporate secrets.",
 				LocalDate.parse("2010-07-16"),
-				"https://image.tmdb.org/t/p/w500/poster.jpg"
+				"https://image.tmdb.org/t/p/w500/poster.jpg",
+				null
 			)
 		);
 

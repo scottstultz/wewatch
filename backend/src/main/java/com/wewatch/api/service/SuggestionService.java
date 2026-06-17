@@ -37,8 +37,10 @@ public class SuggestionService {
 	private static final int MAX_SEEDS = 3;
 	private static final int GENRE_GROUP_THRESHOLD = 3;
 	private static final int MAX_GENRES = 3;
+	private static final int MAX_KEYWORDS = 5;
 	private static final int MIN_SHELF_SIZE = 3;
 	private static final int MAX_SHELF_SIZE = 12;
+	private static final int MAX_PER_GENRE_CLUSTER = 4;
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
 	private static final long CACHE_TTL_SECONDS = 30 * 60;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
@@ -90,11 +92,20 @@ public class SuggestionService {
 		List<Long> titleIds = allEntries.stream().map(WatchlistEntry::getTitleId).toList();
 		Map<Long, Title> titlesById = titleService.findByIds(titleIds);
 
-		// Cross-shelf dedup: starts with all owned externalIds
-		Set<String> seen = allEntries.stream()
+		Set<String> ownedExternalIds = allEntries.stream()
 			.map(WatchlistEntry::getExternalId)
 			.filter(Objects::nonNull)
-			.collect(Collectors.toCollection(HashSet::new));
+			.collect(Collectors.toSet());
+
+		// Load cache entries once for genre + keyword profile building
+		Map<String, TmdbTitleCache> cacheByTmdbId = tmdbTitleCacheRepository.findAllById(ownedExternalIds)
+			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
+
+		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId);
+		List<Integer> keywordProfile = buildKeywordProfile(cacheByTmdbId.values());
+
+		// Cross-shelf dedup: start from all owned externalIds
+		Set<String> seen = new HashSet<>(ownedExternalIds);
 
 		List<SuggestionShelfResponse> shelves = new ArrayList<>();
 
@@ -112,27 +123,18 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> recs = fetchWithTopUp(title.getType(), title.getExternalId());
-			List<TitleSearchResponse> filtered = recs.stream()
-				.filter(r -> seen.add(r.externalId()))
-				.limit(MAX_SHELF_SIZE)
-				.toList();
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen);
 
-			if (filtered.size() >= MIN_SHELF_SIZE) {
+			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
 					? "Because you added " + title.getName()
 					: "Because of your list";
-				shelves.add(new SuggestionShelfResponse(label, filtered));
+				shelves.add(new SuggestionShelfResponse(label, shelf));
 			}
 		}
 
 		// ── Genre-profile shelves (conditional, per media type) ───
-		Set<String> ownedExternalIds = allEntries.stream()
-			.map(WatchlistEntry::getExternalId)
-			.filter(Objects::nonNull)
-			.collect(Collectors.toSet());
-		Map<String, List<Integer>> genresByTmdbId = loadGenres(ownedExternalIds);
-
 		for (TitleType type : List.of(TitleType.TV, TitleType.MOVIE)) {
 			List<WatchlistEntry> group = allEntries.stream()
 				.filter(e -> {
@@ -147,8 +149,9 @@ public class SuggestionService {
 			for (WatchlistEntry e : group) {
 				Title t = titlesById.get(e.getTitleId());
 				if (t == null || t.getExternalId() == null) continue;
-				List<Integer> genres = genresByTmdbId.getOrDefault(t.getExternalId(), List.of());
-				for (int genreId : genres) {
+				TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
+				if (cached == null || cached.getGenreIds() == null) continue;
+				for (int genreId : cached.getGenreIds()) {
 					genreFreq.merge(genreId, 1, Integer::sum);
 				}
 			}
@@ -161,15 +164,26 @@ public class SuggestionService {
 				.map(Map.Entry::getKey)
 				.toList();
 
+			// Type-scoped keywords to avoid cross-namespace contamination
+			List<Integer> typeKeywords = group.stream()
+				.map(e -> titlesById.get(e.getTitleId()))
+				.filter(Objects::nonNull)
+				.map(t -> cacheByTmdbId.get(t.getExternalId()))
+				.filter(Objects::nonNull)
+				.flatMap(c -> c.getKeywordIds() != null ? c.getKeywordIds().stream() : java.util.stream.Stream.empty())
+				.collect(Collectors.groupingBy(k -> k, Collectors.summingInt(k -> 1)))
+				.entrySet().stream()
+				.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+				.limit(MAX_KEYWORDS)
+				.map(Map.Entry::getKey)
+				.toList();
+
 			String label = type == TitleType.TV ? "More like your shows" : "More like your movies";
 			try {
-				List<TitleSearchResponse> discovered = tmdbClient.discover(type, topGenres, DISCOVER_VOTE_COUNT_GTE);
-				List<TitleSearchResponse> filtered = discovered.stream()
-					.filter(r -> seen.add(r.externalId()))
-					.limit(MAX_SHELF_SIZE)
-					.toList();
-				if (filtered.size() >= MIN_SHELF_SIZE) {
-					shelves.add(new SuggestionShelfResponse(label, filtered));
+				List<TitleSearchResponse> discovered = tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE);
+				List<TitleSearchResponse> shelf = fillShelf(discovered, seen);
+				if (shelf.size() >= MIN_SHELF_SIZE) {
+					shelves.add(new SuggestionShelfResponse(label, shelf));
 				}
 			} catch (TmdbApiException e) {
 				log.warn("Discover failed for {} genres {}: {}", type, topGenres, e.getMessage());
@@ -179,7 +193,8 @@ public class SuggestionService {
 		return shelves;
 	}
 
-	private List<TitleSearchResponse> fetchWithTopUp(TitleType type, String tmdbId) {
+	// Fetch candidates from recommendations + similar top-up, then score by genre affinity
+	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile) {
 		List<TitleSearchResponse> results = new ArrayList<>();
 		try {
 			results.addAll(tmdbClient.getRecommendations(type, tmdbId));
@@ -193,14 +208,71 @@ public class SuggestionService {
 				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
 			}
 		}
-		return results;
+		// Deduplicate within this fetch before scoring
+		Set<String> seen = new HashSet<>();
+		List<TitleSearchResponse> deduped = results.stream()
+			.filter(r -> seen.add(r.externalId()))
+			.toList();
+
+		if (genreProfile.isEmpty()) return deduped;
+
+		return deduped.stream()
+			.sorted(Comparator.comparingDouble((TitleSearchResponse r) -> genreScore(r, genreProfile)).reversed())
+			.toList();
 	}
 
-	private Map<String, List<Integer>> loadGenres(Set<String> tmdbIds) {
-		if (tmdbIds.isEmpty()) return Map.of();
-		return tmdbTitleCacheRepository.findAllById(tmdbIds).stream()
-			.filter(c -> c.getGenreIds() != null && !c.getGenreIds().isEmpty())
-			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, TmdbTitleCache::getGenreIds));
+	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER
+	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen) {
+		Map<Integer, Integer> genreCount = new HashMap<>();
+		List<TitleSearchResponse> shelf = new ArrayList<>();
+		for (TitleSearchResponse r : candidates) {
+			if (!seen.add(r.externalId())) continue;
+			List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
+			int primaryGenre = genres.isEmpty() ? -1 : genres.get(0);
+			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
+			shelf.add(r);
+			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
+			if (shelf.size() >= MAX_SHELF_SIZE) break;
+		}
+		return shelf;
+	}
+
+	private double genreScore(TitleSearchResponse candidate, Map<Integer, Double> genreProfile) {
+		List<Integer> genres = candidate.genreIds();
+		if (genres == null || genres.isEmpty()) return 0.0;
+		return genres.stream().mapToDouble(id -> genreProfile.getOrDefault(id, 0.0)).sum();
+	}
+
+	private Map<Integer, Double> buildGenreProfile(
+		List<WatchlistEntry> entries,
+		Map<Long, Title> titlesById,
+		Map<String, TmdbTitleCache> cacheByTmdbId
+	) {
+		Map<Integer, Double> profile = new HashMap<>();
+		for (WatchlistEntry e : entries) {
+			Title t = titlesById.get(e.getTitleId());
+			if (t == null || t.getExternalId() == null) continue;
+			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
+			if (cached == null || cached.getGenreIds() == null) continue;
+			double weight = statusWeight(e.getStatus());
+			for (int genreId : cached.getGenreIds()) {
+				profile.merge(genreId, weight, Double::sum);
+			}
+		}
+		return profile;
+	}
+
+	private List<Integer> buildKeywordProfile(java.util.Collection<TmdbTitleCache> caches) {
+		Map<Integer, Integer> freq = new HashMap<>();
+		for (TmdbTitleCache c : caches) {
+			if (c.getKeywordIds() == null) continue;
+			for (int kw : c.getKeywordIds()) freq.merge(kw, 1, Integer::sum);
+		}
+		return freq.entrySet().stream()
+			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+			.limit(MAX_KEYWORDS)
+			.map(Map.Entry::getKey)
+			.toList();
 	}
 
 	private int statusWeight(WatchStatus status) {

@@ -136,19 +136,40 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, int voteCountGte) {
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds, int voteCountGte) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
-		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining(","));
+		// Use OR (|) so results match any of the user's top genres/keywords rather than requiring all
+		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
+		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US";
+		if (!keywordIds.isEmpty()) {
+			String keywords = keywordIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
+			uriStr += "&with_keywords=" + keywords;
+		}
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri("/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US",
-					mediaType, genres, voteCountGte)
+				.uri(uriStr, mediaType, genres, voteCountGte)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
 			return items.stream().map(item -> toResponse(item, type)).toList();
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB discover failed: " + e.getMessage(), e);
+		}
+	}
+
+	public List<Integer> getKeywords(TitleType type, String tmdbId) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbKeywordsResponse response = restClient.get()
+				.uri("/3/{mediaType}/{id}/keywords", mediaType, tmdbId)
+				.retrieve()
+				.body(TmdbKeywordsResponse.class);
+			if (response == null) return List.of();
+			List<TmdbKeyword> kws = response.keywords() != null ? response.keywords()
+				: response.results() != null ? response.results() : List.of();
+			return kws.stream().map(TmdbKeyword::id).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB keywords failed: " + e.getMessage(), e);
 		}
 	}
 
@@ -181,7 +202,8 @@ public class TmdbClient {
 			name,
 			item.overview(),
 			releaseDate,
-			posterUrl
+			posterUrl,
+			item.genreIds() != null ? item.genreIds() : List.of()
 		);
 	}
 

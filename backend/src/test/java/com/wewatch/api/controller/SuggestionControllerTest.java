@@ -75,7 +75,7 @@ class SuggestionControllerTest {
 	@Test
 	void getSuggestionsReturnsShelves() throws Exception {
 		TitleSearchResponse title = new TitleSearchResponse(
-			"1234", "TMDB", TitleType.TV, "Severance", "Employees discover the dark truth.", LocalDate.of(2022, 2, 18), null);
+			"1234", "TMDB", TitleType.TV, "Severance", "Employees discover the dark truth.", LocalDate.of(2022, 2, 18), null, null);
 		SuggestionShelfResponse shelf = new SuggestionShelfResponse("Because you added The Bear", List.of(title));
 
 		when(suggestionService.topPicks(42L)).thenReturn(List.of(shelf));

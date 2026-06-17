@@ -1,6 +1,7 @@
 package com.wewatch.api.dto;
 
 import java.time.LocalDate;
+import java.util.List;
 
 import com.wewatch.api.model.TitleType;
 
@@ -11,6 +12,7 @@ public record TitleSearchResponse(
 	String name,
 	String overview,
 	LocalDate releaseDate,
-	String posterUrl
+	String posterUrl,
+	List<Integer> genreIds
 ) {
 }

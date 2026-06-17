@@ -1,5 +1,7 @@
 package com.wewatch.api.tmdb;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
@@ -12,6 +14,7 @@ public record TmdbItem(
 	String overview,
 	@JsonProperty("release_date") String releaseDate,
 	@JsonProperty("first_air_date") String firstAirDate,
-	@JsonProperty("poster_path") String posterPath
+	@JsonProperty("poster_path") String posterPath,
+	@JsonProperty("genre_ids") List<Integer> genreIds
 ) {
 }
