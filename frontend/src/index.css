@@ -1961,3 +1961,236 @@ a {
   font-size: 0.6875rem;
   color: #64748b;
 }
+
+/* ── Flip a coin ──────────────────────────────────────────── */
+
+.flip-coin-trigger {
+  align-self: start;
+  padding: 10px 16px;
+  border: 1px solid rgba(125, 211, 252, 0.4);
+  border-radius: 999px;
+  background: rgba(125, 211, 252, 0.12);
+  color: #7dd3fc;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.flip-coin-trigger:hover {
+  background: rgba(125, 211, 252, 0.2);
+  border-color: rgba(125, 211, 252, 0.6);
+}
+
+.flip-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  padding: 16px;
+}
+
+.flip-modal {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 28px 24px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 14px;
+  background: #1e293b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.flip-title {
+  margin: 0 0 6px;
+  color: #f8fafc;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.flip-subtitle {
+  margin: 0 0 18px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.flip-select-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.flip-tile {
+  position: relative;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s, opacity 0.15s;
+}
+
+.flip-tile:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.flip-tile-selected {
+  border-color: #7dd3fc;
+}
+
+.flip-tile-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+}
+
+.flip-tile-poster-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.flip-tile-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #7dd3fc;
+  color: #0f1720;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.flip-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.flip-count {
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
+.flip-go-btn {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  background: #7dd3fc;
+  color: #0f1720;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.flip-go-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.flip-reveal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.flip-reveal-card {
+  width: 180px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.flip-reveal-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  display: block;
+}
+
+.flip-reveal-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+
+.flip-reveal-name {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.flip-reveal-shuffling {
+  animation: flip-tick 0.13s ease-out;
+}
+
+.flip-reveal-landed {
+  animation: flip-pop 0.4s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+}
+
+.flip-reveal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.flip-secondary-btn {
+  padding: 9px 16px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.flip-secondary-btn:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+@keyframes flip-tick {
+  from { transform: rotateY(-30deg) scale(0.94); opacity: 0.5; }
+  to { transform: rotateY(0) scale(1); opacity: 1; }
+}
+
+@keyframes flip-pop {
+  0% { transform: scale(0.7) rotate(-4deg); opacity: 0; }
+  100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flip-reveal-shuffling,
+  .flip-reveal-landed {
+    animation: none;
+  }
+}

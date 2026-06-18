@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
+import FlipACoinModal from '../components/FlipACoinModal'
 import {
   UnauthorizedError,
   createWatchlist,
@@ -98,6 +99,9 @@ function LibraryPage() {
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
 
+  // Flip a coin modal state
+  const [showFlip, setShowFlip] = useState(false)
+
   const handleUnauthorized = useCallback(() => {
     signOut()
     navigate('/sign-in', { replace: true })
@@ -187,6 +191,8 @@ function LibraryPage() {
   )
 
   const visible = activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab)
+  const watchingEntries = entries.filter(e => e.status === 'WATCHING')
+  const canFlip = activeTab === 'WATCHING' && watchingEntries.length >= 2
 
   return (
     <div className="page">
@@ -265,6 +271,12 @@ function LibraryPage() {
       </section>
 
       <section className="stack-list">
+        {canFlip && (
+          <button className="flip-coin-trigger" onClick={() => setShowFlip(true)}>
+            🪙 Can't decide? Flip a coin
+          </button>
+        )}
+
         {isLoading && <p className="search-status">Loading…</p>}
         {error && <p className="search-status search-status-error">{error}</p>}
 
@@ -370,6 +382,17 @@ function LibraryPage() {
           </div>
         )}
       </section>
+
+      {showFlip && selectedWatchlistId && (
+        <FlipACoinModal
+          entries={watchingEntries}
+          onClose={() => setShowFlip(false)}
+          onOpenEntry={(entry) => {
+            setShowFlip(false)
+            navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)
+          }}
+        />
+      )}
     </div>
   )
 }
