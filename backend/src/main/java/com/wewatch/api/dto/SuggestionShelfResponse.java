@@ -4,5 +4,8 @@ import java.util.List;
 
 public record SuggestionShelfResponse(
 	String reason,
-	List<TitleSearchResponse> titles
-) {}
+	List<TitleSearchResponse> titles,
+	ShelfKind kind
+) {
+	public enum ShelfKind { PER_SEED, GENRE_PROFILE }
+}

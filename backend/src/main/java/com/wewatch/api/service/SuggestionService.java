@@ -130,7 +130,7 @@ public class SuggestionService {
 				String label = title.getName() != null
 					? "Because you added " + title.getName()
 					: "Because of your list";
-				shelves.add(new SuggestionShelfResponse(label, shelf));
+				shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.PER_SEED));
 			}
 		}
 
@@ -183,7 +183,7 @@ public class SuggestionService {
 				List<TitleSearchResponse> discovered = tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE);
 				List<TitleSearchResponse> shelf = fillShelf(discovered, seen);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
-					shelves.add(new SuggestionShelfResponse(label, shelf));
+					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
 				}
 			} catch (TmdbApiException e) {
 				log.warn("Discover failed for {} genres {}: {}", type, topGenres, e.getMessage());
