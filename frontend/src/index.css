@@ -1964,22 +1964,41 @@ a {
 
 /* ── Flip a coin ──────────────────────────────────────────── */
 
-.flip-coin-trigger {
-  align-self: start;
-  padding: 10px 16px;
-  border: 1px solid rgba(125, 211, 252, 0.4);
-  border-radius: 999px;
-  background: rgba(125, 211, 252, 0.12);
-  color: #7dd3fc;
-  font-size: 0.875rem;
-  font-weight: 600;
+.flip-fab {
+  position: fixed;
+  /* Sit above the sticky mobile nav (~68px + safe-area inset) */
+  bottom: calc(68px + env(safe-area-inset-bottom) + 16px);
+  right: 20px;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #1e3a5f;
+  border: 1px solid rgba(125, 211, 252, 0.25);
+  font-size: 2rem;
+  line-height: 1;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s, box-shadow 0.15s;
+  z-index: 9;
 }
 
-.flip-coin-trigger:hover {
-  background: rgba(125, 211, 252, 0.2);
-  border-color: rgba(125, 211, 252, 0.6);
+.flip-fab:hover {
+  transform: scale(1.08);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6);
+}
+
+.flip-fab:active {
+  transform: scale(0.94);
+}
+
+@media (min-width: 1024px) {
+  .flip-fab {
+    /* No bottom nav on desktop — sidebar layout */
+    bottom: 32px;
+  }
 }
 
 .flip-overlay {

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { WatchlistEntryResponse } from '../types/api'
 
-const MAX_PICKS = 5
+const MAX_PICKS = 6
 const MIN_PICKS = 2
 
-interface FlipACoinModalProps {
+interface RollTheDiceModalProps {
   entries: WatchlistEntryResponse[]
   onClose: () => void
   onOpenEntry: (entry: WatchlistEntryResponse) => void
@@ -17,7 +17,7 @@ function prefersReducedMotion(): boolean {
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
-function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) {
+function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalProps) {
   const [phase, setPhase] = useState<Phase>('select')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [displayId, setDisplayId] = useState<number | null>(null)
@@ -51,7 +51,7 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
     })
   }
 
-  function flip() {
+  function roll() {
     const ids = [...selected]
     if (ids.length < MIN_PICKS) return
     const chosen = ids[Math.floor(Math.random() * ids.length)]
@@ -64,7 +64,7 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
       return
     }
 
-    // Shuffle: cycle through the picks, decelerating, then land on the winner.
+    // Cycle through the picks, decelerating, then land on the winner.
     setIsShuffling(true)
     let i = 0
     let delay = 70
@@ -82,7 +82,7 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
     tick()
   }
 
-  function flipAgain() {
+  function rollAgain() {
     if (timerRef.current) clearTimeout(timerRef.current)
     setChosenId(null)
     setDisplayId(null)
@@ -95,12 +95,12 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
 
   return (
     <div className="flip-overlay" onClick={handleBackdropClick}>
-      <div className="flip-modal" role="dialog" aria-modal="true" aria-label="Flip a coin">
+      <div className="flip-modal" role="dialog" aria-modal="true" aria-label="Roll the dice">
         <button className="list-manage-close" onClick={onClose} aria-label="Close">×</button>
 
         {phase === 'select' ? (
           <>
-            <h3 className="flip-title">Can't decide? Flip a coin</h3>
+            <h3 className="flip-title">Roll the dice</h3>
             <p className="flip-subtitle">
               Pick {MIN_PICKS}–{MAX_PICKS} of the shows you're watching and let fate choose.
             </p>
@@ -135,15 +135,15 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
               <button
                 className="flip-go-btn"
                 disabled={selected.size < MIN_PICKS}
-                onClick={flip}
+                onClick={roll}
               >
-                Flip!
+                Roll!
               </button>
             </div>
           </>
         ) : (
           <div className="flip-reveal">
-            <h3 className="flip-title">{isShuffling ? 'Flipping…' : 'You should watch'}</h3>
+            <h3 className="flip-title">{isShuffling ? 'Rolling…' : 'You should watch'}</h3>
 
             {revealEntry && (
               <div
@@ -173,7 +173,7 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
                     Open
                   </button>
                 )}
-                <button className="flip-secondary-btn" onClick={flipAgain}>Flip again</button>
+                <button className="flip-secondary-btn" onClick={rollAgain}>Roll again</button>
                 <button className="flip-secondary-btn" onClick={onClose}>Done</button>
               </div>
             )}
@@ -184,4 +184,4 @@ function FlipACoinModal({ entries, onClose, onOpenEntry }: FlipACoinModalProps) 
   )
 }
 
-export default FlipACoinModal
+export default RollTheDiceModal

@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
-import FlipACoinModal from '../components/FlipACoinModal'
+import RollTheDiceModal from '../components/RollTheDiceModal'
 import {
   UnauthorizedError,
   createWatchlist,
@@ -99,8 +99,8 @@ function LibraryPage() {
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
 
-  // Flip a coin modal state
-  const [showFlip, setShowFlip] = useState(false)
+  // Roll the dice modal state
+  const [showDice, setShowDice] = useState(false)
 
   const handleUnauthorized = useCallback(() => {
     signOut()
@@ -192,7 +192,7 @@ function LibraryPage() {
 
   const visible = activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab)
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
-  const canFlip = activeTab === 'WATCHING' && watchingEntries.length >= 2
+  const canRoll = activeTab === 'WATCHING' && watchingEntries.length >= 2
 
   return (
     <div className="page">
@@ -267,15 +267,11 @@ function LibraryPage() {
               </button>
             ))}
           </div>
+
         </div>
       </section>
 
       <section className="stack-list">
-        {canFlip && (
-          <button className="flip-coin-trigger" onClick={() => setShowFlip(true)}>
-            🪙 Can't decide? Flip a coin
-          </button>
-        )}
 
         {isLoading && <p className="search-status">Loading…</p>}
         {error && <p className="search-status search-status-error">{error}</p>}
@@ -383,12 +379,23 @@ function LibraryPage() {
         )}
       </section>
 
-      {showFlip && selectedWatchlistId && (
-        <FlipACoinModal
+      {canRoll && (
+        <button
+          className="flip-fab"
+          onClick={() => setShowDice(true)}
+          aria-label="Roll the dice — pick a random show to watch"
+          title="Roll the dice"
+        >
+          🎲
+        </button>
+      )}
+
+      {showDice && selectedWatchlistId && (
+        <RollTheDiceModal
           entries={watchingEntries}
-          onClose={() => setShowFlip(false)}
+          onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {
-            setShowFlip(false)
+            setShowDice(false)
             navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)
           }}
         />
