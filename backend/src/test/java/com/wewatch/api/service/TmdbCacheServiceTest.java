@@ -95,6 +95,39 @@ class TmdbCacheServiceTest {
 		verify(titleCacheRepository, never()).save(any());
 	}
 
+	@Test
+	void getSeasonsExcludesSeason0Specials() {
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 2, "Ended", "2011-04-17",
+			List.of(
+				new TmdbTvSeason(0L, 0, "Specials", null, null, 5, null, null),
+				new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null),
+				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
+			),
+			"Game of Thrones", null, null, List.of());
+		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
+
+		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
+
+		assertThat(result).hasSize(2);
+		assertThat(result).extracting(TmdbTvSeason::seasonNumber).containsExactly(1, 2);
+	}
+
+	@Test
+	void getSeasonsExcludesSeason0FromFreshCache() {
+		TmdbTitleCache fresh = freshTitleCache();
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(fresh));
+		when(tmdbClient.getSeasons(TMDB_ID)).thenReturn(List.of(
+			new TmdbTvSeason(0L, 0, "Specials", null, null, 5, null, null),
+			new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null)
+		));
+
+		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
+
+		assertThat(result).hasSize(1);
+		assertThat(result.get(0).seasonNumber()).isEqualTo(1);
+	}
+
 	// ── getSeasonDetail ──────────────────────────────────────
 
 	@Test

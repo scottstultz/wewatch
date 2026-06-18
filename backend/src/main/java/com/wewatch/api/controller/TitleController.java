@@ -21,6 +21,7 @@ import com.wewatch.api.dto.EpisodeResponse;
 import com.wewatch.api.dto.SeasonDetailResponse;
 import com.wewatch.api.dto.SeasonSummaryResponse;
 import com.wewatch.api.dto.TitleCreateRequest;
+import com.wewatch.api.dto.TitleDetailResponse;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.dto.TitleUpdateRequest;
@@ -29,6 +30,9 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbGenre;
+import com.wewatch.api.tmdb.TmdbMovieDetail;
+import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 
 @RestController
@@ -54,6 +58,60 @@ public class TitleController {
 			return List.of();
 		}
 		return tmdbClient.search(q, type);
+	}
+
+	@GetMapping("/detail")
+	public TitleDetailResponse getTitleDetail(
+		@RequestParam String externalId,
+		@RequestParam String externalSource,
+		@RequestParam TitleType type
+	) {
+		if (type == TitleType.MOVIE) {
+			TmdbMovieDetail detail = tmdbClient.getMovieDetail(externalId);
+			return new TitleDetailResponse(
+				externalId,
+				externalSource,
+				TitleType.MOVIE,
+				detail.title(),
+				detail.overview(),
+				detail.releaseDate(),
+				TmdbClient.posterUrl(detail.posterPath()),
+				detail.status(),
+				genreNames(detail.genres()),
+				null,
+				null
+			);
+		}
+
+		TmdbTvDetail detail = tmdbClient.getTvDetail(externalId);
+		List<SeasonSummaryResponse> seasons = (detail.seasons() != null ? detail.seasons() : List.<TmdbTvSeason>of())
+			.stream()
+			.filter(s -> s.seasonNumber() > 0) // exclude season 0 ("Specials"), matching TmdbCacheService.getSeasons
+			.map(s -> new SeasonSummaryResponse(
+				s.seasonNumber(),
+				s.name(),
+				s.episodeCount() != null ? s.episodeCount() : 0,
+				TmdbClient.posterUrl(s.posterPath()),
+				s.airDate()
+			))
+			.toList();
+		return new TitleDetailResponse(
+			externalId,
+			externalSource,
+			TitleType.TV,
+			detail.name(),
+			detail.overview(),
+			detail.firstAirDate(),
+			TmdbClient.posterUrl(detail.posterPath()),
+			detail.status(),
+			genreNames(detail.genres()),
+			seasons.size(),
+			seasons
+		);
+	}
+
+	private List<String> genreNames(List<TmdbGenre> genres) {
+		return genres != null ? genres.stream().map(TmdbGenre::name).toList() : List.of();
 	}
 
 	@PostMapping

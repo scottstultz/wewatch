@@ -44,6 +44,9 @@ import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbGenre;
+import com.wewatch.api.tmdb.TmdbMovieDetail;
+import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 
@@ -629,5 +632,79 @@ class TitleControllerTest {
 			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isBadRequest())
 			.andExpect(jsonPath("$.message").value("Season data is only available for TV shows"));
+	}
+
+	// ─── GET /api/titles/detail ───────────────────────────────────────────────
+
+	@Test
+	void getTitleDetailReturnsMovieDetail() throws Exception {
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
+			"Released", "1999-03-31",
+			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction"))
+		));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.externalId").value("603"))
+			.andExpect(jsonPath("$.externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.type").value("MOVIE"))
+			.andExpect(jsonPath("$.name").value("The Matrix"))
+			.andExpect(jsonPath("$.overview").value("A computer hacker learns the truth."))
+			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"))
+			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/matrix.jpg"))
+			.andExpect(jsonPath("$.status").value("Released"))
+			.andExpect(jsonPath("$.genres.length()").value(2))
+			.andExpect(jsonPath("$.genres[0]").value("Action"))
+			.andExpect(jsonPath("$.seasonCount").doesNotExist())
+			.andExpect(jsonPath("$.seasons").doesNotExist());
+
+		verify(tmdbClient).getMovieDetail("603");
+	}
+
+	@Test
+	void getTitleDetailReturnsTvDetailExcludingSpecials() throws Exception {
+		when(tmdbClient.getTvDetail("1399")).thenReturn(new TmdbTvDetail(
+			1399, 2, "Ended", "2011-04-17",
+			List.of(
+				new TmdbTvSeason(0, 0, "Specials", null, null, 5, null, null),
+				new TmdbTvSeason(3625, 1, "Season 1", null, "/s1.jpg", 10, "2011-04-17", null),
+				new TmdbTvSeason(3626, 2, "Season 2", null, null, 10, "2012-04-01", null)
+			),
+			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
+			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy"))
+		));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "1399")
+			.param("externalSource", "TMDB")
+			.param("type", "TV"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.type").value("TV"))
+			.andExpect(jsonPath("$.name").value("Game of Thrones"))
+			.andExpect(jsonPath("$.releaseDate").value("2011-04-17"))
+			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/got.jpg"))
+			.andExpect(jsonPath("$.status").value("Ended"))
+			.andExpect(jsonPath("$.genres[0]").value("Sci-Fi & Fantasy"))
+			.andExpect(jsonPath("$.seasonCount").value(2))
+			.andExpect(jsonPath("$.seasons.length()").value(2))
+			.andExpect(jsonPath("$.seasons[0].seasonNumber").value(1))
+			.andExpect(jsonPath("$.seasons[1].seasonNumber").value(2));
+
+		verify(tmdbClient).getTvDetail("1399");
+	}
+
+	@Test
+	void getTitleDetailReturnsBadRequestForMissingType() throws Exception {
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB"))
+			.andExpect(status().isBadRequest());
 	}
 }

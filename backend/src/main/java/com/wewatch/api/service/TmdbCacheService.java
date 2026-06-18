@@ -51,11 +51,17 @@ public class TmdbCacheService {
 	public List<TmdbTvSeason> getSeasons(String tmdbId) {
 		Optional<TmdbTitleCache> cached = titleCacheRepository.findByTmdbId(tmdbId);
 		if (cached.isPresent() && !isStale(cached.get().getFetchedAt())) {
-			return tmdbClient.getSeasons(tmdbId);
+			return realSeasons(tmdbClient.getSeasons(tmdbId));
 		}
 		TmdbTvDetail detail = tmdbClient.getTvDetail(tmdbId);
 		upsertTvCache(tmdbId, detail);
-		return detail.seasons() != null ? detail.seasons() : List.of();
+		return realSeasons(detail.seasons());
+	}
+
+	// Exclude season 0 ("Specials") so every page agrees on what counts as a season.
+	private List<TmdbTvSeason> realSeasons(List<TmdbTvSeason> seasons) {
+		if (seasons == null) return List.of();
+		return seasons.stream().filter(s -> s.seasonNumber() > 0).toList();
 	}
 
 	@Transactional
