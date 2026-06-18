@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
+import RollTheDiceModal from '../components/RollTheDiceModal'
 import {
   UnauthorizedError,
   createWatchlist,
@@ -98,6 +99,9 @@ function LibraryPage() {
   // Manage modal state
   const [showManageModal, setShowManageModal] = useState(false)
 
+  // Roll the dice modal state
+  const [showDice, setShowDice] = useState(false)
+
   const handleUnauthorized = useCallback(() => {
     signOut()
     navigate('/sign-in', { replace: true })
@@ -187,6 +191,8 @@ function LibraryPage() {
   )
 
   const visible = activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab)
+  const watchingEntries = entries.filter(e => e.status === 'WATCHING')
+  const canRoll = activeTab === 'WATCHING' && watchingEntries.length >= 2
 
   return (
     <div className="page">
@@ -261,10 +267,12 @@ function LibraryPage() {
               </button>
             ))}
           </div>
+
         </div>
       </section>
 
       <section className="stack-list">
+
         {isLoading && <p className="search-status">Loading…</p>}
         {error && <p className="search-status search-status-error">{error}</p>}
 
@@ -370,6 +378,28 @@ function LibraryPage() {
           </div>
         )}
       </section>
+
+      {canRoll && (
+        <button
+          className="flip-fab"
+          onClick={() => setShowDice(true)}
+          aria-label="Roll the dice — pick a random show to watch"
+          title="Roll the dice"
+        >
+          🎲
+        </button>
+      )}
+
+      {showDice && selectedWatchlistId && (
+        <RollTheDiceModal
+          entries={watchingEntries}
+          onClose={() => setShowDice(false)}
+          onOpenEntry={(entry) => {
+            setShowDice(false)
+            navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)
+          }}
+        />
+      )}
     </div>
   )
 }
