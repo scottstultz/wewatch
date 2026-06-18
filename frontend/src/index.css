@@ -1767,10 +1767,19 @@ a {
 }
 
 .season-select {
-  padding: 8px 12px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 40px 8px 12px;
   border: 1px solid rgba(148, 163, 184, 0.3);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.6);
+  /* Custom chevron — iOS won't let us recolor its native select arrow, which is
+     near-invisible on the dark theme. A light fill + explicit size + right
+     padding keeps a clearly legible control. */
+  background-color: rgba(15, 23, 42, 0.6);
+  background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='16'%20height='16'%20viewBox='0%200%2016%2016'%20fill='none'%20stroke='%23cbd5e1'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpath%20d='M4%206l4%204%204-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
   color: #e2e8f0;
   font-size: 0.875rem;
   font-weight: 500;
@@ -1854,10 +1863,15 @@ a {
   padding: 10px 12px;
   border-radius: 8px;
   transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.episode-row:hover {
-  background: rgba(148, 163, 184, 0.06);
+/* hover only on real pointers — avoids the state sticking on touch after
+   dismissing the season picker over an episode row */
+@media (hover: hover) {
+  .episode-row:hover {
+    background: rgba(148, 163, 184, 0.06);
+  }
 }
 
 .episode-row-dimmed {
@@ -1886,8 +1900,10 @@ a {
   padding: 0;
 }
 
-.episode-checkbox:hover:not(:disabled) {
-  border-color: #7dd3fc;
+@media (hover: hover) {
+  .episode-checkbox:hover:not(:disabled) {
+    border-color: #7dd3fc;
+  }
 }
 
 .episode-checkbox-checked {
