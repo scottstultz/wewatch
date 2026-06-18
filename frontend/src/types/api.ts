@@ -99,9 +99,12 @@ export interface EpisodeDetail {
   runtimeMinutes: number | null
 }
 
+export type ShelfKind = 'PER_SEED' | 'GENRE_PROFILE'
+
 export interface SuggestionShelf {
   reason: string
   titles: TitleSearchResponse[]
+  kind: ShelfKind
 }
 
 export interface EpisodeProgress {

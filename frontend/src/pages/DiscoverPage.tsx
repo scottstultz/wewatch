@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
@@ -12,6 +12,8 @@ import {
 } from '../services/api'
 import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
+type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
+
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
 function cardKey(title: TitleSearchResponse) {
@@ -21,7 +23,7 @@ function cardKey(title: TitleSearchResponse) {
 interface TitleCardProps {
   title: TitleSearchResponse
   status: CardStatus
-  onAdd: (title: TitleSearchResponse, status: WatchStatus) => void
+  onAdd: AddHandler
 }
 
 function TitleCard({ title, status, onAdd }: TitleCardProps) {
@@ -68,6 +70,71 @@ function TitleCard({ title, status, onAdd }: TitleCardProps) {
         )}
       </div>
     </article>
+  )
+}
+
+interface ShelfRowProps {
+  titles: TitleSearchResponse[]
+  cardStatus: Record<string, CardStatus>
+  onAdd: AddHandler
+}
+
+function ShelfRow({ titles, cardStatus, onAdd }: ShelfRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateArrows = useCallback(() => {
+    const el = rowRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 0)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  useEffect(() => {
+    const el = rowRef.current
+    if (!el) return
+    updateArrows()
+    el.addEventListener('scroll', updateArrows, { passive: true })
+    const ro = new ResizeObserver(updateArrows)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateArrows)
+      ro.disconnect()
+    }
+  }, [titles, updateArrows])
+
+  function scrollBy(dir: 'left' | 'right') {
+    const el = rowRef.current
+    if (!el) return
+    el.scrollBy({ left: dir === 'left' ? -(el.clientWidth * 0.8) : el.clientWidth * 0.8, behavior: 'smooth' })
+  }
+
+  return (
+    <div className="shelf-scroll-container">
+      <button
+        className="shelf-arrow shelf-arrow-left"
+        onClick={() => scrollBy('left')}
+        disabled={!canScrollLeft}
+        aria-label="Scroll left"
+      >&#8249;</button>
+      <div ref={rowRef} className="suggestion-shelf-row">
+        {titles.map(title => (
+          <TitleCard
+            key={cardKey(title)}
+            title={title}
+            status={cardStatus[cardKey(title)] ?? 'idle'}
+            onAdd={onAdd}
+          />
+        ))}
+      </div>
+      <button
+        className="shelf-arrow shelf-arrow-right"
+        onClick={() => scrollBy('right')}
+        disabled={!canScrollRight}
+        aria-label="Scroll right"
+      >&#8250;</button>
+    </div>
   )
 }
 
@@ -268,8 +335,13 @@ function DiscoverPage() {
           <>
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
             {!suggestionsLoading && (() => {
+              const sorted = [...suggestions].sort((a, b) => {
+                if (a.kind === 'GENRE_PROFILE' && b.kind !== 'GENRE_PROFILE') return -1
+                if (b.kind === 'GENRE_PROFILE' && a.kind !== 'GENRE_PROFILE') return 1
+                return 0
+              })
               const shownKeys = new Set<string>()
-              return suggestions.map(shelf => {
+              return sorted.map(shelf => {
                 const dedupedTitles = shelf.titles.filter(t => {
                   const k = cardKey(t)
                   if (shownKeys.has(k)) return false
@@ -280,16 +352,11 @@ function DiscoverPage() {
                 return (
                   <div key={shelf.reason} className="suggestion-shelf">
                     <p className="suggestion-shelf-heading">{shelf.reason}</p>
-                    <div className="suggestion-shelf-row">
-                      {dedupedTitles.map(title => (
-                        <TitleCard
-                          key={cardKey(title)}
-                          title={title}
-                          status={cardStatus[cardKey(title)] ?? 'idle'}
-                          onAdd={handleAddToWatchlist}
-                        />
-                      ))}
-                    </div>
+                    <ShelfRow
+                      titles={dedupedTitles}
+                      cardStatus={cardStatus}
+                      onAdd={handleAddToWatchlist}
+                    />
                   </div>
                 )
               })

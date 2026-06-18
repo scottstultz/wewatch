@@ -76,7 +76,7 @@ class SuggestionControllerTest {
 	void getSuggestionsReturnsShelves() throws Exception {
 		TitleSearchResponse title = new TitleSearchResponse(
 			"1234", "TMDB", TitleType.TV, "Severance", "Employees discover the dark truth.", LocalDate.of(2022, 2, 18), null, null);
-		SuggestionShelfResponse shelf = new SuggestionShelfResponse("Because you added The Bear", List.of(title));
+		SuggestionShelfResponse shelf = new SuggestionShelfResponse("Because you added The Bear", List.of(title), SuggestionShelfResponse.ShelfKind.PER_SEED);
 
 		when(suggestionService.topPicks(42L)).thenReturn(List.of(shelf));
 
@@ -84,6 +84,7 @@ class SuggestionControllerTest {
 				.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$[0].reason").value("Because you added The Bear"))
+			.andExpect(jsonPath("$[0].kind").value("PER_SEED"))
 			.andExpect(jsonPath("$[0].titles[0].name").value("Severance"))
 			.andExpect(jsonPath("$[0].titles[0].externalId").value("1234"));
 	}
