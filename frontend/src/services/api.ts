@@ -3,8 +3,10 @@ import type {
   SeasonDetail,
   SeasonSummary,
   SuggestionShelf,
+  TitleDetailResponse,
   TitleResponse,
   TitleSearchResponse,
+  TitleType,
   WatchlistEntryResponse,
   WatchlistMemberResponse,
   WatchlistResponse,
@@ -122,6 +124,18 @@ export async function findOrCreateTitle(title: TitleSearchResponse, token: strin
     return page.content[0].id
   }
   throw new Error(`Failed to save title: ${createRes.status}`)
+}
+
+export async function getTitleDetail(
+  externalSource: string,
+  externalId: string,
+  type: TitleType,
+  token: string,
+): Promise<TitleDetailResponse> {
+  const params = new URLSearchParams({ externalSource, externalId, type })
+  const response = await apiFetch(`${BASE_URL}/titles/detail?${params}`, token)
+  if (!response.ok) throw new Error(`Failed to fetch title detail: ${response.status}`)
+  return response.json() as Promise<TitleDetailResponse>
 }
 
 // ── Watchlist CRUD ───────────────────────────────────────────

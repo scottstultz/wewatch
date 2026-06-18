@@ -638,6 +638,81 @@ a {
   scroll-snap-align: start;
 }
 
+.title-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.title-card-clickable:hover {
+  border-color: rgba(148, 163, 184, 0.4);
+  transform: translateY(-2px);
+}
+
+.title-card-clickable:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* ── Title detail page ────────────────────────────────────── */
+
+.title-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+}
+
+.title-detail-meta span:not(:last-child)::after {
+  content: '·';
+  margin-left: 12px;
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.title-detail-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.title-detail-genre-chip {
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+}
+
+.title-detail-season-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.title-detail-season-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.title-detail-season-row:last-child {
+  border-bottom: none;
+}
+
+.title-detail-season-name {
+  color: #f8fafc;
+  font-weight: 500;
+}
+
+.title-detail-season-count {
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
 .shelf-arrow {
   display: none;
   flex-shrink: 0;
