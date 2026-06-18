@@ -13,6 +13,7 @@ import {
 import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
+type OpenHandler = (title: TitleSearchResponse) => void
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
@@ -24,13 +25,26 @@ interface TitleCardProps {
   title: TitleSearchResponse
   status: CardStatus
   onAdd: AddHandler
+  onOpen: OpenHandler
 }
 
-function TitleCard({ title, status, onAdd }: TitleCardProps) {
+function TitleCard({ title, status, onAdd, onOpen }: TitleCardProps) {
   const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
   const addedLabel = status === 'WATCHING' ? 'Watching' : status === 'WATCHED' ? 'Watched' : 'Want to Watch'
   return (
-    <article className="title-card">
+    <article
+      className="title-card title-card-clickable"
+      role="button"
+      tabIndex={0}
+      onClick={() => onOpen(title)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(title)
+        }
+      }}
+      aria-label={`View details for ${title.name}`}
+    >
       {title.posterUrl ? (
         <img className="title-poster" src={title.posterUrl} alt={title.name} loading="lazy" />
       ) : (
@@ -54,7 +68,7 @@ function TitleCard({ title, status, onAdd }: TitleCardProps) {
             <button
               className={`discover-round-btn discover-round-btn-add${status === 'error' ? ' discover-round-btn-error' : ''}`}
               disabled={status === 'loading'}
-              onClick={() => onAdd(title, 'WANT_TO_WATCH')}
+              onClick={(e) => { e.stopPropagation(); onAdd(title, 'WANT_TO_WATCH') }}
               aria-label={status === 'error' ? 'Retry adding to watchlist' : 'Add to watchlist'}
             >
               {status === 'loading' ? '…' : (
@@ -77,9 +91,10 @@ interface ShelfRowProps {
   titles: TitleSearchResponse[]
   cardStatus: Record<string, CardStatus>
   onAdd: AddHandler
+  onOpen: OpenHandler
 }
 
-function ShelfRow({ titles, cardStatus, onAdd }: ShelfRowProps) {
+function ShelfRow({ titles, cardStatus, onAdd, onOpen }: ShelfRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -125,6 +140,7 @@ function ShelfRow({ titles, cardStatus, onAdd }: ShelfRowProps) {
             title={title}
             status={cardStatus[cardKey(title)] ?? 'idle'}
             onAdd={onAdd}
+            onOpen={onOpen}
           />
         ))}
       </div>
@@ -244,6 +260,13 @@ function DiscoverPage() {
     return () => { cancelled = true }
   }, [query, token, selectedWatchlistId, signOut, navigate])
 
+  function openTitle(title: TitleSearchResponse) {
+    navigate(
+      `/title/${title.type.toLowerCase()}/${title.externalSource}/${title.externalId}`,
+      { state: { title } },
+    )
+  }
+
   async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
     if (!token || !selectedWatchlistId) return
     const key = cardKey(title)
@@ -323,6 +346,7 @@ function DiscoverPage() {
                     title={title}
                     status={cardStatus[cardKey(title)] ?? 'idle'}
                     onAdd={handleAddToWatchlist}
+                    onOpen={openTitle}
                   />
                 ))}
               </div>
@@ -356,6 +380,7 @@ function DiscoverPage() {
                       titles={dedupedTitles}
                       cardStatus={cardStatus}
                       onAdd={handleAddToWatchlist}
+                      onOpen={openTitle}
                     />
                   </div>
                 )

@@ -7,6 +7,7 @@ import DiscoverPage from './pages/DiscoverPage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
 import ShowDetailPage from './pages/ShowDetailPage'
+import TitleDetailPage from './pages/TitleDetailPage'
 import ProfilePage from './pages/ProfilePage'
 import SignInPage from './pages/SignInPage'
 
@@ -33,6 +34,7 @@ function App() {
             <Route path="/discover" element={<DiscoverPage />} />
             <Route path="/library" element={<LibraryPage />} />
             <Route path="/library/:entryId" element={<ShowDetailPage />} />
+            <Route path="/title/:type/:source/:externalId" element={<TitleDetailPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>

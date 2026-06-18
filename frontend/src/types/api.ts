@@ -99,6 +99,20 @@ export interface EpisodeDetail {
   runtimeMinutes: number | null
 }
 
+export interface TitleDetailResponse {
+  externalId: string
+  externalSource: string
+  type: TitleType
+  name: string
+  overview: string | null
+  releaseDate: string | null
+  posterUrl: string | null
+  status: string | null
+  genres: string[]
+  seasonCount: number | null
+  seasons: SeasonSummary[] | null
+}
+
 export type ShelfKind = 'PER_SEED' | 'GENRE_PROFILE'
 
 export interface SuggestionShelf {
