@@ -1759,47 +1759,35 @@ a {
   color: #94a3b8;
 }
 
-/* Season tabs */
+/* Season selector */
 
-.season-tabs-wrapper {
+.season-selector-wrapper {
   padding: 0 16px;
   margin-bottom: 12px;
 }
 
-.season-tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding-bottom: 4px;
-}
-
-.season-tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.season-tab {
-  flex-shrink: 0;
-  padding: 6px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 20px;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 0.8125rem;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.season-tab:hover {
+.season-select {
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
   color: #e2e8f0;
-  border-color: rgba(148, 163, 184, 0.4);
+  font-size: 0.875rem;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
 }
 
-.season-tab-active {
-  background: rgba(125, 211, 252, 0.15);
-  color: #7dd3fc;
-  border-color: rgba(125, 211, 252, 0.4);
+.season-select:focus {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.season-label {
+  display: inline-block;
+  padding: 8px 0;
+  color: #f8fafc;
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 /* Bulk season actions */

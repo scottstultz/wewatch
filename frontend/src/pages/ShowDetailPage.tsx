@@ -145,8 +145,9 @@ function ShowDetailPage() {
           }
         }
         if (defaultSeason == null) {
-          const firstReal = seasonList.find(s => s.seasonNumber > 0)
-          defaultSeason = firstReal?.seasonNumber ?? seasonList[0]?.seasonNumber ?? null
+          // Season 0 ("Specials") is already filtered out server-side (#190),
+          // so the first season in the list is the right default.
+          defaultSeason = seasonList[0]?.seasonNumber ?? null
         }
         setActiveSeason(defaultSeason)
       })
@@ -400,18 +401,23 @@ function ShowDetailPage() {
         <p className="search-status">Loading seasons...</p>
       ) : seasons.length > 0 ? (
         <>
-          <div className="season-tabs-wrapper">
-            <div className="season-tabs">
-              {seasons.map(s => (
-                <button
-                  key={s.seasonNumber}
-                  className={`season-tab${s.seasonNumber === activeSeason ? ' season-tab-active' : ''}`}
-                  onClick={() => setActiveSeason(s.seasonNumber)}
-                >
-                  {s.name}
-                </button>
-              ))}
-            </div>
+          <div className="season-selector-wrapper">
+            {seasons.length === 1 ? (
+              <span className="season-label">{seasons[0].name}</span>
+            ) : (
+              <select
+                className="season-select"
+                value={activeSeason ?? ''}
+                onChange={e => setActiveSeason(Number(e.target.value))}
+                aria-label="Select season"
+              >
+                {seasons.map(s => (
+                  <option key={s.seasonNumber} value={s.seasonNumber}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Bulk actions */}
