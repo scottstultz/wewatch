@@ -31,6 +31,7 @@ services:
       DB_PASSWORD: wewatch
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       TMDB_API_KEY: ${TMDB_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
     ports:
       - "8080:8080"
 
