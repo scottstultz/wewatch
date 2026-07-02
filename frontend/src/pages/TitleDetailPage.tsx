@@ -77,16 +77,7 @@ function TitleDetailPage() {
     if (!token || !selectedWatchlistId || !detail) return
     setAddState('loading')
     try {
-      const asSearch: TitleSearchResponse = {
-        externalId: detail.externalId,
-        externalSource: detail.externalSource,
-        type: detail.type,
-        name: detail.name,
-        overview: detail.overview,
-        releaseDate: detail.releaseDate,
-        posterUrl: detail.posterUrl,
-      }
-      const titleId = await findOrCreateTitle(asSearch, token)
+      const titleId = await findOrCreateTitle(detail, token)
       await addToWatchlist(selectedWatchlistId, titleId, 'WANT_TO_WATCH', token)
       setAddState('WANT_TO_WATCH')
     } catch (e) {

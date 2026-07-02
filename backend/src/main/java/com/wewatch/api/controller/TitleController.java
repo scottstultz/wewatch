@@ -1,15 +1,13 @@
 package com.wewatch.api.controller;
 
-import java.net.URI;
+import java.time.LocalDate;
 import java.util.List;
 
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,11 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wewatch.api.dto.EpisodeResponse;
 import com.wewatch.api.dto.SeasonDetailResponse;
 import com.wewatch.api.dto.SeasonSummaryResponse;
-import com.wewatch.api.dto.TitleCreateRequest;
 import com.wewatch.api.dto.TitleDetailResponse;
+import com.wewatch.api.dto.TitleResolveRequest;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
-import com.wewatch.api.dto.TitleUpdateRequest;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
@@ -38,6 +35,8 @@ import com.wewatch.api.tmdb.TmdbTvSeason;
 @RestController
 @RequestMapping("/api/titles")
 public class TitleController {
+
+	private static final String TMDB_SOURCE = "TMDB";
 
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
@@ -114,24 +113,51 @@ public class TitleController {
 		return genres != null ? genres.stream().map(TmdbGenre::name).toList() : List.of();
 	}
 
-	@PostMapping
-	public ResponseEntity<TitleResponse> createTitle(@Valid @RequestBody TitleCreateRequest request) {
-		Title createdTitle = titleService.create(new Title(
-			null,
+	@PostMapping("/resolve")
+	public TitleResponse resolveTitle(@Valid @RequestBody TitleResolveRequest request) {
+		if (!TMDB_SOURCE.equalsIgnoreCase(request.externalSource())) {
+			throw new IllegalArgumentException("Unsupported external source: " + request.externalSource());
+		}
+		return toResponse(titleService.findOrCreate(
+			TMDB_SOURCE,
 			request.externalId(),
-			request.externalSource(),
-			request.type(),
-			request.name(),
-			request.overview(),
-			request.releaseDate(),
-			request.posterUrl(),
+			() -> fetchTitleFromTmdb(request.externalId(), request.type())
+		));
+	}
+
+	private Title fetchTitleFromTmdb(String externalId, TitleType type) {
+		if (type == TitleType.MOVIE) {
+			TmdbMovieDetail detail = tmdbClient.getMovieDetail(externalId);
+			return new Title(
+				null,
+				externalId,
+				TMDB_SOURCE,
+				TitleType.MOVIE,
+				detail.title(),
+				detail.overview(),
+				parseDate(detail.releaseDate()),
+				TmdbClient.posterUrl(detail.posterPath()),
+				null,
+				null
+			);
+		}
+		TmdbTvDetail detail = tmdbClient.getTvDetail(externalId);
+		return new Title(
+			null,
+			externalId,
+			TMDB_SOURCE,
+			TitleType.TV,
+			detail.name(),
+			detail.overview(),
+			parseDate(detail.firstAirDate()),
+			TmdbClient.posterUrl(detail.posterPath()),
 			null,
 			null
-		));
+		);
+	}
 
-		return ResponseEntity
-			.created(URI.create("/api/titles/" + createdTitle.getId()))
-			.body(toResponse(createdTitle));
+	private LocalDate parseDate(String value) {
+		return (value != null && !value.isBlank()) ? LocalDate.parse(value) : null;
 	}
 
 	@GetMapping
@@ -149,18 +175,6 @@ public class TitleController {
 	@GetMapping("/{titleId}")
 	public TitleResponse getTitle(@PathVariable Long titleId) {
 		return toResponse(titleService.findById(titleId));
-	}
-
-	@PatchMapping("/{titleId}")
-	public TitleResponse updateTitle(@PathVariable Long titleId, @Valid @RequestBody TitleUpdateRequest request) {
-		return toResponse(titleService.update(
-			titleId,
-			request.name(),
-			request.overview(),
-			request.releaseDate(),
-			request.posterUrl(),
-			request.type()
-		));
 	}
 
 	@GetMapping("/{titleId}/seasons")

@@ -97,33 +97,21 @@ export async function searchTitles(
   return response.json() as Promise<TitleSearchResponse[]>
 }
 
-export async function findOrCreateTitle(title: TitleSearchResponse, token: string): Promise<number> {
-  const createRes = await apiFetch(`${BASE_URL}/titles`, token, {
+export async function findOrCreateTitle(
+  title: Pick<TitleSearchResponse, 'externalId' | 'externalSource' | 'type'>,
+  token: string,
+): Promise<number> {
+  const response = await apiFetch(`${BASE_URL}/titles/resolve`, token, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       externalId: title.externalId,
       externalSource: title.externalSource,
       type: title.type,
-      name: title.name,
-      overview: title.overview,
-      releaseDate: title.releaseDate,
-      posterUrl: title.posterUrl,
     }),
   })
-  if (createRes.status === 201) return ((await createRes.json()) as TitleResponse).id
-  if (createRes.status === 409) {
-    const params = new URLSearchParams({
-      externalId: title.externalId,
-      externalSource: title.externalSource,
-    })
-    const findRes = await apiFetch(`${BASE_URL}/titles?${params}`, token)
-    if (!findRes.ok) throw new Error('Failed to find existing title')
-    const page = (await findRes.json()) as { content: TitleResponse[] }
-    if (!page.content.length) throw new Error('Title not found after conflict')
-    return page.content[0].id
-  }
-  throw new Error(`Failed to save title: ${createRes.status}`)
+  if (!response.ok) throw new Error(`Failed to resolve title: ${response.status}`)
+  return ((await response.json()) as TitleResponse).id
 }
 
 export async function getTitleDetail(
