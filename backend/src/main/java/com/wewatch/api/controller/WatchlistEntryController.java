@@ -155,7 +155,6 @@ public class WatchlistEntryController {
 		@Valid @RequestBody WatchlistEntryUpdateRequest request
 	) {
 		watchlistService.requireEditor(watchlistId, caller.getId());
-		suggestionService.recompute(watchlistId);
 		WatchlistEntry updated = watchlistEntryService.update(watchlistId, entryId, new WatchlistEntry(
 			null,
 			watchlistId,
@@ -166,6 +165,9 @@ public class WatchlistEntryController {
 			null,
 			null
 		));
+		// recompute is @Async: it may still race the transaction commit, but it must be
+		// invoked after the update so shelves aren't rebuilt from the pre-update status (#198)
+		suggestionService.recompute(watchlistId);
 		Title title = titleService.findById(updated.getTitleId());
 		EpisodeProgressSummary summary = null;
 		if (title != null && title.getType() == TitleType.TV) {
