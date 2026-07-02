@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import { UnauthorizedError, getWatchlistEntries } from '../services/api'
 import type { WatchlistEntryResponse } from '../types/api'
 
 interface TileRowProps {
@@ -41,36 +40,27 @@ function TileRow({ entry, onClick, showStatusBadge }: TileRowProps) {
 }
 
 function HomePage() {
-  const { token, signOut } = useAuth()
+  const api = useApi()
   const { selectedWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const handleUnauthorized = useCallback(() => {
-    signOut()
-    navigate('/sign-in', { replace: true })
-  }, [signOut, navigate])
-
   useEffect(() => {
-    if (!token || !selectedWatchlist) return
+    if (!selectedWatchlist) return
     let cancelled = false
 
     setIsLoading(true)
     setError(null)
 
-    getWatchlistEntries(selectedWatchlist.id, token)
+    api.getWatchlistEntries(selectedWatchlist.id)
       .then(data => { if (!cancelled) setEntries(data) })
-      .catch(e => {
-        if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else setError('Failed to load watchlist data.')
-      })
+      .catch(() => { if (!cancelled) setError('Failed to load watchlist data.') })
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [token, selectedWatchlist, handleUnauthorized])
+  }, [api, selectedWatchlist])
 
   const wantToWatchCount = entries.filter(e => e.status === 'WANT_TO_WATCH').length
   const watchingCount = entries.filter(e => e.status === 'WATCHING').length

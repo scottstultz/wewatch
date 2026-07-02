@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { useAuth } from './AuthContext'
-import { getWatchlists } from '../services/api'
+import { useApi } from './AuthContext'
 import type { WatchlistResponse } from '../types/api'
 
 interface WatchlistContextType {
@@ -16,16 +15,15 @@ interface WatchlistContextType {
 const WatchlistContext = createContext<WatchlistContextType | null>(null)
 
 export function WatchlistProvider({ children }: { children: ReactNode }) {
-  const { token } = useAuth()
+  const api = useApi()
   const [watchlists, setWatchlists] = useState<WatchlistResponse[]>([])
   const [selectedWatchlistId, setSelectedWatchlistId] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const fetchWatchlists = useCallback(async () => {
-    if (!token) return
     setIsLoading(true)
     try {
-      const data = await getWatchlists(token)
+      const data = await api.getWatchlists()
       setWatchlists(data)
       // Default to the user's default watchlist if nothing selected yet
       setSelectedWatchlistId(prev => {
@@ -38,7 +36,7 @@ export function WatchlistProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoading(false)
     }
-  }, [token])
+  }, [api])
 
   useEffect(() => {
     fetchWatchlists()

@@ -1,17 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal from '../components/RollTheDiceModal'
-import {
-  UnauthorizedError,
-  createWatchlist,
-  getWatchlistEntries,
-  removeFromWatchlist,
-  updateWatchlistEntry,
-} from '../services/api'
 import type { WatchlistEntryResponse, WatchStatus } from '../types/api'
 
 const STATUS_LABELS: Record<WatchStatus, string> = {
@@ -69,7 +62,8 @@ function episodeProgressLabel(ep: import('../types/api').EpisodeProgressSummary)
 }
 
 function LibraryPage() {
-  const { token, user, signOut } = useAuth()
+  const { user } = useAuth()
+  const api = useApi()
   const {
     watchlists,
     selectedWatchlistId,
@@ -102,30 +96,21 @@ function LibraryPage() {
   // Roll the dice modal state
   const [showDice, setShowDice] = useState(false)
 
-  const handleUnauthorized = useCallback(() => {
-    signOut()
-    navigate('/sign-in', { replace: true })
-  }, [signOut, navigate])
-
   // Fetch entries when selected watchlist changes
   useEffect(() => {
-    if (!token || !selectedWatchlistId) return
+    if (!selectedWatchlistId) return
     let cancelled = false
 
     setIsLoading(true)
     setError(null)
 
-    getWatchlistEntries(selectedWatchlistId, token)
+    api.getWatchlistEntries(selectedWatchlistId)
       .then(data => { if (!cancelled) setEntries(data) })
-      .catch(e => {
-        if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else setError('Failed to load your library. Please try again.')
-      })
+      .catch(() => { if (!cancelled) setError('Failed to load your library. Please try again.') })
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
-  }, [token, selectedWatchlistId, handleUnauthorized])
+  }, [api, selectedWatchlistId])
 
   // Close manage modal when switching watchlists
   useEffect(() => {
@@ -133,17 +118,16 @@ function LibraryPage() {
   }, [selectedWatchlistId])
 
   async function handleUpdateStatus(entry: WatchlistEntryResponse, newStatus: WatchStatus) {
-    if (!token || !selectedWatchlistId) return
+    if (!selectedWatchlistId) return
     const previousStatus = entry.status
     setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, status: newStatus } : e))
     setEntryActions(prev => ({ ...prev, [entry.id]: 'updating' }))
     try {
-      const updated = await updateWatchlistEntry(selectedWatchlistId, entry.id, newStatus, token)
+      const updated = await api.updateWatchlistEntry(selectedWatchlistId, entry.id, newStatus)
       setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))
-    } catch (e) {
+    } catch {
       setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, status: previousStatus } : e))
-      if (e instanceof UnauthorizedError) handleUnauthorized()
-      else setError('Failed to update status. Please try again.')
+      setError('Failed to update status. Please try again.')
     } finally {
       setEntryActions(prev => { const next = { ...prev }; delete next[entry.id]; return next })
     }
@@ -157,30 +141,28 @@ function LibraryPage() {
   }
 
   async function handleRemove(entry: WatchlistEntryResponse) {
-    if (!token || !selectedWatchlistId) return
+    if (!selectedWatchlistId) return
     setEntryActions(prev => ({ ...prev, [entry.id]: 'removing' }))
     try {
-      await removeFromWatchlist(selectedWatchlistId, entry.id, token)
+      await api.removeFromWatchlist(selectedWatchlistId, entry.id)
       setEntries(prev => prev.filter(e => e.id !== entry.id))
-    } catch (e) {
-      if (e instanceof UnauthorizedError) handleUnauthorized()
-      else setEntryActions(prev => { const next = { ...prev }; delete next[entry.id]; return next })
+    } catch {
+      setEntryActions(prev => { const next = { ...prev }; delete next[entry.id]; return next })
     }
   }
 
   async function handleCreateWatchlist(e: React.FormEvent) {
     e.preventDefault()
-    if (!token || !newWatchlistName.trim()) return
+    if (!newWatchlistName.trim()) return
     setIsCreating(true)
     try {
-      const created = await createWatchlist(newWatchlistName.trim(), token)
+      const created = await api.createWatchlist(newWatchlistName.trim())
       await refreshWatchlists()
       selectWatchlist(created.id)
       setNewWatchlistName('')
       setShowCreateForm(false)
-    } catch (err) {
-      if (err instanceof UnauthorizedError) handleUnauthorized()
-      else setError('Failed to create watchlist.')
+    } catch {
+      setError('Failed to create watchlist.')
     } finally {
       setIsCreating(false)
     }
@@ -240,18 +222,16 @@ function LibraryPage() {
           )}
 
           {/* List management modal */}
-          {showManageModal && selectedWatchlist && token && (
+          {showManageModal && selectedWatchlist && (
             <ListManageModal
               watchlist={selectedWatchlist}
               isOwner={!!isOwner}
-              token={token}
               onClose={() => setShowManageModal(false)}
               onWatchlistUpdated={refreshWatchlists}
               onWatchlistDeleted={async () => {
                 await refreshWatchlists()
                 setShowManageModal(false)
               }}
-              onUnauthorized={handleUnauthorized}
             />
           )}
 
