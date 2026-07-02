@@ -1,23 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { MemberRole, WatchlistResponse } from '../types/api'
-import {
-  UnauthorizedError,
-  addMember,
-  deleteWatchlist,
-  removeMember,
-  setDefaultWatchlist,
-  updateMemberRole,
-  updateWatchlist,
-} from '../services/api'
+import { useApi } from '../contexts/AuthContext'
 
 interface ListManageModalProps {
   watchlist: WatchlistResponse
   isOwner: boolean
-  token: string
   onClose: () => void
   onWatchlistUpdated: () => Promise<void>
   onWatchlistDeleted: () => void
-  onUnauthorized: () => void
 }
 
 const ROLE_LABELS: Record<MemberRole, string> = {
@@ -29,12 +19,11 @@ const ROLE_LABELS: Record<MemberRole, string> = {
 function ListManageModal({
   watchlist,
   isOwner,
-  token,
   onClose,
   onWatchlistUpdated,
   onWatchlistDeleted,
-  onUnauthorized,
 }: ListManageModalProps) {
+  const api = useApi()
   const [error, setError] = useState<string | null>(null)
   const [isBusy, setIsBusy] = useState(false)
 
@@ -65,11 +54,10 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await setDefaultWatchlist(watchlist.id, token)
+      await api.setDefaultWatchlist(watchlist.id)
       await onWatchlistUpdated()
-    } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError('Failed to set as default.')
+    } catch {
+      setError('Failed to set as default.')
     } finally {
       setIsBusy(false)
     }
@@ -81,12 +69,11 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await updateWatchlist(watchlist.id, renameName.trim(), token)
+      await api.updateWatchlist(watchlist.id, renameName.trim())
       await onWatchlistUpdated()
       setIsRenaming(false)
-    } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError('Failed to rename watchlist.')
+    } catch {
+      setError('Failed to rename watchlist.')
     } finally {
       setIsBusy(false)
     }
@@ -97,11 +84,10 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await deleteWatchlist(watchlist.id, token)
+      await api.deleteWatchlist(watchlist.id)
       onWatchlistDeleted()
-    } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError('Failed to delete watchlist.')
+    } catch {
+      setError('Failed to delete watchlist.')
     } finally {
       setIsBusy(false)
     }
@@ -113,12 +99,11 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await addMember(watchlist.id, inviteEmail.trim(), token)
+      await api.addMember(watchlist.id, inviteEmail.trim())
       await onWatchlistUpdated()
       setInviteEmail('')
     } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError(e instanceof Error ? e.message : 'Failed to add member.')
+      setError(e instanceof Error ? e.message : 'Failed to add member.')
     } finally {
       setIsBusy(false)
     }
@@ -128,11 +113,10 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await removeMember(watchlist.id, userId, token)
+      await api.removeMember(watchlist.id, userId)
       await onWatchlistUpdated()
     } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError(e instanceof Error ? e.message : 'Failed to remove member.')
+      setError(e instanceof Error ? e.message : 'Failed to remove member.')
     } finally {
       setIsBusy(false)
     }
@@ -142,11 +126,10 @@ function ListManageModal({
     setIsBusy(true)
     setError(null)
     try {
-      await updateMemberRole(watchlist.id, userId, newRole, token)
+      await api.updateMemberRole(watchlist.id, userId, newRole)
       await onWatchlistUpdated()
     } catch (e) {
-      if (e instanceof UnauthorizedError) onUnauthorized()
-      else setError(e instanceof Error ? e.message : 'Failed to update role.')
+      setError(e instanceof Error ? e.message : 'Failed to update role.')
     } finally {
       setIsBusy(false)
     }

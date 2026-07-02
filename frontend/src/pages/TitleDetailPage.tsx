@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import {
-  UnauthorizedError,
-  addToWatchlist,
-  findOrCreateTitle,
-  getTitleDetail,
-} from '../services/api'
 import type { TitleDetailResponse, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
 type AddState = 'idle' | 'loading' | 'error' | WatchStatus
@@ -27,7 +21,7 @@ function TitleDetailPage() {
   const { type: typeParam, source, externalId } = useParams<{ type: string; source: string; externalId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const { token, signOut } = useAuth()
+  const api = useApi()
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
 
   const type = parseType(typeParam)
@@ -38,13 +32,8 @@ function TitleDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [addState, setAddState] = useState<AddState>('idle')
 
-  const handleUnauthorized = () => {
-    signOut()
-    navigate('/sign-in', { replace: true })
-  }
-
   useEffect(() => {
-    if (!token || !source || !externalId || !type) {
+    if (!source || !externalId || !type) {
       if (!type) setError('Unknown title type.')
       setIsLoading(false)
       return
@@ -53,36 +42,31 @@ function TitleDetailPage() {
     setIsLoading(true)
     setError(null)
 
-    getTitleDetail(source, externalId, type, token)
+    api.getTitleDetail(source, externalId, type)
       .then(data => {
         if (!cancelled) {
           setDetail(data)
           setIsLoading(false)
         }
       })
-      .catch(e => {
+      .catch(() => {
         if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else {
-          setError('Failed to load title details.')
-          setIsLoading(false)
-        }
+        setError('Failed to load title details.')
+        setIsLoading(false)
       })
 
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, source, externalId, type])
+  }, [api, source, externalId, type])
 
   async function handleAdd() {
-    if (!token || !selectedWatchlistId || !detail) return
+    if (!selectedWatchlistId || !detail) return
     setAddState('loading')
     try {
-      const titleId = await findOrCreateTitle(detail, token)
-      await addToWatchlist(selectedWatchlistId, titleId, 'WANT_TO_WATCH', token)
+      const titleId = await api.findOrCreateTitle(detail)
+      await api.addToWatchlist(selectedWatchlistId, titleId, 'WANT_TO_WATCH')
       setAddState('WANT_TO_WATCH')
-    } catch (e) {
-      if (e instanceof UnauthorizedError) handleUnauthorized()
-      else setAddState('error')
+    } catch {
+      setAddState('error')
     }
   }
 

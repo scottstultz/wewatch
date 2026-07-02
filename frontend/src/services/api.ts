@@ -1,5 +1,6 @@
 import type {
   EpisodeProgress,
+  MemberRole,
   SeasonDetail,
   SeasonSummary,
   SuggestionShelf,
@@ -10,13 +11,14 @@ import type {
   WatchlistEntryResponse,
   WatchlistMemberResponse,
   WatchlistResponse,
+  WatchStatus,
 } from '../types/api'
 import { notifyTokenRefreshed } from './auth'
 
 const BASE_URL = '/api'
 const REFRESHED_TOKEN_HEADER = 'X-Refreshed-Token'
 
-export class UnauthorizedError extends Error {
+class UnauthorizedError extends Error {
   constructor() {
     super('Unauthorized')
     this.name = 'UnauthorizedError'
@@ -78,276 +80,257 @@ export async function registerUser(
   return data.token
 }
 
-// ── User ─────────────────────────────────────────────────────
-
+// Standalone because AuthContext calls it while bootstrapping the session,
+// before an ApiClient exists; AuthContext handles its own failures.
 export async function getCurrentUser(token: string): Promise<BackendUser> {
   const response = await apiFetch(`${BASE_URL}/users/me`, token)
   if (!response.ok) throw new Error(`Failed to fetch current user: ${response.status}`)
   return response.json() as Promise<BackendUser>
 }
 
-// ── Title search ─────────────────────────────────────────────
+// ── Authenticated API client ─────────────────────────────────
 
-export async function searchTitles(
-  query: string,
-  token: string,
-  type?: string,
-): Promise<TitleSearchResponse[]> {
-  const params = new URLSearchParams({ q: query })
-  if (type) params.set('type', type)
+export type ApiClient = ReturnType<typeof createApiClient>
 
-  const response = await apiFetch(`${BASE_URL}/titles/search?${params}`, token)
-  if (!response.ok) throw new Error(`Search failed with status ${response.status}`)
-  return response.json() as Promise<TitleSearchResponse[]>
-}
+/**
+ * Created by AuthContext with the current token. Any 401 triggers
+ * onUnauthorized (central sign-out) before the error propagates, so
+ * call sites only handle their own domain errors.
+ */
+export function createApiClient(token: string, onUnauthorized: () => void) {
+  async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
+    try {
+      return await apiFetch(url, token, init)
+    } catch (e) {
+      if (e instanceof UnauthorizedError) onUnauthorized()
+      throw e
+    }
+  }
 
-export async function findOrCreateTitle(
-  title: Pick<TitleSearchResponse, 'externalId' | 'externalSource' | 'type'>,
-  token: string,
-): Promise<number> {
-  const response = await apiFetch(`${BASE_URL}/titles/resolve`, token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      externalId: title.externalId,
-      externalSource: title.externalSource,
-      type: title.type,
-    }),
-  })
-  if (!response.ok) throw new Error(`Failed to resolve title: ${response.status}`)
-  return ((await response.json()) as TitleResponse).id
-}
+  return {
+    // ── Title search ─────────────────────────────────────────
 
-export async function getTitleDetail(
-  externalSource: string,
-  externalId: string,
-  type: TitleType,
-  token: string,
-): Promise<TitleDetailResponse> {
-  const params = new URLSearchParams({ externalSource, externalId, type })
-  const response = await apiFetch(`${BASE_URL}/titles/detail?${params}`, token)
-  if (!response.ok) throw new Error(`Failed to fetch title detail: ${response.status}`)
-  return response.json() as Promise<TitleDetailResponse>
-}
+    async searchTitles(query: string, type?: string): Promise<TitleSearchResponse[]> {
+      const params = new URLSearchParams({ q: query })
+      if (type) params.set('type', type)
 
-// ── Watchlist CRUD ───────────────────────────────────────────
-
-export async function getWatchlists(token: string): Promise<WatchlistResponse[]> {
-  const response = await apiFetch(`${BASE_URL}/watchlists`, token)
-  if (!response.ok) throw new Error(`Failed to fetch watchlists: ${response.status}`)
-  return response.json() as Promise<WatchlistResponse[]>
-}
-
-export async function createWatchlist(name: string, token: string): Promise<WatchlistResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists`, token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-  if (!response.ok) throw new Error(`Failed to create watchlist: ${response.status}`)
-  return response.json() as Promise<WatchlistResponse>
-}
-
-export async function updateWatchlist(
-  watchlistId: number,
-  name: string,
-  token: string,
-): Promise<WatchlistResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}`, token, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  })
-  if (!response.ok) throw new Error(`Failed to update watchlist: ${response.status}`)
-  return response.json() as Promise<WatchlistResponse>
-}
-
-export async function deleteWatchlist(watchlistId: number, token: string): Promise<void> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}`, token, {
-    method: 'DELETE',
-  })
-  if (!response.ok) throw new Error(`Failed to delete watchlist: ${response.status}`)
-}
-
-export async function setDefaultWatchlist(
-  watchlistId: number,
-  token: string,
-): Promise<WatchlistResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/default`, token, {
-    method: 'PATCH',
-  })
-  if (!response.ok) throw new Error(`Failed to set default watchlist: ${response.status}`)
-  return response.json() as Promise<WatchlistResponse>
-}
-
-// ── Watchlist members ────────────────────────────────────────
-
-export async function addMember(
-  watchlistId: number,
-  email: string,
-  token: string,
-): Promise<WatchlistMemberResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members`, token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-  if (!response.ok) throw new Error(`Failed to add member: ${response.status}`)
-  return response.json() as Promise<WatchlistMemberResponse>
-}
-
-export async function removeMember(
-  watchlistId: number,
-  userId: number,
-  token: string,
-): Promise<void> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}`, token, {
-    method: 'DELETE',
-  })
-  if (!response.ok) throw new Error(`Failed to remove member: ${response.status}`)
-}
-
-export async function updateMemberRole(
-  watchlistId: number,
-  userId: number,
-  role: import('../types/api').MemberRole,
-  token: string,
-): Promise<WatchlistMemberResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}/role`, token, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ role }),
-  })
-  if (!response.ok) throw new Error(`Failed to update member role: ${response.status}`)
-  return response.json() as Promise<WatchlistMemberResponse>
-}
-
-// ── Watchlist entries ────────────────────────────────────────
-
-export async function getWatchlistEntries(
-  watchlistId: number,
-  token: string,
-): Promise<WatchlistEntryResponse[]> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries?size=200`, token)
-  if (!response.ok) throw new Error(`Failed to fetch watchlist entries: ${response.status}`)
-  const page = (await response.json()) as { content: WatchlistEntryResponse[] }
-  return page.content
-}
-
-export async function addToWatchlist(
-  watchlistId: number,
-  titleId: number,
-  status: import('../types/api').WatchStatus,
-  token: string,
-): Promise<WatchlistEntryResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries`, token, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ titleId, status }),
-  })
-  if (!response.ok) throw new Error(`Failed to add to watchlist: ${response.status}`)
-  return response.json() as Promise<WatchlistEntryResponse>
-}
-
-export async function updateWatchlistEntry(
-  watchlistId: number,
-  entryId: number,
-  status: string,
-  token: string,
-): Promise<WatchlistEntryResponse> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, token, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  })
-  if (!response.ok) throw new Error(`Failed to update watchlist entry: ${response.status}`)
-  return response.json() as Promise<WatchlistEntryResponse>
-}
-
-export async function removeFromWatchlist(
-  watchlistId: number,
-  entryId: number,
-  token: string,
-): Promise<void> {
-  const response = await apiFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, token, {
-    method: 'DELETE',
-  })
-  if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
-}
-
-// ── Suggestions ──────────────────────────────────────────────
-
-export async function getSuggestions(watchlistId: number, token: string): Promise<SuggestionShelf[]> {
-  const response = await apiFetch(`${BASE_URL}/suggestions?watchlistId=${watchlistId}`, token)
-  if (!response.ok) throw new Error(`Failed to fetch suggestions: ${response.status}`)
-  return response.json() as Promise<SuggestionShelf[]>
-}
-
-// ── Seasons & episode progress ──────────────────────────────
-
-export async function getSeasons(titleId: number, token: string): Promise<SeasonSummary[]> {
-  const response = await apiFetch(`${BASE_URL}/titles/${titleId}/seasons`, token)
-  if (!response.ok) throw new Error(`Failed to fetch seasons: ${response.status}`)
-  return response.json() as Promise<SeasonSummary[]>
-}
-
-export async function getSeasonDetail(
-  titleId: number,
-  seasonNumber: number,
-  token: string,
-): Promise<SeasonDetail> {
-  const response = await apiFetch(`${BASE_URL}/titles/${titleId}/seasons/${seasonNumber}`, token)
-  if (!response.ok) throw new Error(`Failed to fetch season detail: ${response.status}`)
-  return response.json() as Promise<SeasonDetail>
-}
-
-export async function getEpisodeProgress(
-  watchlistId: number,
-  entryId: number,
-  token: string,
-  season?: number,
-): Promise<EpisodeProgress[]> {
-  const params = season != null ? `?season=${season}` : ''
-  const response = await apiFetch(
-    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes${params}`,
-    token,
-  )
-  if (!response.ok) throw new Error(`Failed to fetch episode progress: ${response.status}`)
-  return response.json() as Promise<EpisodeProgress[]>
-}
-
-export async function toggleEpisode(
-  watchlistId: number,
-  entryId: number,
-  seasonNumber: number,
-  episodeNumber: number,
-  token: string,
-): Promise<EpisodeProgress> {
-  const response = await apiFetch(
-    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}/${episodeNumber}`,
-    token,
-    { method: 'PATCH' },
-  )
-  if (!response.ok) throw new Error(`Failed to toggle episode: ${response.status}`)
-  return response.json() as Promise<EpisodeProgress>
-}
-
-export async function bulkMarkSeason(
-  watchlistId: number,
-  entryId: number,
-  seasonNumber: number,
-  watched: boolean,
-  episodeNumbers: number[],
-  token: string,
-): Promise<void> {
-  const response = await apiFetch(
-    `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}`,
-    token,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ watched, episodeNumbers }),
+      const response = await authedFetch(`${BASE_URL}/titles/search?${params}`)
+      if (!response.ok) throw new Error(`Search failed with status ${response.status}`)
+      return response.json() as Promise<TitleSearchResponse[]>
     },
-  )
-  if (!response.ok) throw new Error(`Failed to bulk mark season: ${response.status}`)
+
+    async findOrCreateTitle(
+      title: Pick<TitleSearchResponse, 'externalId' | 'externalSource' | 'type'>,
+    ): Promise<number> {
+      const response = await authedFetch(`${BASE_URL}/titles/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          externalId: title.externalId,
+          externalSource: title.externalSource,
+          type: title.type,
+        }),
+      })
+      if (!response.ok) throw new Error(`Failed to resolve title: ${response.status}`)
+      return ((await response.json()) as TitleResponse).id
+    },
+
+    async getTitleDetail(
+      externalSource: string,
+      externalId: string,
+      type: TitleType,
+    ): Promise<TitleDetailResponse> {
+      const params = new URLSearchParams({ externalSource, externalId, type })
+      const response = await authedFetch(`${BASE_URL}/titles/detail?${params}`)
+      if (!response.ok) throw new Error(`Failed to fetch title detail: ${response.status}`)
+      return response.json() as Promise<TitleDetailResponse>
+    },
+
+    // ── Watchlist CRUD ───────────────────────────────────────
+
+    async getWatchlists(): Promise<WatchlistResponse[]> {
+      const response = await authedFetch(`${BASE_URL}/watchlists`)
+      if (!response.ok) throw new Error(`Failed to fetch watchlists: ${response.status}`)
+      return response.json() as Promise<WatchlistResponse[]>
+    },
+
+    async createWatchlist(name: string): Promise<WatchlistResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!response.ok) throw new Error(`Failed to create watchlist: ${response.status}`)
+      return response.json() as Promise<WatchlistResponse>
+    },
+
+    async updateWatchlist(watchlistId: number, name: string): Promise<WatchlistResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      if (!response.ok) throw new Error(`Failed to update watchlist: ${response.status}`)
+      return response.json() as Promise<WatchlistResponse>
+    },
+
+    async deleteWatchlist(watchlistId: number): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error(`Failed to delete watchlist: ${response.status}`)
+    },
+
+    async setDefaultWatchlist(watchlistId: number): Promise<WatchlistResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/default`, {
+        method: 'PATCH',
+      })
+      if (!response.ok) throw new Error(`Failed to set default watchlist: ${response.status}`)
+      return response.json() as Promise<WatchlistResponse>
+    },
+
+    // ── Watchlist members ────────────────────────────────────
+
+    async addMember(watchlistId: number, email: string): Promise<WatchlistMemberResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      if (!response.ok) throw new Error(`Failed to add member: ${response.status}`)
+      return response.json() as Promise<WatchlistMemberResponse>
+    },
+
+    async removeMember(watchlistId: number, userId: number): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error(`Failed to remove member: ${response.status}`)
+    },
+
+    async updateMemberRole(
+      watchlistId: number,
+      userId: number,
+      role: MemberRole,
+    ): Promise<WatchlistMemberResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/members/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      })
+      if (!response.ok) throw new Error(`Failed to update member role: ${response.status}`)
+      return response.json() as Promise<WatchlistMemberResponse>
+    },
+
+    // ── Watchlist entries ────────────────────────────────────
+
+    async getWatchlistEntries(watchlistId: number): Promise<WatchlistEntryResponse[]> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/entries?size=200`)
+      if (!response.ok) throw new Error(`Failed to fetch watchlist entries: ${response.status}`)
+      const page = (await response.json()) as { content: WatchlistEntryResponse[] }
+      return page.content
+    },
+
+    async addToWatchlist(
+      watchlistId: number,
+      titleId: number,
+      status: WatchStatus,
+    ): Promise<WatchlistEntryResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/entries`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titleId, status }),
+      })
+      if (!response.ok) throw new Error(`Failed to add to watchlist: ${response.status}`)
+      return response.json() as Promise<WatchlistEntryResponse>
+    },
+
+    async updateWatchlistEntry(
+      watchlistId: number,
+      entryId: number,
+      status: string,
+    ): Promise<WatchlistEntryResponse> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      if (!response.ok) throw new Error(`Failed to update watchlist entry: ${response.status}`)
+      return response.json() as Promise<WatchlistEntryResponse>
+    },
+
+    async removeFromWatchlist(watchlistId: number, entryId: number): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
+    },
+
+    // ── Suggestions ──────────────────────────────────────────
+
+    async getSuggestions(watchlistId: number): Promise<SuggestionShelf[]> {
+      const response = await authedFetch(`${BASE_URL}/suggestions?watchlistId=${watchlistId}`)
+      if (!response.ok) throw new Error(`Failed to fetch suggestions: ${response.status}`)
+      return response.json() as Promise<SuggestionShelf[]>
+    },
+
+    // ── Seasons & episode progress ──────────────────────────
+
+    async getSeasons(titleId: number): Promise<SeasonSummary[]> {
+      const response = await authedFetch(`${BASE_URL}/titles/${titleId}/seasons`)
+      if (!response.ok) throw new Error(`Failed to fetch seasons: ${response.status}`)
+      return response.json() as Promise<SeasonSummary[]>
+    },
+
+    async getSeasonDetail(titleId: number, seasonNumber: number): Promise<SeasonDetail> {
+      const response = await authedFetch(`${BASE_URL}/titles/${titleId}/seasons/${seasonNumber}`)
+      if (!response.ok) throw new Error(`Failed to fetch season detail: ${response.status}`)
+      return response.json() as Promise<SeasonDetail>
+    },
+
+    async getEpisodeProgress(
+      watchlistId: number,
+      entryId: number,
+      season?: number,
+    ): Promise<EpisodeProgress[]> {
+      const params = season != null ? `?season=${season}` : ''
+      const response = await authedFetch(
+        `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes${params}`,
+      )
+      if (!response.ok) throw new Error(`Failed to fetch episode progress: ${response.status}`)
+      return response.json() as Promise<EpisodeProgress[]>
+    },
+
+    async toggleEpisode(
+      watchlistId: number,
+      entryId: number,
+      seasonNumber: number,
+      episodeNumber: number,
+    ): Promise<EpisodeProgress> {
+      const response = await authedFetch(
+        `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}/${episodeNumber}`,
+        { method: 'PATCH' },
+      )
+      if (!response.ok) throw new Error(`Failed to toggle episode: ${response.status}`)
+      return response.json() as Promise<EpisodeProgress>
+    },
+
+    async bulkMarkSeason(
+      watchlistId: number,
+      entryId: number,
+      seasonNumber: number,
+      watched: boolean,
+      episodeNumbers: number[],
+    ): Promise<void> {
+      const response = await authedFetch(
+        `${BASE_URL}/watchlists/${watchlistId}/entries/${entryId}/episodes/${seasonNumber}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ watched, episodeNumbers }),
+        },
+      )
+      if (!response.ok) throw new Error(`Failed to bulk mark season: ${response.status}`)
+    },
+  }
 }

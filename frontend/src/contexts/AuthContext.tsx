@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   TOKEN_REFRESHED_EVENT,
@@ -8,7 +8,8 @@ import {
   isTokenValid,
   storeToken,
 } from '../services/auth'
-import { getCurrentUser } from '../services/api'
+import { createApiClient, getCurrentUser } from '../services/api'
+import type { ApiClient } from '../services/api'
 
 interface User {
   id: number
@@ -19,6 +20,7 @@ interface User {
 interface AuthContextType {
   token: string | null
   user: User | null
+  api: ApiClient | null
   sessionExpired: boolean
   handleCredential: (token: string) => void
   signOut: () => void
@@ -83,15 +85,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
   }
 
-  function signOut() {
+  const signOut = useCallback(() => {
     clearToken()
     setToken(null)
     setUser(null)
     setSessionExpired(false)
-  }
+  }, [])
+
+  // Single place that handles 401s: the client signs out centrally, and
+  // ProtectedRoute redirects to /sign-in once the token clears.
+  const api = useMemo(
+    () => (token ? createApiClient(token, signOut) : null),
+    [token, signOut],
+  )
 
   return (
-    <AuthContext.Provider value={{ token, user, sessionExpired, handleCredential, signOut }}>
+    <AuthContext.Provider value={{ token, user, api, sessionExpired, handleCredential, signOut }}>
       {children}
     </AuthContext.Provider>
   )
@@ -101,4 +110,14 @@ export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
   return ctx
+}
+
+/**
+ * The authenticated API client. Only usable under ProtectedRoute, where a
+ * token is guaranteed; the client is recreated whenever the token rotates.
+ */
+export function useApi(): ApiClient {
+  const { api } = useAuth()
+  if (!api) throw new Error('useApi requires an authenticated session')
+  return api
 }

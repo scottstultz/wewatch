@@ -1,15 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import {
-  UnauthorizedError,
-  addToWatchlist,
-  findOrCreateTitle,
-  getSuggestions,
-  getWatchlistEntries,
-  searchTitles,
-} from '../services/api'
 import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
@@ -155,7 +147,7 @@ function ShelfRow({ titles, cardStatus, onAdd, onOpen }: ShelfRowProps) {
 }
 
 function DiscoverPage() {
-  const { token, signOut } = useAuth()
+  const api = useApi()
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
@@ -177,13 +169,13 @@ function DiscoverPage() {
     }
 
     const timer = setTimeout(async () => {
-      if (!token || !selectedWatchlistId) return
+      if (!selectedWatchlistId) return
       setIsLoading(true)
       setError(null)
       try {
         const [data, watchlist] = await Promise.all([
-          searchTitles(query, token),
-          getWatchlistEntries(selectedWatchlistId, token),
+          api.searchTitles(query),
+          api.getWatchlistEntries(selectedWatchlistId),
         ])
         const watchedKeys = new Map(
           watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e.status])
@@ -200,24 +192,19 @@ function DiscoverPage() {
           })
           return next
         })
-      } catch (e) {
-        if (e instanceof UnauthorizedError) {
-          signOut()
-          navigate('/sign-in', { replace: true })
-        } else {
-          setError('Search failed. Please try again.')
-        }
+      } catch {
+        setError('Search failed. Please try again.')
       } finally {
         setIsLoading(false)
       }
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [query, token, selectedWatchlistId, signOut, navigate])
+  }, [query, api, selectedWatchlistId])
 
   // Suggestions effect (when query is empty)
   useEffect(() => {
-    if (query.trim() || !selectedWatchlistId || !token) {
+    if (query.trim() || !selectedWatchlistId) {
       setSuggestions([])
       return
     }
@@ -226,8 +213,8 @@ function DiscoverPage() {
     setSuggestionsLoading(true)
 
     Promise.all([
-      getSuggestions(selectedWatchlistId, token),
-      getWatchlistEntries(selectedWatchlistId, token),
+      api.getSuggestions(selectedWatchlistId),
+      api.getWatchlistEntries(selectedWatchlistId),
     ])
       .then(([shelves, entries]) => {
         if (cancelled) return
@@ -245,12 +232,7 @@ function DiscoverPage() {
           return next
         })
       })
-      .catch(e => {
-        if (cancelled) return
-        if (e instanceof UnauthorizedError) {
-          signOut()
-          navigate('/sign-in', { replace: true })
-        }
+      .catch(() => {
         // Fail silently — suggestions are non-critical
       })
       .finally(() => {
@@ -258,7 +240,7 @@ function DiscoverPage() {
       })
 
     return () => { cancelled = true }
-  }, [query, token, selectedWatchlistId, signOut, navigate])
+  }, [query, api, selectedWatchlistId])
 
   function openTitle(title: TitleSearchResponse) {
     navigate(
@@ -268,20 +250,15 @@ function DiscoverPage() {
   }
 
   async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
-    if (!token || !selectedWatchlistId) return
+    if (!selectedWatchlistId) return
     const key = cardKey(title)
     setCardStatus(prev => ({ ...prev, [key]: 'loading' }))
     try {
-      const titleId = await findOrCreateTitle(title, token)
-      await addToWatchlist(selectedWatchlistId, titleId, status, token)
+      const titleId = await api.findOrCreateTitle(title)
+      await api.addToWatchlist(selectedWatchlistId, titleId, status)
       setCardStatus(prev => ({ ...prev, [key]: status }))
-    } catch (e) {
-      if (e instanceof UnauthorizedError) {
-        signOut()
-        navigate('/sign-in', { replace: true })
-      } else {
-        setCardStatus(prev => ({ ...prev, [key]: 'error' }))
-      }
+    } catch {
+      setCardStatus(prev => ({ ...prev, [key]: 'error' }))
     }
   }
 

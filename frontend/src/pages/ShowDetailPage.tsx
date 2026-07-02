@@ -1,16 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
+import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import {
-  UnauthorizedError,
-  bulkMarkSeason,
-  getEpisodeProgress,
-  getSeasonDetail,
-  getSeasons,
-  getWatchlistEntries,
-  toggleEpisode,
-} from '../services/api'
 import type {
   EpisodeDetail,
   EpisodeProgress,
@@ -45,7 +36,8 @@ function ShowDetailPage() {
   const { entryId: entryIdParam } = useParams<{ entryId: string }>()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { token, user, signOut } = useAuth()
+  const { user } = useAuth()
+  const api = useApi()
   const { selectedWatchlistId, selectedWatchlist } = useWatchlists()
 
   const watchlistId = Number(searchParams.get('wl')) || selectedWatchlistId
@@ -67,11 +59,6 @@ function ShowDetailPage() {
   const [isBulkMarking, setIsBulkMarking] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleUnauthorized = useCallback(() => {
-    signOut()
-    navigate('/sign-in', { replace: true })
-  }, [signOut, navigate])
-
   // Determine viewer role — viewers cannot toggle
   const canEdit = useMemo(() => {
     if (!selectedWatchlist || !user) return false
@@ -82,12 +69,12 @@ function ShowDetailPage() {
   // ── Load entry ─────────────────────────────────────────────
 
   useEffect(() => {
-    if (!token || !watchlistId || !entryId) return
+    if (!watchlistId || !entryId) return
     let cancelled = false
     setIsLoadingEntry(true)
     setError(null)
 
-    getWatchlistEntries(watchlistId, token)
+    api.getWatchlistEntries(watchlistId)
       .then(entries => {
         if (cancelled) return
         const found = entries.find(e => e.id === entryId)
@@ -103,28 +90,25 @@ function ShowDetailPage() {
         setEntry(found)
         setIsLoadingEntry(false)
       })
-      .catch(e => {
+      .catch(() => {
         if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else {
-          setError('Failed to load entry.')
-          setIsLoadingEntry(false)
-        }
+        setError('Failed to load entry.')
+        setIsLoadingEntry(false)
       })
 
     return () => { cancelled = true }
-  }, [token, watchlistId, entryId, navigate, handleUnauthorized])
+  }, [api, watchlistId, entryId, navigate])
 
   // ── Load seasons once we have the entry ────────────────────
 
   useEffect(() => {
-    if (!token || !entry) return
+    if (!entry) return
     let cancelled = false
     setIsLoadingSeasons(true)
 
     Promise.all([
-      getSeasons(entry.titleId, token),
-      getEpisodeProgress(watchlistId!, entry.id, token),
+      api.getSeasons(entry.titleId),
+      api.getEpisodeProgress(watchlistId!, entry.id),
     ])
       .then(([seasonList, allProg]) => {
         if (cancelled) return
@@ -151,26 +135,24 @@ function ShowDetailPage() {
         }
         setActiveSeason(defaultSeason)
       })
-      .catch(e => {
-        if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else setError('Failed to load season data.')
+      .catch(() => {
+        if (!cancelled) setError('Failed to load season data.')
       })
       .finally(() => { if (!cancelled) setIsLoadingSeasons(false) })
 
     return () => { cancelled = true }
-  }, [token, entry, watchlistId, handleUnauthorized])
+  }, [api, entry, watchlistId])
 
   // ── Load episodes when active season changes ───────────────
 
   useEffect(() => {
-    if (!token || !entry || activeSeason == null || !watchlistId) return
+    if (!entry || activeSeason == null || !watchlistId) return
     let cancelled = false
     setIsLoadingEpisodes(true)
 
     Promise.all([
-      getSeasonDetail(entry.titleId, activeSeason, token),
-      getEpisodeProgress(watchlistId, entry.id, token, activeSeason),
+      api.getSeasonDetail(entry.titleId, activeSeason),
+      api.getEpisodeProgress(watchlistId, entry.id, activeSeason),
     ])
       .then(([detail, prog]) => {
         if (cancelled) return
@@ -181,15 +163,13 @@ function ShowDetailPage() {
         }
         setProgress(map)
       })
-      .catch(e => {
-        if (cancelled) return
-        if (e instanceof UnauthorizedError) handleUnauthorized()
-        else setError('Failed to load episodes.')
+      .catch(() => {
+        if (!cancelled) setError('Failed to load episodes.')
       })
       .finally(() => { if (!cancelled) setIsLoadingEpisodes(false) })
 
     return () => { cancelled = true }
-  }, [token, entry, activeSeason, watchlistId, handleUnauthorized])
+  }, [api, entry, activeSeason, watchlistId])
 
   // ── Overall progress stats ─────────────────────────────────
 
@@ -217,7 +197,7 @@ function ShowDetailPage() {
   // ── Toggle episode ─────────────────────────────────────────
 
   async function handleToggle(seasonNumber: number, episodeNumber: number) {
-    if (!token || !watchlistId || !entry) return
+    if (!watchlistId || !entry) return
     const key = progressKey(seasonNumber, episodeNumber)
     const prev = progress.get(key)
     const wasWatched = prev?.watched ?? false
@@ -260,7 +240,7 @@ function ShowDetailPage() {
     })
 
     try {
-      const result = await toggleEpisode(watchlistId, entry.id, seasonNumber, episodeNumber, token)
+      const result = await api.toggleEpisode(watchlistId, entry.id, seasonNumber, episodeNumber)
       setProgress(map => {
         const next = new Map(map)
         next.set(key, result)
@@ -275,7 +255,7 @@ function ShowDetailPage() {
         }
         return [...all, result]
       })
-    } catch (e) {
+    } catch {
       // Revert
       setProgress(map => {
         const next = new Map(map)
@@ -291,7 +271,6 @@ function ShowDetailPage() {
         }
         return all.filter(p => !(p.seasonNumber === seasonNumber && p.episodeNumber === episodeNumber))
       })
-      if (e instanceof UnauthorizedError) handleUnauthorized()
     } finally {
       setTogglingEpisodes(s => {
         const next = new Set(s)
@@ -304,15 +283,15 @@ function ShowDetailPage() {
   // ── Bulk mark season ───────────────────────────────────────
 
   async function handleBulkMark(watched: boolean) {
-    if (!token || !watchlistId || !entry || activeSeason == null) return
+    if (!watchlistId || !entry || activeSeason == null) return
     setIsBulkMarking(true)
     try {
       const epNumbers = episodes.map(ep => ep.episodeNumber)
-      await bulkMarkSeason(watchlistId, entry.id, activeSeason, watched, epNumbers, token)
+      await api.bulkMarkSeason(watchlistId, entry.id, activeSeason, watched, epNumbers)
       // Re-fetch progress for this season and the overall progress
       const [seasonProg, allProg] = await Promise.all([
-        getEpisodeProgress(watchlistId, entry.id, token, activeSeason),
-        getEpisodeProgress(watchlistId, entry.id, token),
+        api.getEpisodeProgress(watchlistId, entry.id, activeSeason),
+        api.getEpisodeProgress(watchlistId, entry.id),
       ])
       const map = new Map<string, EpisodeProgress>()
       for (const p of seasonProg) {
@@ -320,9 +299,8 @@ function ShowDetailPage() {
       }
       setProgress(map)
       setAllProgress(allProg)
-    } catch (e) {
-      if (e instanceof UnauthorizedError) handleUnauthorized()
-      else setError('Failed to update season.')
+    } catch {
+      setError('Failed to update season.')
     } finally {
       setIsBulkMarking(false)
     }
