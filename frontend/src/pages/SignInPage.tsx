@@ -7,7 +7,7 @@ import { exchangeToken, registerUser } from '../services/api'
 type AuthMode = 'signin' | 'register'
 
 function SignInPage() {
-  const { token, handleCredential } = useAuth()
+  const { token, sessionExpired, handleCredential } = useAuth()
   const navigate = useNavigate()
   const buttonRef = useRef<HTMLDivElement>(null)
 
@@ -137,6 +137,9 @@ function SignInPage() {
         </p>
 
         {error && <p className="sign-in-error">{error}</p>}
+        {!error && sessionExpired && (
+          <p className="sign-in-error">Your session expired. Please sign in again.</p>
+        )}
 
         {mode === 'signin' ? (
           <form className="sign-in-form" onSubmit={handleSignIn}>

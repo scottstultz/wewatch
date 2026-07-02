@@ -11,8 +11,10 @@ import type {
   WatchlistMemberResponse,
   WatchlistResponse,
 } from '../types/api'
+import { notifyTokenRefreshed } from './auth'
 
 const BASE_URL = '/api'
+const REFRESHED_TOKEN_HEADER = 'X-Refreshed-Token'
 
 export class UnauthorizedError extends Error {
   constructor() {
@@ -33,6 +35,8 @@ async function apiFetch(url: string, token: string, init?: RequestInit): Promise
     headers: { Authorization: `Bearer ${token}`, ...init?.headers },
   })
   if (response.status === 401) throw new UnauthorizedError()
+  const refreshedToken = response.headers.get(REFRESHED_TOKEN_HEADER)
+  if (refreshedToken) notifyTokenRefreshed(refreshedToken)
   return response
 }
 
