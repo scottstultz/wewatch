@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -25,6 +26,7 @@ import java.util.NoSuchElementException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -436,6 +438,33 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.startedAt").value("2026-04-28T13:00:00Z"));
 
 		verify(watchlistEntryService).update(eq(10L), eq(1L), any(WatchlistEntry.class));
+	}
+
+	@Test
+	void updateWatchlistEntryRecomputesSuggestionsAfterUpdate() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		Instant updatedAt = Instant.parse("2026-04-28T13:00:00Z");
+		WatchlistEntry updatedEntry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WATCHED, addedAt, updatedAt, updatedAt, updatedAt
+		);
+
+		when(watchlistEntryService.update(eq(10L), eq(1L), any(WatchlistEntry.class))).thenReturn(updatedEntry);
+
+		mockMvc.perform(
+			patch("/api/watchlists/10/entries/1")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "status": "WATCHED"
+					}
+					""")
+		)
+			.andExpect(status().isOk());
+
+		InOrder order = inOrder(watchlistEntryService, suggestionService);
+		order.verify(watchlistEntryService).update(eq(10L), eq(1L), any(WatchlistEntry.class));
+		order.verify(suggestionService).recompute(10L);
 	}
 
 	@Test
