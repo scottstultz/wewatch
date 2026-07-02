@@ -3,8 +3,11 @@ package com.wewatch.api.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+
+import java.net.SocketTimeoutException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,6 +68,17 @@ class GoogleTokenValidatorTest {
 		assertThatThrownBy(() -> validator.validate("bad-aud-token"))
 			.isInstanceOf(InvalidCredentialException.class)
 			.hasMessageContaining("audience mismatch");
+		mockServer.verify();
+	}
+
+	@Test
+	void validateThrowsInvalidCredentialOnReadTimeout() {
+		mockServer.expect(requestTo("https://oauth2.googleapis.com/tokeninfo?id_token=slow-token"))
+			.andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+		assertThatThrownBy(() -> validator.validate("slow-token"))
+			.isInstanceOf(InvalidCredentialException.class)
+			.hasRootCauseInstanceOf(SocketTimeoutException.class);
 		mockServer.verify();
 	}
 
