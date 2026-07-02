@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.net.SocketTimeoutException;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -142,6 +144,16 @@ class TmdbClientTest {
 		List<TitleSearchResponse> results = tmdbClient.search("xyznotafilm", null);
 
 		assertThat(results).isEmpty();
+	}
+
+	@Test
+	void searchThrowsTmdbApiExceptionOnReadTimeout() {
+		server.expect(requestTo(containsString("/3/search/movie")))
+			.andRespond(withException(new SocketTimeoutException("Read timed out")));
+
+		assertThatThrownBy(() -> tmdbClient.search("inception", TitleType.MOVIE))
+			.isInstanceOf(TmdbApiException.class)
+			.hasRootCauseInstanceOf(SocketTimeoutException.class);
 	}
 
 	@Test
