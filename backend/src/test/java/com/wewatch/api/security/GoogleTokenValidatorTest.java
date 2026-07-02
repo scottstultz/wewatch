@@ -41,6 +41,7 @@ class GoogleTokenValidatorTest {
 					"email": "user@example.com",
 					"name": "Test User",
 					"aud": "test-client-id",
+					"iss": "https://accounts.google.com",
 					"email_verified": "true"
 				}
 				""", MediaType.APPLICATION_JSON));
@@ -68,6 +69,84 @@ class GoogleTokenValidatorTest {
 		assertThatThrownBy(() -> validator.validate("bad-aud-token"))
 			.isInstanceOf(InvalidCredentialException.class)
 			.hasMessageContaining("audience mismatch");
+		mockServer.verify();
+	}
+
+	@Test
+	void validateThrowsWhenIssuerInvalid() {
+		mockServer.expect(requestTo("https://oauth2.googleapis.com/tokeninfo?id_token=bad-iss-token"))
+			.andRespond(withSuccess("""
+				{
+					"sub": "google-sub-123",
+					"email": "user@example.com",
+					"name": "Test User",
+					"aud": "test-client-id",
+					"iss": "https://evil.example.com",
+					"email_verified": "true"
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		assertThatThrownBy(() -> validator.validate("bad-iss-token"))
+			.isInstanceOf(InvalidCredentialException.class)
+			.hasMessageContaining("issuer mismatch");
+		mockServer.verify();
+	}
+
+	@Test
+	void validateThrowsWhenIssuerMissing() {
+		mockServer.expect(requestTo("https://oauth2.googleapis.com/tokeninfo?id_token=no-iss-token"))
+			.andRespond(withSuccess("""
+				{
+					"sub": "google-sub-123",
+					"email": "user@example.com",
+					"name": "Test User",
+					"aud": "test-client-id",
+					"email_verified": "true"
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		assertThatThrownBy(() -> validator.validate("no-iss-token"))
+			.isInstanceOf(InvalidCredentialException.class)
+			.hasMessageContaining("issuer mismatch");
+		mockServer.verify();
+	}
+
+	@Test
+	void validateThrowsWhenEmailNotVerified() {
+		mockServer.expect(requestTo("https://oauth2.googleapis.com/tokeninfo?id_token=unverified-token"))
+			.andRespond(withSuccess("""
+				{
+					"sub": "google-sub-123",
+					"email": "user@example.com",
+					"name": "Test User",
+					"aud": "test-client-id",
+					"iss": "accounts.google.com",
+					"email_verified": "false"
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		assertThatThrownBy(() -> validator.validate("unverified-token"))
+			.isInstanceOf(InvalidCredentialException.class)
+			.hasMessageContaining("not verified");
+		mockServer.verify();
+	}
+
+	@Test
+	void validateThrowsWhenEmailVerifiedMissing() {
+		mockServer.expect(requestTo("https://oauth2.googleapis.com/tokeninfo?id_token=no-verified-token"))
+			.andRespond(withSuccess("""
+				{
+					"sub": "google-sub-123",
+					"email": "user@example.com",
+					"name": "Test User",
+					"aud": "test-client-id",
+					"iss": "accounts.google.com"
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		assertThatThrownBy(() -> validator.validate("no-verified-token"))
+			.isInstanceOf(InvalidCredentialException.class)
+			.hasMessageContaining("not verified");
 		mockServer.verify();
 	}
 

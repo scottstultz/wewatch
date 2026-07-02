@@ -1,6 +1,7 @@
 package com.wewatch.api.security;
 
 import java.util.Map;
+import java.util.Set;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -9,6 +10,9 @@ import org.springframework.web.client.RestClientException;
 
 @Component
 public class GoogleTokenValidator {
+
+	private static final Set<String> VALID_ISSUERS =
+		Set.of("accounts.google.com", "https://accounts.google.com");
 
 	private final String clientId;
 	private final RestClient restClient;
@@ -40,6 +44,16 @@ public class GoogleTokenValidator {
 		String aud = (String) payload.get("aud");
 		if (!clientId.equals(aud)) {
 			throw new InvalidCredentialException("Token audience mismatch");
+		}
+
+		String iss = (String) payload.get("iss");
+		if (iss == null || !VALID_ISSUERS.contains(iss)) {
+			throw new InvalidCredentialException("Token issuer mismatch");
+		}
+
+		// tokeninfo returns email_verified as the string "true"/"false"
+		if (!"true".equals(payload.get("email_verified"))) {
+			throw new InvalidCredentialException("Google account email is not verified");
 		}
 
 		return new GoogleIdentity(
