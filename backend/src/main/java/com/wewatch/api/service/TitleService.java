@@ -1,21 +1,21 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.Collection;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Validator;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
-import com.wewatch.api.exception.DuplicateTitleException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TitleRepository;
@@ -31,23 +31,25 @@ public class TitleService {
 		this.validator = validator;
 	}
 
-	public Title create(Title title) {
+	public Title findOrCreate(String externalSource, String externalId, Supplier<Title> candidateSupplier) {
+		return titleRepository.findByExternalSourceAndExternalId(externalSource, externalId)
+			.orElseGet(() -> saveNew(candidateSupplier.get()));
+	}
+
+	private Title saveNew(Title title) {
 		Instant now = Instant.now();
-		if (title.getCreatedAt() == null) {
-			title.setCreatedAt(now);
-		}
-		if (title.getUpdatedAt() == null) {
-			title.setUpdatedAt(now);
-		}
+		title.setCreatedAt(now);
+		title.setUpdatedAt(now);
 
 		validate(title);
 
-		titleRepository.findByExternalSourceAndExternalId(title.getExternalSource(), title.getExternalId())
-			.ifPresent(existing -> {
-				throw new DuplicateTitleException(title.getExternalSource(), title.getExternalId());
-			});
-
-		return titleRepository.save(title);
+		try {
+			return titleRepository.save(title);
+		} catch (DataIntegrityViolationException e) {
+			// concurrent insert of the same external title — return the row that won the race
+			return titleRepository.findByExternalSourceAndExternalId(title.getExternalSource(), title.getExternalId())
+				.orElseThrow(() -> e);
+		}
 	}
 
 	public Title findById(Long id) {
@@ -75,38 +77,6 @@ public class TitleService {
 			normalize(name),
 			pageable
 		);
-	}
-
-	public Title update(
-		Long id,
-		String name,
-		String overview,
-		LocalDate releaseDate,
-		String posterUrl,
-		TitleType type
-	) {
-		Title existingTitle = findById(id);
-
-		if (name != null) {
-			existingTitle.setName(name);
-		}
-		if (overview != null) {
-			existingTitle.setOverview(overview);
-		}
-		if (releaseDate != null) {
-			existingTitle.setReleaseDate(releaseDate);
-		}
-		if (posterUrl != null) {
-			existingTitle.setPosterUrl(posterUrl);
-		}
-		if (type != null) {
-			existingTitle.setType(type);
-		}
-		existingTitle.setUpdatedAt(Instant.now());
-
-		validate(existingTitle);
-
-		return titleRepository.save(existingTitle);
 	}
 
 	private void validate(Title title) {

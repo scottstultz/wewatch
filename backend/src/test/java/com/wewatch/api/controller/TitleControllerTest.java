@@ -4,12 +4,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.dto.TitleSearchResponse;
-import com.wewatch.api.exception.DuplicateTitleException;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
@@ -93,9 +93,9 @@ class TitleControllerTest {
 	}
 
 	@Test
-	void createTitleReturnsCreatedTitle() throws Exception {
+	void resolveTitleReturnsExistingTitleWithoutContactingTmdb() throws Exception {
 		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		Title createdTitle = new Title(
+		Title existingTitle = new Title(
 			1L,
 			"603",
 			"TMDB",
@@ -108,26 +108,21 @@ class TitleControllerTest {
 			createdAt
 		);
 
-		when(titleService.create(any(Title.class))).thenReturn(createdTitle);
+		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenReturn(existingTitle);
 
 		mockMvc.perform(
-			post("/api/titles")
+			post("/api/titles/resolve")
 				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
 					  "externalId": "603",
 					  "externalSource": "TMDB",
-					  "type": "MOVIE",
-					  "name": "The Matrix",
-					  "overview": "A computer hacker learns about the true nature of reality.",
-					  "releaseDate": "1999-03-31",
-					  "posterUrl": "https://image.tmdb.org/t/p/w500/matrix.jpg"
+					  "type": "MOVIE"
 					}
 					""")
 		)
-			.andExpect(status().isCreated())
-			.andExpect(header().string("Location", "/api/titles/1"))
+			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
 			.andExpect(jsonPath("$.externalId").value("603"))
@@ -140,21 +135,100 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
 			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
 
-		verify(titleService).create(any(Title.class));
+		verify(titleService).findOrCreate(eq("TMDB"), eq("603"), any());
+		verifyNoInteractions(tmdbClient);
 	}
 
 	@Test
-	void createTitleReturnsBadRequestForInvalidPayload() throws Exception {
+	@SuppressWarnings("unchecked")
+	void resolveTitleBuildsMovieFromTmdbDetailIgnoringClientMetadata() throws Exception {
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
+			"Released", "1999-03-31",
+			List.of(new TmdbGenre(28, "Action"))
+		));
+		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
+			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
+			candidate.setId(1L);
+			return candidate;
+		});
+
 		mockMvc.perform(
-			post("/api/titles")
+			post("/api/titles/resolve")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "externalId": "603",
+					  "externalSource": "TMDB",
+					  "type": "MOVIE",
+					  "name": "junk from the client",
+					  "overview": "junk overview"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(1))
+			.andExpect(jsonPath("$.externalId").value("603"))
+			.andExpect(jsonPath("$.externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.type").value("MOVIE"))
+			.andExpect(jsonPath("$.name").value("The Matrix"))
+			.andExpect(jsonPath("$.overview").value("A computer hacker learns the truth."))
+			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"))
+			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/matrix.jpg"));
+
+		verify(tmdbClient).getMovieDetail("603");
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void resolveTitleBuildsTvShowFromTmdbDetail() throws Exception {
+		when(tmdbClient.getTvDetail("1399")).thenReturn(new TmdbTvDetail(
+			1399, 2, "Ended", "2011-04-17",
+			List.of(),
+			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
+			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy"))
+		));
+		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
+			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
+			candidate.setId(5L);
+			return candidate;
+		});
+
+		mockMvc.perform(
+			post("/api/titles/resolve")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "externalId": "1399",
+					  "externalSource": "TMDB",
+					  "type": "TV"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.id").value(5))
+			.andExpect(jsonPath("$.externalId").value("1399"))
+			.andExpect(jsonPath("$.type").value("TV"))
+			.andExpect(jsonPath("$.name").value("Game of Thrones"))
+			.andExpect(jsonPath("$.releaseDate").value("2011-04-17"))
+			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/got.jpg"));
+
+		verify(tmdbClient).getTvDetail("1399");
+	}
+
+	@Test
+	void resolveTitleReturnsBadRequestForInvalidPayload() throws Exception {
+		mockMvc.perform(
+			post("/api/titles/resolve")
 				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
 					  "externalId": "",
 					  "externalSource": "",
-					  "type": null,
-					  "name": ""
+					  "type": null
 					}
 					""")
 		)
@@ -165,9 +239,45 @@ class TitleControllerTest {
 	}
 
 	@Test
-	void createTitleReturnsConflictForDuplicateExternalTitle() throws Exception {
-		when(titleService.create(any(Title.class))).thenThrow(new DuplicateTitleException("TMDB", "603"));
+	void resolveTitleReturnsBadRequestForUnsupportedSource() throws Exception {
+		mockMvc.perform(
+			post("/api/titles/resolve")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "externalId": "tt0133093",
+					  "externalSource": "IMDB",
+					  "type": "MOVIE"
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(400))
+			.andExpect(jsonPath("$.message").value("Unsupported external source: IMDB"));
 
+		verifyNoInteractions(titleService, tmdbClient);
+	}
+
+	@Test
+	void resolveTitleReturnsUnauthorizedWhenNoToken() throws Exception {
+		mockMvc.perform(
+			post("/api/titles/resolve")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "externalId": "603",
+					  "externalSource": "TMDB",
+					  "type": "MOVIE"
+					}
+					""")
+		)
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void rawCreateTitleEndpointIsGone() throws Exception {
 		mockMvc.perform(
 			post("/api/titles")
 				.header("Authorization", "Bearer test-token")
@@ -177,14 +287,13 @@ class TitleControllerTest {
 					  "externalId": "603",
 					  "externalSource": "TMDB",
 					  "type": "MOVIE",
-					  "name": "The Matrix"
+					  "name": "junk"
 					}
 					""")
 		)
-			.andExpect(status().isConflict())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(409))
-			.andExpect(jsonPath("$.message").value("Title already exists for source TMDB and external id 603"));
+			.andExpect(status().isMethodNotAllowed());
+
+		verifyNoInteractions(titleService);
 	}
 
 	@Test
@@ -218,143 +327,20 @@ class TitleControllerTest {
 	}
 
 	@Test
-	void updateTitleReturnsUpdatedTitle() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
-		Title updatedTitle = new Title(
-			1L,
-			"603",
-			"TMDB",
-			TitleType.TV,
-			"The Matrix",
-			"Updated overview",
-			LocalDate.parse("1999-03-31"),
-			"https://example.com/updated.jpg",
-			createdAt,
-			updatedAt
-		);
-
-		when(titleService.update(
-			1L,
-			"The Matrix",
-			"Updated overview",
-			LocalDate.parse("1999-03-31"),
-			"https://example.com/updated.jpg",
-			TitleType.TV
-		)).thenReturn(updatedTitle);
-
+	void updateTitleEndpointIsGone() throws Exception {
 		mockMvc.perform(
 			patch("/api/titles/1")
 				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "name": "The Matrix",
-					  "overview": "Updated overview",
-					  "releaseDate": "1999-03-31",
-					  "posterUrl": "https://example.com/updated.jpg",
-					  "type": "TV"
+					  "name": "junk"
 					}
 					""")
 		)
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.externalId").value("603"))
-			.andExpect(jsonPath("$.externalSource").value("TMDB"))
-			.andExpect(jsonPath("$.type").value("TV"))
-			.andExpect(jsonPath("$.name").value("The Matrix"))
-			.andExpect(jsonPath("$.overview").value("Updated overview"))
-			.andExpect(jsonPath("$.releaseDate").value("1999-03-31"))
-			.andExpect(jsonPath("$.posterUrl").value("https://example.com/updated.jpg"))
-			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
-			.andExpect(jsonPath("$.updatedAt").value("2026-04-29T12:00:00Z"));
+			.andExpect(status().isMethodNotAllowed());
 
-		verify(titleService).update(
-			1L,
-			"The Matrix",
-			"Updated overview",
-			LocalDate.parse("1999-03-31"),
-			"https://example.com/updated.jpg",
-			TitleType.TV
-		);
-	}
-
-	@Test
-	void updateTitleSupportsPartialPayload() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
-		Title updatedTitle = new Title(
-			1L,
-			"603",
-			"TMDB",
-			TitleType.MOVIE,
-			"The Matrix Reloaded",
-			null,
-			LocalDate.parse("1999-03-31"),
-			null,
-			createdAt,
-			updatedAt
-		);
-
-		when(titleService.update(1L, "The Matrix Reloaded", null, null, null, null)).thenReturn(updatedTitle);
-
-		mockMvc.perform(
-			patch("/api/titles/1")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "name": "The Matrix Reloaded"
-					}
-					""")
-		)
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.externalId").value("603"))
-			.andExpect(jsonPath("$.externalSource").value("TMDB"))
-			.andExpect(jsonPath("$.name").value("The Matrix Reloaded"));
-
-		verify(titleService).update(1L, "The Matrix Reloaded", null, null, null, null);
-	}
-
-	@Test
-	void updateTitleReturnsNotFoundWhenMissing() throws Exception {
-		when(titleService.update(42L, "The Matrix", null, null, null, null))
-			.thenThrow(new NoSuchElementException("Title not found: 42"));
-
-		mockMvc.perform(
-			patch("/api/titles/42")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "name": "The Matrix"
-					}
-					""")
-		)
-			.andExpect(status().isNotFound())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(404))
-			.andExpect(jsonPath("$.message").value("Title not found: 42"));
-	}
-
-	@Test
-	void updateTitleReturnsBadRequestForInvalidPayload() throws Exception {
-		mockMvc.perform(
-			patch("/api/titles/1")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "name": ""
-					}
-					""")
-		)
-			.andExpect(status().isBadRequest())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(400))
-			.andExpect(jsonPath("$.error").value("Bad Request"));
+		verifyNoInteractions(titleService);
 	}
 
 	@Test

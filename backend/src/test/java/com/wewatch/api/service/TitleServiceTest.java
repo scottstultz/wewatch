@@ -3,15 +3,16 @@ package com.wewatch.api.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import com.wewatch.api.exception.DuplicateTitleException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TitleRepository;
@@ -46,10 +46,37 @@ class TitleServiceTest {
 	}
 
 	@Test
-	void createSetsTimestampsWhenMissing() {
+	void findOrCreateReturnsExistingTitleWithoutInvokingSupplier() {
 		TitleRepository repository = Mockito.mock(TitleRepository.class);
 		TitleService service = new TitleService(repository, validator);
-		Title title = new Title(
+		Title existing = new Title(
+			1L,
+			"603",
+			"TMDB",
+			TitleType.MOVIE,
+			"The Matrix",
+			null,
+			LocalDate.parse("1999-03-31"),
+			null,
+			Instant.now(),
+			Instant.now()
+		);
+
+		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
+
+		Title resolved = service.findOrCreate("TMDB", "603", () -> {
+			throw new AssertionError("supplier must not be invoked when the title already exists");
+		});
+
+		assertThat(resolved).isEqualTo(existing);
+		verify(repository, never()).save(any(Title.class));
+	}
+
+	@Test
+	void findOrCreateSavesNewTitleWithTimestamps() {
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+		Title candidate = new Title(
 			null,
 			"603",
 			"TMDB",
@@ -65,35 +92,38 @@ class TitleServiceTest {
 		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.empty());
 		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-		Title created = service.create(title);
+		Title created = service.findOrCreate("TMDB", "603", () -> candidate);
 
 		assertThat(created.getCreatedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
-		verify(repository).save(title);
+		verify(repository).save(candidate);
 	}
 
 	@Test
-	void createRejectsInvalidTitle() {
+	void findOrCreateRejectsInvalidCandidate() {
 		TitleRepository repository = Mockito.mock(TitleRepository.class);
 		TitleService service = new TitleService(repository, validator);
-		Title title = new Title(
+		Title candidate = new Title(
 			null,
-			"",
+			"603",
 			"TMDB",
 			TitleType.MOVIE,
-			"The Matrix",
+			"",
 			null,
 			null,
 			null,
-			Instant.now(),
-			Instant.now()
+			null,
+			null
 		);
 
-		assertThatThrownBy(() -> service.create(title)).isInstanceOf(ConstraintViolationException.class);
+		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.empty());
+
+		assertThatThrownBy(() -> service.findOrCreate("TMDB", "603", () -> candidate))
+			.isInstanceOf(ConstraintViolationException.class);
 	}
 
 	@Test
-	void createRejectsDuplicateExternalTitle() {
+	void findOrCreateReturnsWinningRowAfterConcurrentInsert() {
 		TitleRepository repository = Mockito.mock(TitleRepository.class);
 		TitleService service = new TitleService(repository, validator);
 		Title existing = new Title(
@@ -108,7 +138,7 @@ class TitleServiceTest {
 			Instant.now(),
 			Instant.now()
 		);
-		Title title = new Title(
+		Title candidate = new Title(
 			null,
 			"603",
 			"TMDB",
@@ -117,13 +147,18 @@ class TitleServiceTest {
 			null,
 			null,
 			null,
-			Instant.now(),
-			Instant.now()
+			null,
+			null
 		);
 
-		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
+		when(repository.findByExternalSourceAndExternalId("TMDB", "603"))
+			.thenReturn(Optional.empty(), Optional.of(existing));
+		when(repository.save(any(Title.class)))
+			.thenThrow(new DataIntegrityViolationException("duplicate key uq_titles_external_source_external_id"));
 
-		assertThatThrownBy(() -> service.create(title)).isInstanceOf(DuplicateTitleException.class);
+		Title resolved = service.findOrCreate("TMDB", "603", () -> candidate);
+
+		assertThat(resolved).isEqualTo(existing);
 	}
 
 	@Test
@@ -168,76 +203,6 @@ class TitleServiceTest {
 		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
 
 		assertThat(service.findByExternalSourceAndExternalId("TMDB", "603")).isEqualTo(existing);
-	}
-
-	@Test
-	void updateAppliesProvidedFieldsOnly() {
-		TitleRepository repository = Mockito.mock(TitleRepository.class);
-		TitleService service = new TitleService(repository, validator);
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		Title existing = new Title(
-			1L,
-			"603",
-			"TMDB",
-			TitleType.MOVIE,
-			"The Matrix",
-			"Original overview",
-			LocalDate.parse("1999-03-31"),
-			"https://example.com/original.jpg",
-			createdAt,
-			createdAt
-		);
-
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-		Title updated = service.update(1L, "The Matrix Reloaded", null, null, null, TitleType.TV);
-
-		assertThat(updated.getExternalId()).isEqualTo("603");
-		assertThat(updated.getExternalSource()).isEqualTo("TMDB");
-		assertThat(updated.getName()).isEqualTo("The Matrix Reloaded");
-		assertThat(updated.getOverview()).isEqualTo("Original overview");
-		assertThat(updated.getReleaseDate()).isEqualTo(LocalDate.parse("1999-03-31"));
-		assertThat(updated.getPosterUrl()).isEqualTo("https://example.com/original.jpg");
-		assertThat(updated.getType()).isEqualTo(TitleType.TV);
-		assertThat(updated.getCreatedAt()).isEqualTo(createdAt);
-		assertThat(updated.getUpdatedAt()).isAfter(createdAt);
-		verify(repository).save(existing);
-	}
-
-	@Test
-	void updateRejectsMissingTitle() {
-		TitleRepository repository = Mockito.mock(TitleRepository.class);
-		TitleService service = new TitleService(repository, validator);
-
-		when(repository.findById(42L)).thenReturn(Optional.empty());
-
-		assertThatThrownBy(() -> service.update(42L, "The Matrix", null, null, null, null))
-			.isInstanceOf(NoSuchElementException.class)
-			.hasMessage("Title not found: 42");
-	}
-
-	@Test
-	void updateRejectsInvalidMergedTitle() {
-		TitleRepository repository = Mockito.mock(TitleRepository.class);
-		TitleService service = new TitleService(repository, validator);
-		Title existing = new Title(
-			1L,
-			"603",
-			"TMDB",
-			TitleType.MOVIE,
-			"The Matrix",
-			null,
-			LocalDate.parse("1999-03-31"),
-			null,
-			Instant.now(),
-			Instant.now()
-		);
-
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-
-		assertThatThrownBy(() -> service.update(1L, "", null, null, null, null))
-			.isInstanceOf(ConstraintViolationException.class);
 	}
 
 	@Test
