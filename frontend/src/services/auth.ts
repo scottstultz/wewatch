@@ -30,3 +30,16 @@ export function getStoredToken(): string | null {
 export function clearToken(): void {
   localStorage.removeItem(TOKEN_KEY)
 }
+
+export function getTokenExpiryMs(token: string): number | null {
+  const payload = decodeToken(token)
+  return payload ? payload.exp * 1000 : null
+}
+
+export const TOKEN_REFRESHED_EVENT = 'wewatch:token-refreshed'
+
+/** Store a token rotated by the backend and notify listeners (AuthContext). */
+export function notifyTokenRefreshed(token: string): void {
+  storeToken(token)
+  window.dispatchEvent(new CustomEvent(TOKEN_REFRESHED_EVENT, { detail: token }))
+}

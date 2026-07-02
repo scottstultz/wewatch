@@ -19,6 +19,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -37,11 +38,13 @@ public class SecurityConfig {
 
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, WeWatchJwtAuthenticationConverter converter,
-			RequestCorrelationFilter requestCorrelationFilter) throws Exception {
+			RequestCorrelationFilter requestCorrelationFilter, TokenRefreshFilter tokenRefreshFilter)
+			throws Exception {
 		http
 			.cors(cors -> cors.configurationSource(corsConfigurationSource()))
 			.csrf(AbstractHttpConfigurer::disable)
 			.addFilterBefore(requestCorrelationFilter, UsernamePasswordAuthenticationFilter.class)
+			.addFilterAfter(tokenRefreshFilter, BearerTokenAuthenticationFilter.class)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(auth -> auth
 				.requestMatchers("/api/health", "/api/auth/**").permitAll()
@@ -64,7 +67,7 @@ public class SecurityConfig {
 		config.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id"));
-		config.setExposedHeaders(List.of("X-Request-Id"));
+		config.setExposedHeaders(List.of("X-Request-Id", TokenRefreshFilter.REFRESHED_TOKEN_HEADER));
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 		source.registerCorsConfiguration("/api/**", config);
 		return source;
