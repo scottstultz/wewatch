@@ -5,13 +5,8 @@ import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal from '../components/RollTheDiceModal'
+import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import type { WatchlistEntryResponse, WatchStatus } from '../types/api'
-
-const STATUS_LABELS: Record<WatchStatus, string> = {
-  WANT_TO_WATCH: 'Want to Watch',
-  WATCHING: 'Watching',
-  WATCHED: 'Watched',
-}
 
 const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'All' },
@@ -312,26 +307,10 @@ function LibraryPage() {
                       </>
                     )}
                     {pickingEntry === entry.id ? (
-                      <div className="discover-status-picker">
-                        <button
-                          className={`discover-status-option discover-status-option-want${entry.status === 'WANT_TO_WATCH' ? ' discover-status-option-current' : ''}`}
-                          onClick={() => handleStatusOptionClick(entry, 'WANT_TO_WATCH')}
-                        >
-                          {entry.status === 'WANT_TO_WATCH' ? '✓ ' : ''}Want to Watch
-                        </button>
-                        <button
-                          className={`discover-status-option discover-status-option-watching${entry.status === 'WATCHING' ? ' discover-status-option-current' : ''}`}
-                          onClick={() => handleStatusOptionClick(entry, 'WATCHING')}
-                        >
-                          {entry.status === 'WATCHING' ? '✓ ' : ''}Watching
-                        </button>
-                        <button
-                          className={`discover-status-option discover-status-option-watched${entry.status === 'WATCHED' ? ' discover-status-option-current' : ''}`}
-                          onClick={() => handleStatusOptionClick(entry, 'WATCHED')}
-                        >
-                          {entry.status === 'WATCHED' ? '✓ ' : ''}Watched
-                        </button>
-                      </div>
+                      <StatusPicker
+                        current={entry.status}
+                        onSelect={s => handleStatusOptionClick(entry, s)}
+                      />
                     ) : (
                       <button
                         className={statusBadgeClass(entry.status)}

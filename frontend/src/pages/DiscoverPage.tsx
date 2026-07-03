@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
 type OpenHandler = (title: TitleSearchResponse) => void
+type ToggleHandler = (title: TitleSearchResponse) => void
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
@@ -16,13 +18,16 @@ function cardKey(title: TitleSearchResponse) {
 interface TitleCardProps {
   title: TitleSearchResponse
   status: CardStatus
+  isPicking: boolean
   onAdd: AddHandler
+  onChangeStatus: AddHandler
+  onTogglePicker: ToggleHandler
   onOpen: OpenHandler
 }
 
-function TitleCard({ title, status, onAdd, onOpen }: TitleCardProps) {
-  const isAdded = status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED'
-  const addedLabel = status === 'WATCHING' ? 'Watching' : status === 'WATCHED' ? 'Watched' : 'Want to Watch'
+function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen }: TitleCardProps) {
+  const addedStatus =
+    status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED' ? status : null
   return (
     <article
       className="title-card title-card-clickable"
@@ -50,11 +55,24 @@ function TitleCard({ title, status, onAdd, onOpen }: TitleCardProps) {
         {title.releaseDate && (
           <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
         )}
-        {isAdded ? (
-          <div className="discover-action-row">
-            <span className="discover-round-btn discover-round-btn-added" aria-label="Added to watchlist">✓</span>
-            <span className="discover-added-label">{addedLabel}</span>
-          </div>
+        {addedStatus ? (
+          isPicking ? (
+            <StatusPicker
+              current={addedStatus}
+              onSelect={(s) => onChangeStatus(title, s)}
+            />
+          ) : (
+            <div className="discover-action-row">
+              <button
+                className="discover-added-chip"
+                onClick={(e) => { e.stopPropagation(); onTogglePicker(title) }}
+                aria-label={`Status: ${STATUS_LABELS[addedStatus]}. Tap to change.`}
+              >
+                <span className="discover-round-btn discover-round-btn-added" aria-hidden="true">✓</span>
+                <span className="discover-added-label">{STATUS_LABELS[addedStatus]}</span>
+              </button>
+            </div>
+          )
         ) : (
           <div className="discover-action-row">
             <button
@@ -82,11 +100,14 @@ function TitleCard({ title, status, onAdd, onOpen }: TitleCardProps) {
 interface ShelfRowProps {
   titles: TitleSearchResponse[]
   cardStatus: Record<string, CardStatus>
+  pickingKey: string | null
   onAdd: AddHandler
+  onChangeStatus: AddHandler
+  onTogglePicker: ToggleHandler
   onOpen: OpenHandler
 }
 
-function ShelfRow({ titles, cardStatus, onAdd, onOpen }: ShelfRowProps) {
+function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen }: ShelfRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -131,7 +152,10 @@ function ShelfRow({ titles, cardStatus, onAdd, onOpen }: ShelfRowProps) {
             key={cardKey(title)}
             title={title}
             status={cardStatus[cardKey(title)] ?? 'idle'}
+            isPicking={pickingKey === cardKey(title)}
             onAdd={onAdd}
+            onChangeStatus={onChangeStatus}
+            onTogglePicker={onTogglePicker}
             onOpen={onOpen}
           />
         ))}
@@ -157,6 +181,8 @@ function DiscoverPage() {
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
   const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
+  const [entryIds, setEntryIds] = useState<Record<string, number>>({})
+  const [pickingKey, setPickingKey] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<SuggestionShelf[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
 
@@ -177,8 +203,8 @@ function DiscoverPage() {
           api.searchTitles(query),
           api.getWatchlistEntries(selectedWatchlistId),
         ])
-        const watchedKeys = new Map(
-          watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e.status])
+        const entryByKey = new Map(
+          watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e])
         )
         setResults(data)
         setSearched(true)
@@ -186,9 +212,19 @@ function DiscoverPage() {
           const next = { ...prev }
           data.forEach(title => {
             const k = cardKey(title)
-            const existingStatus = watchedKeys.get(k)
-            if (existingStatus) next[k] = existingStatus
+            const existing = entryByKey.get(k)
+            if (existing) next[k] = existing.status
             else if (next[k] !== 'loading') delete next[k]
+          })
+          return next
+        })
+        setEntryIds(prev => {
+          const next = { ...prev }
+          data.forEach(title => {
+            const k = cardKey(title)
+            const existing = entryByKey.get(k)
+            if (existing) next[k] = existing.id
+            else delete next[k]
           })
           return next
         })
@@ -219,15 +255,24 @@ function DiscoverPage() {
       .then(([shelves, entries]) => {
         if (cancelled) return
         setSuggestions(shelves)
-        const watchedKeys = new Map(
-          entries.map(e => [`${e.externalSource}-${e.externalId}`, e.status])
+        const entryByKey = new Map(
+          entries.map(e => [`${e.externalSource}-${e.externalId}`, e])
         )
         setCardStatus(prev => {
           const next = { ...prev }
           shelves.flatMap(s => s.titles).forEach(title => {
             const k = cardKey(title)
-            const existingStatus = watchedKeys.get(k)
-            if (existingStatus) next[k] = existingStatus
+            const existing = entryByKey.get(k)
+            if (existing) next[k] = existing.status
+          })
+          return next
+        })
+        setEntryIds(prev => {
+          const next = { ...prev }
+          shelves.flatMap(s => s.titles).forEach(title => {
+            const k = cardKey(title)
+            const existing = entryByKey.get(k)
+            if (existing) next[k] = existing.id
           })
           return next
         })
@@ -255,10 +300,31 @@ function DiscoverPage() {
     setCardStatus(prev => ({ ...prev, [key]: 'loading' }))
     try {
       const titleId = await api.findOrCreateTitle(title)
-      await api.addToWatchlist(selectedWatchlistId, titleId, status)
-      setCardStatus(prev => ({ ...prev, [key]: status }))
+      const created = await api.addToWatchlist(selectedWatchlistId, titleId, status)
+      setEntryIds(prev => ({ ...prev, [key]: created.id }))
+      setCardStatus(prev => ({ ...prev, [key]: created.status }))
     } catch {
       setCardStatus(prev => ({ ...prev, [key]: 'error' }))
+    }
+  }
+
+  function togglePicker(title: TitleSearchResponse) {
+    const key = cardKey(title)
+    setPickingKey(prev => (prev === key ? null : key))
+  }
+
+  async function handleChangeStatus(title: TitleSearchResponse, newStatus: WatchStatus) {
+    if (!selectedWatchlistId) return
+    const key = cardKey(title)
+    setPickingKey(null)
+    const entryId = entryIds[key]
+    const previous = cardStatus[key]
+    if (entryId == null || previous === newStatus) return
+    setCardStatus(prev => ({ ...prev, [key]: newStatus }))
+    try {
+      await api.updateWatchlistEntry(selectedWatchlistId, entryId, newStatus)
+    } catch {
+      setCardStatus(prev => ({ ...prev, [key]: previous }))
     }
   }
 
@@ -322,7 +388,10 @@ function DiscoverPage() {
                     key={cardKey(title)}
                     title={title}
                     status={cardStatus[cardKey(title)] ?? 'idle'}
+                    isPicking={pickingKey === cardKey(title)}
                     onAdd={handleAddToWatchlist}
+                    onChangeStatus={handleChangeStatus}
+                    onTogglePicker={togglePicker}
                     onOpen={openTitle}
                   />
                 ))}
@@ -356,7 +425,10 @@ function DiscoverPage() {
                     <ShelfRow
                       titles={dedupedTitles}
                       cardStatus={cardStatus}
+                      pickingKey={pickingKey}
                       onAdd={handleAddToWatchlist}
+                      onChangeStatus={handleChangeStatus}
+                      onTogglePicker={togglePicker}
                       onOpen={openTitle}
                     />
                   </div>
