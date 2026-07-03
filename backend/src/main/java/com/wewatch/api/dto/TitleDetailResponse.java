@@ -19,6 +19,8 @@ public record TitleDetailResponse(
 	String posterUrl,
 	String status,
 	List<String> genres,
+	Double voteAverage,
+	Integer voteCount,
 	Integer seasonCount,
 	List<SeasonSummaryResponse> seasons
 ) {

@@ -15,5 +15,7 @@ public record TmdbTvDetail(
 	String name,
 	String overview,
 	@JsonProperty("poster_path") String posterPath,
-	List<TmdbGenre> genres
+	List<TmdbGenre> genres,
+	@JsonProperty("vote_average") Double voteAverage,
+	@JsonProperty("vote_count") Integer voteCount
 ) {}

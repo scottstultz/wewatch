@@ -145,7 +145,8 @@ class TitleControllerTest {
 		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
-			List.of(new TmdbGenre(28, "Action"))
+			List.of(new TmdbGenre(28, "Action")),
+			8.2, 25000
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -187,7 +188,8 @@ class TitleControllerTest {
 			1399, 2, "Ended", "2011-04-17",
 			List.of(),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
-			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy"))
+			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
+			8.4, 21000
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -627,7 +629,8 @@ class TitleControllerTest {
 		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
-			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction"))
+			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
+			8.2, 25000
 		));
 
 		mockMvc.perform(get("/api/titles/detail")
@@ -646,6 +649,8 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.status").value("Released"))
 			.andExpect(jsonPath("$.genres.length()").value(2))
 			.andExpect(jsonPath("$.genres[0]").value("Action"))
+			.andExpect(jsonPath("$.voteAverage").value(8.2))
+			.andExpect(jsonPath("$.voteCount").value(25000))
 			.andExpect(jsonPath("$.seasonCount").doesNotExist())
 			.andExpect(jsonPath("$.seasons").doesNotExist());
 
@@ -662,7 +667,8 @@ class TitleControllerTest {
 				new TmdbTvSeason(3626, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
-			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy"))
+			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
+			8.4, 21000
 		));
 
 		mockMvc.perform(get("/api/titles/detail")
@@ -677,6 +683,8 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.posterUrl").value("https://image.tmdb.org/t/p/w500/got.jpg"))
 			.andExpect(jsonPath("$.status").value("Ended"))
 			.andExpect(jsonPath("$.genres[0]").value("Sci-Fi & Fantasy"))
+			.andExpect(jsonPath("$.voteAverage").value(8.4))
+			.andExpect(jsonPath("$.voteCount").value(21000))
 			.andExpect(jsonPath("$.seasonCount").value(2))
 			.andExpect(jsonPath("$.seasons.length()").value(2))
 			.andExpect(jsonPath("$.seasons[0].seasonNumber").value(1))

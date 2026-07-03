@@ -26,7 +26,10 @@ function TitleDetailPage() {
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
 
   const type = parseType(typeParam)
-  const hint = (location.state as { title?: TitleSearchResponse } | null)?.title ?? null
+  const navState = location.state as { title?: TitleSearchResponse; fromLibrary?: string } | null
+  const hint = navState?.title ?? null
+  // Set when the user navigated here from the Library — back returns to the same status tab.
+  const fromLibrary = navState?.fromLibrary ?? null
 
   const [detail, setDetail] = useState<TitleDetailResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -116,12 +119,19 @@ function TitleDetailPage() {
   const displayType = detail?.type ?? hint?.type ?? type
   const year = yearOf(detail?.releaseDate ?? hint?.releaseDate ?? null)
 
+  function goBack() {
+    if (fromLibrary) navigate(`/library?status=${fromLibrary}`)
+    else navigate(-1)
+  }
+
+  const backLabel = fromLibrary ? 'Library' : 'Back'
+
   if (error && !detail) {
     return (
       <div className="page">
         <p className="search-status search-status-error">{error}</p>
-        <button className="show-detail-back-btn" onClick={() => navigate(-1)}>
-          &#8592; Back
+        <button className="show-detail-back-btn" onClick={goBack}>
+          &#8592; {backLabel}
         </button>
       </div>
     )
@@ -133,10 +143,10 @@ function TitleDetailPage() {
         <div className="show-detail-header">
           <button
             className="show-detail-back-btn"
-            onClick={() => navigate(-1)}
-            aria-label="Back"
+            onClick={goBack}
+            aria-label={fromLibrary ? 'Back to Library' : 'Back'}
           >
-            &#8592; Back
+            &#8592; {backLabel}
           </button>
 
           <div className="show-detail-hero">
@@ -158,6 +168,9 @@ function TitleDetailPage() {
                 {detail?.status && <span>{detail.status}</span>}
                 {displayType === 'TV' && detail?.seasonCount != null && (
                   <span>{detail.seasonCount} {detail.seasonCount === 1 ? 'season' : 'seasons'}</span>
+                )}
+                {detail?.voteAverage != null && detail.voteAverage > 0 && (
+                  <span>★ {detail.voteAverage.toFixed(1)}</span>
                 )}
               </div>
 

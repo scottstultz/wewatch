@@ -64,7 +64,7 @@ class TmdbCacheServiceTest {
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
 			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
-			"Game of Thrones", null, null, List.of());
+			"Game of Thrones", null, null, List.of(), null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -82,7 +82,7 @@ class TmdbCacheServiceTest {
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
 		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
-		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of());
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);
@@ -128,7 +128,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of());
+			"Game of Thrones", null, null, List.of(), null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -209,7 +209,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1 (updated)", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of());
+			"Game of Thrones", null, null, List.of(), null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);

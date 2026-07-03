@@ -167,6 +167,30 @@ function LibraryPage() {
     m => m.userId === user?.id && m.role === 'OWNER'
   )
 
+  function openEntry(entry: WatchlistEntryResponse) {
+    if (entry.type === 'TV') {
+      navigate(`/library/${entry.id}?wl=${selectedWatchlistId}&status=${activeTab}`)
+    } else if (entry.type === 'MOVIE') {
+      navigate(
+        `/title/movie/${entry.externalSource}/${entry.externalId}`,
+        {
+          state: {
+            title: {
+              externalId: entry.externalId,
+              externalSource: entry.externalSource,
+              type: entry.type,
+              name: entry.name ?? '',
+              overview: null,
+              releaseDate: null,
+              posterUrl: entry.posterUrl,
+            },
+            fromLibrary: activeTab,
+          },
+        },
+      )
+    }
+  }
+
   const visible = activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab)
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
   const canRoll = activeTab === 'WATCHING' && watchingEntries.length >= 2
@@ -266,6 +290,7 @@ function LibraryPage() {
             {visible.map(entry => {
               const action = entryActions[entry.id]
               const isTv = entry.type === 'TV'
+              const clickable = entry.type === 'TV' || entry.type === 'MOVIE'
               return (
                 <article key={entry.id} className={`title-card${isTv ? ' title-card-tv' : ''}`}>
                   {entry.posterUrl ? (
@@ -274,14 +299,14 @@ function LibraryPage() {
                       src={entry.posterUrl}
                       alt={entry.name ?? undefined}
                       loading="lazy"
-                      onClick={isTv ? () => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`) : undefined}
-                      style={isTv ? { cursor: 'pointer' } : undefined}
+                      onClick={clickable ? () => openEntry(entry) : undefined}
+                      style={clickable ? { cursor: 'pointer' } : undefined}
                     />
                   ) : (
                     <div
                       className="title-poster title-poster-empty"
-                      onClick={isTv ? () => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`) : undefined}
-                      style={isTv ? { cursor: 'pointer' } : undefined}
+                      onClick={clickable ? () => openEntry(entry) : undefined}
+                      style={clickable ? { cursor: 'pointer' } : undefined}
                     />
                   )}
                   <div className="title-card-body">
@@ -293,7 +318,7 @@ function LibraryPage() {
                       <>
                         <button
                           className="title-episodes-link"
-                          onClick={() => navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)}
+                          onClick={() => openEntry(entry)}
                         >
                           {entry.episodeProgress
                             ? episodeProgressLabel(entry.episodeProgress)
@@ -355,7 +380,7 @@ function LibraryPage() {
           onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {
             setShowDice(false)
-            navigate(`/library/${entry.id}?wl=${selectedWatchlistId}`)
+            openEntry(entry)
           }}
         />
       )}

@@ -6,6 +6,7 @@ import type {
   EpisodeDetail,
   EpisodeProgress,
   SeasonSummary,
+  TitleDetailResponse,
   WatchlistEntryResponse,
 } from '../types/api'
 
@@ -32,6 +33,12 @@ function isFutureDate(dateStr: string | null): boolean {
   }
 }
 
+function yearOf(dateStr: string | null): string | null {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  return Number.isNaN(d.getTime()) ? null : String(d.getFullYear())
+}
+
 function ShowDetailPage() {
   const { entryId: entryIdParam } = useParams<{ entryId: string }>()
   const [searchParams] = useSearchParams()
@@ -42,10 +49,13 @@ function ShowDetailPage() {
 
   const watchlistId = Number(searchParams.get('wl')) || selectedWatchlistId
   const entryId = Number(entryIdParam)
+  const libraryTab = searchParams.get('status')
+  const libraryPath = libraryTab ? `/library?status=${libraryTab}` : '/library'
 
   // ── State ──────────────────────────────────────────────────
 
   const [entry, setEntry] = useState<WatchlistEntryResponse | null>(null)
+  const [detail, setDetail] = useState<TitleDetailResponse | null>(null)
   const [seasons, setSeasons] = useState<SeasonSummary[]>([])
   const [activeSeason, setActiveSeason] = useState<number | null>(null)
   const [episodes, setEpisodes] = useState<EpisodeDetail[]>([])
@@ -98,6 +108,20 @@ function ShowDetailPage() {
 
     return () => { cancelled = true }
   }, [api, watchlistId, entryId, navigate])
+
+  // ── Load title details once we have the entry ─────────────
+  // Details enrich the header; the tracker still works if this fails.
+
+  useEffect(() => {
+    if (!entry) return
+    let cancelled = false
+
+    api.getTitleDetail(entry.externalSource, entry.externalId, 'TV')
+      .then(data => { if (!cancelled) setDetail(data) })
+      .catch(() => { /* leave the header un-enriched */ })
+
+    return () => { cancelled = true }
+  }, [api, entry])
 
   // ── Load seasons once we have the entry ────────────────────
 
@@ -320,7 +344,7 @@ function ShowDetailPage() {
     return (
       <div className="page">
         <p className="search-status search-status-error">{error}</p>
-        <button className="show-detail-back-btn" onClick={() => navigate('/library')}>
+        <button className="show-detail-back-btn" onClick={() => navigate(libraryPath)}>
           Back to Library
         </button>
       </div>
@@ -338,7 +362,7 @@ function ShowDetailPage() {
         <div className="show-detail-header">
           <button
             className="show-detail-back-btn"
-            onClick={() => navigate('/library')}
+            onClick={() => navigate(libraryPath)}
             aria-label="Back to Library"
           >
             &#8592; Library
@@ -355,6 +379,24 @@ function ShowDetailPage() {
             <div className="show-detail-info">
               <span className="title-type-badge">TV Show</span>
               <h2 className="show-detail-title">{entry.name}</h2>
+
+              {detail && (
+                <div className="title-detail-meta">
+                  {yearOf(detail.releaseDate) && <span>{yearOf(detail.releaseDate)}</span>}
+                  {detail.status && <span>{detail.status}</span>}
+                  {detail.voteAverage != null && detail.voteAverage > 0 && (
+                    <span>★ {detail.voteAverage.toFixed(1)}</span>
+                  )}
+                </div>
+              )}
+
+              {detail && detail.genres.length > 0 && (
+                <div className="title-detail-genres">
+                  {detail.genres.map(g => (
+                    <span key={g} className="title-detail-genre-chip">{g}</span>
+                  ))}
+                </div>
+              )}
 
               {!isLoadingSeasons && totalEpisodes > 0 && (
                 <div className="show-detail-progress-section">
@@ -373,6 +415,14 @@ function ShowDetailPage() {
           </div>
         </div>
       </section>
+
+      {/* Overview */}
+      {detail?.overview && (
+        <section className="panel">
+          <h3>Overview</h3>
+          <p>{detail.overview}</p>
+        </section>
+      )}
 
       {/* Season tabs */}
       {isLoadingSeasons ? (
