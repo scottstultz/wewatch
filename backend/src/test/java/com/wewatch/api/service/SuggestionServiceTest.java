@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -33,6 +34,7 @@ import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
@@ -148,6 +150,81 @@ class SuggestionServiceTest {
 	}
 
 	@Test
+	void watchedTitlesContributeToGenreProfileScoring() {
+		// One WATCHING seed with no cached metadata, one WATCHED entry whose cached
+		// genre (99) is the only source for the taste profile
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of("ext2", cacheRow("ext2", List.of(99), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(new TitleSearchResponse("rec-hit", "TMDB", TitleType.TV, "Hit",
+			null, null, null, List.of(99)));
+		IntStream.rangeClosed(1, 11).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		// Only the WATCHING entry seeds a shelf, but the WATCHED entry's genre
+		// ranks the matching candidate first
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).reason()).isEqualTo("Because you added Show 1");
+		assertThat(shelves.get(0).titles().get(0).externalId()).isEqualTo("rec-hit");
+	}
+
+	@Test
+	void watchedTitlesAreNotSelectedAsSeeds() {
+		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> entry(i, "ext" + i, WatchStatus.WATCHED))
+			.toList();
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).isEmpty();
+		verify(tmdbClient, never()).getRecommendations(any(), anyString(), anyInt());
+	}
+
+	@Test
+	void keywordMatchesRankAboveGenreOnlyMatches() {
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		// The owned title carries genre 10 and keyword 7; one candidate has a cache
+		// row sharing keyword 7
+		stubCacheRows(Map.of(
+			"ext1", cacheRow("ext1", List.of(10), List.of(7)),
+			"rec-keyword", cacheRow("rec-keyword", List.of(10), List.of(7))));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(new TitleSearchResponse("rec-genre", "TMDB", TitleType.TV, "Genre only",
+			null, null, null, List.of(10)));
+		candidates.add(new TitleSearchResponse("rec-keyword", "TMDB", TitleType.TV, "Keyword match",
+			null, null, null, List.of(10)));
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		// Both share genre 10 with the profile; the shared keyword breaks the tie
+		assertThat(shelves).hasSize(1);
+		List<TitleSearchResponse> shelf = shelves.get(0).titles();
+		assertThat(shelf.get(0).externalId()).isEqualTo("rec-keyword");
+		assertThat(shelf.get(1).externalId()).isEqualTo("rec-genre");
+	}
+
+	@Test
 	void emptyDeeperPageFallsBackToPageOne() {
 		stubPopulatedWatchlist();
 		// Deeper pages are empty; only page 1 has results
@@ -164,15 +241,40 @@ class SuggestionServiceTest {
 	}
 
 	private WatchlistEntry entry(long id, String externalId) {
+		return entry(id, externalId, WatchStatus.WATCHING);
+	}
+
+	private WatchlistEntry entry(long id, String externalId, WatchStatus status) {
 		WatchlistEntry e = new WatchlistEntry();
 		e.setId(id);
 		e.setWatchlistId(WATCHLIST_ID);
 		e.setTitleId(id);
 		e.setExternalId(externalId);
 		e.setExternalSource("TMDB");
-		e.setStatus(WatchStatus.WATCHING);
+		e.setStatus(status);
 		e.setUpdatedAt(Instant.parse("2026-07-01T00:00:00Z"));
 		return e;
+	}
+
+	private TmdbTitleCache cacheRow(String tmdbId, List<Integer> genreIds, List<Integer> keywordIds) {
+		TmdbTitleCache c = new TmdbTitleCache();
+		c.setTmdbId(tmdbId);
+		c.setGenreIds(genreIds);
+		c.setKeywordIds(keywordIds);
+		return c;
+	}
+
+	// Answer-based stub: findAllById is called once for owned ids and once per seed
+	// for candidate ids, so return whichever of the given rows were requested
+	private void stubCacheRows(Map<String, TmdbTitleCache> rows) {
+		when(tmdbTitleCacheRepository.findAllById(any())).thenAnswer(inv -> {
+			Iterable<String> ids = inv.getArgument(0);
+			List<TmdbTitleCache> out = new ArrayList<>();
+			for (String id : ids) {
+				if (rows.containsKey(id)) out.add(rows.get(id));
+			}
+			return out;
+		});
 	}
 
 	private Title title(long id, String externalId) {
