@@ -10,6 +10,9 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.wewatch.api.model.EpisodeProgress;
+import com.wewatch.api.repository.projection.EpisodeProgressCounts;
+import com.wewatch.api.repository.projection.LastWatchedEpisode;
+import com.wewatch.api.repository.projection.NextEpisode;
 
 public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress, Long> {
 
@@ -23,15 +26,17 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 
 	long countByWatchlistEntryIdAndWatchedTrue(Long watchlistEntryId);
 
-	@Query("SELECT ep.watchlistEntryId, COUNT(ep), SUM(CASE WHEN ep.watched = true THEN 1 ELSE 0 END) " +
+	@Query("SELECT ep.watchlistEntryId AS entryId, COUNT(ep) AS total, " +
+		"SUM(CASE WHEN ep.watched = true THEN 1 ELSE 0 END) AS watched " +
 		"FROM EpisodeProgress ep WHERE ep.watchlistEntryId IN :entryIds GROUP BY ep.watchlistEntryId")
-	List<Object[]> summarizeByEntryIds(@Param("entryIds") List<Long> entryIds);
+	List<EpisodeProgressCounts> summarizeByEntryIds(@Param("entryIds") List<Long> entryIds);
 
-	@Query("SELECT ep.watchlistEntryId, ep.seasonNumber, ep.episodeNumber FROM EpisodeProgress ep " +
+	@Query("SELECT ep.watchlistEntryId AS entryId, ep.seasonNumber AS seasonNumber, " +
+		"ep.episodeNumber AS episodeNumber FROM EpisodeProgress ep " +
 		"WHERE ep.watched = true AND ep.watchlistEntryId IN :entryIds " +
 		"AND ep.watchedAt = (SELECT MAX(ep2.watchedAt) FROM EpisodeProgress ep2 " +
 		"WHERE ep2.watchlistEntryId = ep.watchlistEntryId AND ep2.watched = true)")
-	List<Object[]> findLastWatchedByEntryIds(@Param("entryIds") List<Long> entryIds);
+	List<LastWatchedEpisode> findLastWatchedByEntryIds(@Param("entryIds") List<Long> entryIds);
 
 	@Query(nativeQuery = true, value = """
 		WITH episode_order AS (
@@ -59,13 +64,14 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		    WHERE ep.watched = true
 		    GROUP BY eo.watchlist_entry_id
 		)
-		SELECT eo.watchlist_entry_id, eo.season_number, eo.episode_number,
-		       eo.name, eo.air_date, eo.runtime_minutes
+		SELECT eo.watchlist_entry_id AS entryId, eo.season_number AS seasonNumber,
+		       eo.episode_number AS episodeNumber, eo.name AS name,
+		       eo.air_date AS airDate, eo.runtime_minutes AS runtimeMinutes
 		FROM episode_order eo
 		JOIN last_watched_pos lw ON lw.watchlist_entry_id = eo.watchlist_entry_id
 		WHERE eo.pos = lw.max_pos + 1
 		""")
-	List<Object[]> findNextEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
+	List<NextEpisode> findNextEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
 
 	@Modifying
 	@Query("UPDATE EpisodeProgress ep SET ep.watched = :watched, ep.watchedAt = :watchedAt " +
