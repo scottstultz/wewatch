@@ -187,7 +187,7 @@ public class TmdbClient {
 	private TitleSearchResponse toResponse(TmdbItem item, TitleType type) {
 		String name = type == TitleType.MOVIE ? item.title() : item.name();
 		String dateStr = type == TitleType.MOVIE ? item.releaseDate() : item.firstAirDate();
-		LocalDate releaseDate = (dateStr != null && !dateStr.isBlank()) ? LocalDate.parse(dateStr) : null;
+		LocalDate releaseDate = TmdbDates.parse(dateStr);
 		String posterUrl = item.posterPath() != null ? POSTER_BASE_URL + item.posterPath() : null;
 
 		return new TitleSearchResponse(

@@ -136,6 +136,40 @@ class TmdbClientTest {
 			.containsExactly("Inception", "Breaking Bad");
 	}
 
+	private static final String MALFORMED_DATE_JSON = """
+		{
+		  "results": [
+		    {
+		      "id": 27205,
+		      "title": "Inception",
+		      "overview": "A thief who steals corporate secrets.",
+		      "release_date": "2010-07-16",
+		      "poster_path": "/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg"
+		    },
+		    {
+		      "id": 99999,
+		      "title": "Obscure Film",
+		      "overview": "A film with bad catalog data.",
+		      "release_date": "2010-7-16",
+		      "poster_path": null
+		    }
+		  ]
+		}
+		""";
+
+	@Test
+	void searchDegradesMalformedDateToNullWithoutFailingOtherResults() {
+		server.expect(requestTo(containsString("/3/search/movie")))
+			.andRespond(withSuccess(MALFORMED_DATE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.search("inception", TitleType.MOVIE);
+
+		assertThat(results).hasSize(2);
+		assertThat(results.get(0).releaseDate().toString()).isEqualTo("2010-07-16");
+		assertThat(results.get(1).name()).isEqualTo("Obscure Film");
+		assertThat(results.get(1).releaseDate()).isNull();
+	}
+
 	@Test
 	void searchReturnsEmptyListWhenNoResults() {
 		server.expect(requestTo(containsString("/3/search/multi")))

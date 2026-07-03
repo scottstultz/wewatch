@@ -1,6 +1,5 @@
 package com.wewatch.api.controller;
 
-import java.time.LocalDate;
 import java.util.List;
 
 import jakarta.validation.Valid;
@@ -27,6 +26,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbTvDetail;
@@ -135,7 +135,7 @@ public class TitleController {
 				TitleType.MOVIE,
 				detail.title(),
 				detail.overview(),
-				parseDate(detail.releaseDate()),
+				TmdbDates.parse(detail.releaseDate()),
 				TmdbClient.posterUrl(detail.posterPath()),
 				null,
 				null
@@ -149,15 +149,11 @@ public class TitleController {
 			TitleType.TV,
 			detail.name(),
 			detail.overview(),
-			parseDate(detail.firstAirDate()),
+			TmdbDates.parse(detail.firstAirDate()),
 			TmdbClient.posterUrl(detail.posterPath()),
 			null,
 			null
 		);
-	}
-
-	private LocalDate parseDate(String value) {
-		return (value != null && !value.isBlank()) ? LocalDate.parse(value) : null;
 	}
 
 	@GetMapping
