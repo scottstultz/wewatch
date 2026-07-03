@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -52,6 +53,9 @@ public class SuggestionService {
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
 	private static final int MAX_FETCH_PAGE = 3;
+	// A shared keyword is a much stronger similarity signal than a shared genre,
+	// which only ever contributes profileWeight (1–2) per genre
+	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final TitleService titleService;
@@ -113,7 +117,7 @@ public class SuggestionService {
 			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
 
 		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId);
-		List<Integer> keywordProfile = buildKeywordProfile(cacheByTmdbId.values());
+		Set<Integer> keywordProfile = buildKeywordProfile(cacheByTmdbId.values());
 
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
@@ -139,7 +143,7 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, rng);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
@@ -211,8 +215,9 @@ public class SuggestionService {
 		return shelves;
 	}
 
-	// Fetch candidates from recommendations + similar top-up, then score by genre affinity
-	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Random rng) {
+	// Fetch candidates from recommendations + similar top-up, then score by genre
+	// affinity plus a boost per shared keyword
+	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
 		// One page draw per seed, shared by recommendations and similar, so RNG
 		// consumption doesn't depend on how many results TMDB happens to return
 		int page = 1 + rng.nextInt(MAX_FETCH_PAGE);
@@ -235,14 +240,31 @@ public class SuggestionService {
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		// Shuffle before the stable score sort: candidates with equal genre scores
+		// Shuffle before the stable score sort: candidates with equal scores
 		// keep the shuffled order, so ties rotate day to day
 		Collections.shuffle(deduped, rng);
 
-		if (genreProfile.isEmpty()) return deduped;
+		Map<String, Double> keywordBoosts = keywordBoosts(deduped, keywordProfile);
+		if (genreProfile.isEmpty() && keywordBoosts.isEmpty()) return deduped;
 
-		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) -> genreScore(r, genreProfile)).reversed());
+		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
+			genreScore(r, genreProfile) + keywordBoosts.getOrDefault(r.externalId(), 0.0)).reversed());
 		return deduped;
+	}
+
+	// TMDB recommendations/similar responses carry no keywords, so candidate keywords
+	// come from tmdb_title_cache: candidates without a cache row get no boost —
+	// a partial signal, but one batch DB read instead of a TMDB call per candidate
+	private Map<String, Double> keywordBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile) {
+		if (keywordProfile.isEmpty() || candidates.isEmpty()) return Map.of();
+		List<String> ids = candidates.stream().map(TitleSearchResponse::externalId).toList();
+		Map<String, Double> boosts = new HashMap<>();
+		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
+			if (cached.getKeywordIds() == null) continue;
+			long matches = cached.getKeywordIds().stream().filter(keywordProfile::contains).count();
+			if (matches > 0) boosts.put(cached.getTmdbId(), KEYWORD_MATCH_WEIGHT * matches);
+		}
+		return boosts;
 	}
 
 	// Deeper pages can be empty (few recommendations, thin discover results) — fall
@@ -285,7 +307,7 @@ public class SuggestionService {
 			if (t == null || t.getExternalId() == null) continue;
 			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
 			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = statusWeight(e.getStatus());
+			double weight = profileWeight(e.getStatus());
 			for (int genreId : cached.getGenreIds()) {
 				profile.merge(genreId, weight, Double::sum);
 			}
@@ -293,7 +315,7 @@ public class SuggestionService {
 		return profile;
 	}
 
-	private List<Integer> buildKeywordProfile(java.util.Collection<TmdbTitleCache> caches) {
+	private Set<Integer> buildKeywordProfile(Collection<TmdbTitleCache> caches) {
 		Map<Integer, Integer> freq = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
 			if (c.getKeywordIds() == null) continue;
@@ -303,14 +325,16 @@ public class SuggestionService {
 			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
 			.limit(MAX_KEYWORDS)
 			.map(Map.Entry::getKey)
-			.toList();
+			.collect(Collectors.toSet());
 	}
 
-	private int statusWeight(WatchStatus status) {
+	// Taste-profile weights only. Seed eligibility is a separate filter in compute
+	// (WATCHING / WANT_TO_WATCH): finished titles shape the profile — finishing is
+	// the strongest completed-interest signal — but don't get per-seed shelves
+	private int profileWeight(WatchStatus status) {
 		return switch (status) {
-			case WATCHING -> 2;
+			case WATCHING, WATCHED -> 2;
 			case WANT_TO_WATCH -> 1;
-			case WATCHED -> 0;
 		};
 	}
 }
