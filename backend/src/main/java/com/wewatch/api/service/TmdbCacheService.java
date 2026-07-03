@@ -14,9 +14,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.model.TmdbEpisodeCache;
+import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
+import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbGenre;
@@ -32,26 +34,29 @@ public class TmdbCacheService {
 
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository titleCacheRepository;
+	private final TmdbSeasonCacheRepository seasonCacheRepository;
 	private final TmdbEpisodeCacheRepository episodeCacheRepository;
 	private final long ttlDays;
 
 	public TmdbCacheService(
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository titleCacheRepository,
+		TmdbSeasonCacheRepository seasonCacheRepository,
 		TmdbEpisodeCacheRepository episodeCacheRepository,
 		@Value("${tmdb.cache.ttl-days:7}") long ttlDays
 	) {
 		this.tmdbClient = tmdbClient;
 		this.titleCacheRepository = titleCacheRepository;
+		this.seasonCacheRepository = seasonCacheRepository;
 		this.episodeCacheRepository = episodeCacheRepository;
 		this.ttlDays = ttlDays;
 	}
 
 	@Transactional
 	public List<TmdbTvSeason> getSeasons(String tmdbId) {
-		Optional<TmdbTitleCache> cached = titleCacheRepository.findByTmdbId(tmdbId);
-		if (cached.isPresent() && !isStale(cached.get().getFetchedAt())) {
-			return realSeasons(tmdbClient.getSeasons(tmdbId));
+		List<TmdbSeasonCache> cachedSeasons = seasonCacheRepository.findByTmdbId(tmdbId);
+		if (!cachedSeasons.isEmpty() && !isStale(cachedSeasons.get(0).getFetchedAt())) {
+			return realSeasons(toTvSeasons(cachedSeasons));
 		}
 		TmdbTvDetail detail = tmdbClient.getTvDetail(tmdbId);
 		upsertTvCache(tmdbId, detail);
@@ -145,6 +150,42 @@ public class TmdbCacheService {
 		}
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
+		upsertSeasonCache(tmdbId, detail.seasons());
+	}
+
+	private void upsertSeasonCache(String tmdbId, List<TmdbTvSeason> seasons) {
+		if (seasons == null) return;
+		Instant now = Instant.now();
+		for (TmdbTvSeason season : seasons) {
+			TmdbSeasonCache row = seasonCacheRepository
+				.findByTmdbIdAndSeasonNumber(tmdbId, season.seasonNumber())
+				.orElse(new TmdbSeasonCache());
+			row.setTmdbId(tmdbId);
+			row.setSeasonNumber(season.seasonNumber());
+			row.setName(season.name());
+			row.setOverview(season.overview());
+			row.setPosterPath(season.posterPath());
+			row.setEpisodeCount(season.episodeCount());
+			row.setAirDate(parseDate(season.airDate()));
+			row.setFetchedAt(now);
+			seasonCacheRepository.save(row);
+		}
+	}
+
+	private List<TmdbTvSeason> toTvSeasons(List<TmdbSeasonCache> cachedSeasons) {
+		return cachedSeasons.stream()
+			.sorted((a, b) -> Integer.compare(a.getSeasonNumber(), b.getSeasonNumber()))
+			.map(s -> new TmdbTvSeason(
+				0L,
+				s.getSeasonNumber(),
+				s.getName(),
+				s.getOverview(),
+				s.getPosterPath(),
+				s.getEpisodeCount(),
+				s.getAirDate() != null ? s.getAirDate().toString() : null,
+				null
+			))
+			.toList();
 	}
 
 	private void upsertMovieCache(String tmdbId, TmdbMovieDetail detail) {
