@@ -1,12 +1,10 @@
 package com.wewatch.api.controller;
 
 import java.net.URI;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import java.sql.Date;
 
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -33,9 +31,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
-import com.wewatch.api.model.TmdbTitleCache;
-import com.wewatch.api.repository.EpisodeProgressRepository;
-import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.service.EpisodeProgressSummaryService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
@@ -49,26 +45,23 @@ public class WatchlistEntryController {
 	private final WatchlistEntryService watchlistEntryService;
 	private final TitleService titleService;
 	private final WatchlistService watchlistService;
-	private final EpisodeProgressRepository episodeProgressRepository;
+	private final EpisodeProgressSummaryService episodeProgressSummaryService;
 	private final TmdbCacheService tmdbCacheService;
-	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	private final SuggestionService suggestionService;
 
 	public WatchlistEntryController(
 		WatchlistEntryService watchlistEntryService,
 		TitleService titleService,
 		WatchlistService watchlistService,
-		EpisodeProgressRepository episodeProgressRepository,
+		EpisodeProgressSummaryService episodeProgressSummaryService,
 		TmdbCacheService tmdbCacheService,
-		TmdbTitleCacheRepository tmdbTitleCacheRepository,
 		SuggestionService suggestionService
 	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
 		this.watchlistService = watchlistService;
-		this.episodeProgressRepository = episodeProgressRepository;
+		this.episodeProgressSummaryService = episodeProgressSummaryService;
 		this.tmdbCacheService = tmdbCacheService;
-		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
 		this.suggestionService = suggestionService;
 	}
 
@@ -123,8 +116,8 @@ public class WatchlistEntryController {
 				return t != null && t.getType() == TitleType.TV;
 			})
 			.forEach(e -> tvEntryExternalIds.put(e.getId(), titlesById.get(e.getTitleId()).getExternalId()));
-		Map<Long, EpisodeProgressSummary> summaries = buildSummaries(
-			new java.util.ArrayList<>(tvEntryExternalIds.keySet()), tvEntryExternalIds);
+		Map<Long, EpisodeProgressSummary> summaries =
+			episodeProgressSummaryService.buildSummaries(tvEntryExternalIds);
 
 		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId())));
 	}
@@ -138,13 +131,7 @@ public class WatchlistEntryController {
 		watchlistService.requireMember(watchlistId, caller.getId());
 		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		Title title = titleService.findById(entry.getTitleId());
-		EpisodeProgressSummary summary = null;
-		if (title != null && title.getType() == TitleType.TV) {
-			Map<Long, String> extIds = Map.of(entry.getId(), title.getExternalId());
-			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(entry.getId()), extIds);
-			summary = summaries.get(entry.getId());
-		}
-		return toResponse(entry, title, summary);
+		return toResponse(entry, title, summaryForSingleEntry(entry, title));
 	}
 
 	@PatchMapping("/{entryId}")
@@ -169,13 +156,7 @@ public class WatchlistEntryController {
 		// invoked after the update so shelves aren't rebuilt from the pre-update status (#198)
 		suggestionService.recompute(watchlistId);
 		Title title = titleService.findById(updated.getTitleId());
-		EpisodeProgressSummary summary = null;
-		if (title != null && title.getType() == TitleType.TV) {
-			Map<Long, String> extIds = Map.of(updated.getId(), title.getExternalId());
-			Map<Long, EpisodeProgressSummary> summaries = buildSummaries(List.of(updated.getId()), extIds);
-			summary = summaries.get(updated.getId());
-		}
-		return toResponse(updated, title, summary);
+		return toResponse(updated, title, summaryForSingleEntry(updated, title));
 	}
 
 	@DeleteMapping("/{entryId}")
@@ -190,80 +171,13 @@ public class WatchlistEntryController {
 		return ResponseEntity.noContent().build();
 	}
 
-	private Map<Long, EpisodeProgressSummary> buildSummaries(List<Long> entryIds, Map<Long, String> entryExternalIds) {
-		if (entryIds.isEmpty()) {
-			return Collections.emptyMap();
+	private EpisodeProgressSummary summaryForSingleEntry(WatchlistEntry entry, Title title) {
+		if (title == null || title.getType() != TitleType.TV) {
+			return null;
 		}
-		Map<Long, long[]> counts = new HashMap<>();
-		for (Object[] row : episodeProgressRepository.summarizeByEntryIds(entryIds)) {
-			Long entryId = (Long) row[0];
-			long total = (Long) row[1];
-			long watched = (Long) row[2];
-			counts.put(entryId, new long[] { total, watched });
-		}
-
-		Map<Long, int[]> lastWatched = new HashMap<>();
-		for (Object[] row : episodeProgressRepository.findLastWatchedByEntryIds(entryIds)) {
-			Long entryId = (Long) row[0];
-			int season = (Integer) row[1];
-			int episode = (Integer) row[2];
-			lastWatched.put(entryId, new int[] { season, episode });
-		}
-
-		Map<Long, Object[]> nextEpisode = new HashMap<>();
-		for (Object[] row : episodeProgressRepository.findNextEpisodeByEntryIds(entryIds)) {
-			Long entryId = ((Number) row[0]).longValue();
-			nextEpisode.put(entryId, row);
-		}
-
-		Map<Long, EpisodeProgressSummary> result = new HashMap<>();
-		for (Map.Entry<Long, long[]> e : counts.entrySet()) {
-			long watched = e.getValue()[1];
-			if (watched == 0) continue;
-			int[] lw = lastWatched.get(e.getKey());
-			Object[] next = nextEpisode.get(e.getKey());
-			result.put(e.getKey(), new EpisodeProgressSummary(
-				watched,
-				lw != null ? lw[0] : null,
-				lw != null ? lw[1] : null,
-				next != null ? ((Number) next[1]).intValue() : null,
-				next != null ? ((Number) next[2]).intValue() : null,
-				next != null ? (String) next[3] : null,
-				next != null && next[4] != null
-					? ((Date) next[4]).toLocalDate() : null,
-				next != null && next[5] != null
-					? ((Number) next[5]).intValue() : null,
-				null
-			));
-		}
-
-		List<String> caughtUpTmdbIds = result.entrySet().stream()
-			.filter(e -> e.getValue().nextSeason() == null)
-			.map(e -> entryExternalIds.get(e.getKey()))
-			.filter(id -> id != null)
-			.distinct()
-			.collect(Collectors.toList());
-		Map<String, String> statusByTmdbId = new HashMap<>();
-		if (!caughtUpTmdbIds.isEmpty()) {
-			tmdbTitleCacheRepository.findAllById(caughtUpTmdbIds)
-				.forEach(c -> statusByTmdbId.put(c.getTmdbId(), c.getStatus()));
-		}
-
-		for (Map.Entry<Long, EpisodeProgressSummary> e : result.entrySet()) {
-			if (e.getValue().nextSeason() != null) continue;
-			String tmdbId = entryExternalIds.get(e.getKey());
-			String status = tmdbId != null ? statusByTmdbId.get(tmdbId) : null;
-			if (status != null) {
-				EpisodeProgressSummary old = e.getValue();
-				e.setValue(new EpisodeProgressSummary(
-					old.watchedCount(), old.lastWatchedSeason(), old.lastWatchedEpisode(),
-					old.nextSeason(), old.nextEpisode(), old.nextEpisodeName(),
-					old.nextAirDate(), old.nextRuntimeMinutes(), status
-				));
-			}
-		}
-
-		return result;
+		Map<Long, EpisodeProgressSummary> summaries = episodeProgressSummaryService
+			.buildSummaries(Map.of(entry.getId(), title.getExternalId()));
+		return summaries.get(entry.getId());
 	}
 
 	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary) {

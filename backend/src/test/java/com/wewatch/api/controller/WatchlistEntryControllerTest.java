@@ -18,8 +18,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.sql.Date;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -40,6 +40,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
+import com.wewatch.api.dto.EpisodeProgressSummary;
 import com.wewatch.api.exception.DuplicateWatchlistEntryException;
 import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.model.Title;
@@ -47,11 +48,9 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
-import com.wewatch.api.model.TmdbTitleCache;
-import com.wewatch.api.repository.EpisodeProgressRepository;
-import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.EpisodeProgressSummaryService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
@@ -80,13 +79,10 @@ class WatchlistEntryControllerTest {
 	private WatchlistService watchlistService;
 
 	@MockBean
-	private EpisodeProgressRepository episodeProgressRepository;
+	private EpisodeProgressSummaryService episodeProgressSummaryService;
 
 	@MockBean
 	private TmdbCacheService tmdbCacheService;
-
-	@MockBean
-	private TmdbTitleCacheRepository tmdbTitleCacheRepository;
 
 	@MockBean
 	private SuggestionService suggestionService;
@@ -569,12 +565,10 @@ class WatchlistEntryControllerTest {
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(tvEntry)));
 		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
-		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 12L, 8L }));
-		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 2, 5 }));
-		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
-			.thenReturn(List.of());
+		when(episodeProgressSummaryService.buildSummaries(Map.of(5L, "1399")))
+			.thenReturn(Map.of(5L, new EpisodeProgressSummary(
+				8, 2, 5, null, null, null, null, null, null
+			)));
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
@@ -596,15 +590,11 @@ class WatchlistEntryControllerTest {
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(tvEntry)));
 		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
-		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 10L, 10L }));
-		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 1, 10 }));
-		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] {
-				5L, 2, 1, "The North Remembers",
-				java.sql.Date.valueOf("2012-04-01"), 57
-			}));
+		when(episodeProgressSummaryService.buildSummaries(Map.of(5L, "1399")))
+			.thenReturn(Map.of(5L, new EpisodeProgressSummary(
+				10, 1, 10, 2, 1, "The North Remembers",
+				LocalDate.parse("2012-04-01"), 57, null
+			)));
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
@@ -624,14 +614,10 @@ class WatchlistEntryControllerTest {
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(tvEntry)));
 		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
-		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 5L, 3L }));
-		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 1, 3 }));
-		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] {
-				5L, 1, 4, "Episode 4", null, 45
-			}));
+		when(episodeProgressSummaryService.buildSummaries(Map.of(5L, "1399")))
+			.thenReturn(Map.of(5L, new EpisodeProgressSummary(
+				3, 1, 3, 1, 4, "Episode 4", null, 45, null
+			)));
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
@@ -652,17 +638,10 @@ class WatchlistEntryControllerTest {
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(tvEntry)));
 		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
-		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 73L, 73L }));
-		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
-			.thenReturn(List.<Object[]>of(new Object[] { 5L, 8, 6 }));
-		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
-			.thenReturn(List.of());
-		TmdbTitleCache cached = new TmdbTitleCache();
-		cached.setTmdbId("1399");
-		cached.setStatus("Ended");
-		when(tmdbTitleCacheRepository.findAllById(List.of("1399")))
-			.thenReturn(List.of(cached));
+		when(episodeProgressSummaryService.buildSummaries(Map.of(5L, "1399")))
+			.thenReturn(Map.of(5L, new EpisodeProgressSummary(
+				73, 8, 6, null, null, null, null, null, "Ended"
+			)));
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
@@ -681,12 +660,8 @@ class WatchlistEntryControllerTest {
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(tvEntry)));
 		when(titleService.findByIds(any())).thenReturn(Map.of(30L, TV_TITLE));
-		when(episodeProgressRepository.summarizeByEntryIds(List.of(5L)))
-			.thenReturn(List.of());
-		when(episodeProgressRepository.findLastWatchedByEntryIds(List.of(5L)))
-			.thenReturn(List.of());
-		when(episodeProgressRepository.findNextEpisodeByEntryIds(List.of(5L)))
-			.thenReturn(List.of());
+		when(episodeProgressSummaryService.buildSummaries(Map.of(5L, "1399")))
+			.thenReturn(Map.of());
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
