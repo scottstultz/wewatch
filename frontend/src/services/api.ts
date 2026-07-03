@@ -225,10 +225,23 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
     // ── Watchlist entries ────────────────────────────────────
 
     async getWatchlistEntries(watchlistId: number): Promise<WatchlistEntryResponse[]> {
-      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/entries?size=200`)
-      if (!response.ok) throw new Error(`Failed to fetch watchlist entries: ${response.status}`)
-      const page = (await response.json()) as { content: WatchlistEntryResponse[] }
-      return page.content
+      const entries: WatchlistEntryResponse[] = []
+      let page = 0
+      let totalPages: number
+      do {
+        const response = await authedFetch(
+          `${BASE_URL}/watchlists/${watchlistId}/entries?page=${page}&size=200`,
+        )
+        if (!response.ok) throw new Error(`Failed to fetch watchlist entries: ${response.status}`)
+        const body = (await response.json()) as {
+          content: WatchlistEntryResponse[]
+          totalPages: number
+        }
+        entries.push(...body.content)
+        totalPages = body.totalPages
+        page += 1
+      } while (page < totalPages)
+      return entries
     },
 
     async addToWatchlist(
