@@ -18,6 +18,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -48,6 +49,7 @@ class SuggestionServiceTest {
 	@Mock private TitleService titleService;
 	@Mock private TmdbClient tmdbClient;
 	@Mock private TmdbTitleCacheRepository tmdbTitleCacheRepository;
+	@Mock private SuggestionImpressionService suggestionImpressionService;
 
 	private static final long WATCHLIST_ID = 42L;
 	private static final Instant DAY_1 = Instant.parse("2026-07-03T12:00:00Z");
@@ -56,7 +58,7 @@ class SuggestionServiceTest {
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
 			watchlistEntryRepository, titleService, tmdbClient, tmdbTitleCacheRepository,
-			Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
+			suggestionImpressionService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
 	}
 
 	private void stubEmptyWatchlist() {
@@ -222,6 +224,74 @@ class SuggestionServiceTest {
 		List<TitleSearchResponse> shelf = shelves.get(0).titles();
 		assertThat(shelf.get(0).externalId()).isEqualTo("rec-keyword");
 		assertThat(shelf.get(1).externalId()).isEqualTo("rec-genre");
+	}
+
+	@Test
+	void recentlyShownTitlesAreExcludedFromShelves() {
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		// Suppress one candidate per potential seed; plenty of fresh ones remain
+		Set<String> suppressed = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> "rec-ext" + i + "-1")
+			.collect(Collectors.toSet());
+		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).isNotEmpty();
+		assertThat(shelves).allSatisfy(shelf ->
+			assertThat(shelf.titles()).noneMatch(t -> suppressed.contains(t.externalId())));
+	}
+
+	@Test
+	void suppressionRelaxesToKeepTheShelfAtMinimumSize() {
+		// One seed with five candidates, three of them recently shown: only two are
+		// fresh, so one suppressed title must come back to reach MIN_SHELF_SIZE
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
+		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
+		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		List<String> shelfIds = shelves.get(0).titles().stream()
+			.map(TitleSearchResponse::externalId).toList();
+		// Both fresh candidates plus exactly one suppressed top-up
+		assertThat(shelfIds).hasSize(3);
+		assertThat(shelfIds).contains("rec-4", "rec-5");
+		assertThat(shelfIds.stream().filter(suppressed::contains)).hasSize(1);
+	}
+
+	@Test
+	void computedShelvesAreRecordedAsImpressions() {
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		Set<String> shownIds = shelves.stream()
+			.flatMap(s -> s.titles().stream())
+			.map(TitleSearchResponse::externalId)
+			.collect(Collectors.toSet());
+		assertThat(shownIds).isNotEmpty();
+		verify(suggestionImpressionService).recordShown(WATCHLIST_ID, shownIds);
+	}
+
+	@Test
+	void emptyWatchlistRecordsNoImpressions() {
+		stubEmptyWatchlist();
+
+		assertThat(serviceAt(DAY_1).topPicks(WATCHLIST_ID)).isEmpty();
+
+		verify(suggestionImpressionService, never()).recordShown(any(), any());
 	}
 
 	@Test

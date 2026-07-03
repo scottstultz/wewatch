@@ -61,6 +61,7 @@ public class SuggestionService {
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
+	private final SuggestionImpressionService suggestionImpressionService;
 	private final Clock clock;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
@@ -73,6 +74,7 @@ public class SuggestionService {
 		TitleService titleService,
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
+		SuggestionImpressionService suggestionImpressionService,
 		Clock clock,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
@@ -81,6 +83,7 @@ public class SuggestionService {
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
+		this.suggestionImpressionService = suggestionImpressionService;
 		this.clock = clock;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
@@ -122,6 +125,10 @@ public class SuggestionService {
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
 
+		// Titles shown on previous days within the suppression window (#233):
+		// excluded from shelves so rotation digs deeper into the candidate pool
+		Set<String> suppressed = suggestionImpressionService.recentlyShownIds(watchlistId);
+
 		List<SuggestionShelfResponse> shelves = new ArrayList<>();
 
 		// Seeded on (watchlist, calendar day): shelves are stable across recomputes
@@ -144,7 +151,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -203,7 +210,7 @@ public class SuggestionService {
 			try {
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE, p), discoverPage);
-				List<TitleSearchResponse> shelf = fillShelf(discovered, seen);
+				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, suppressed);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
 					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
 				}
@@ -211,6 +218,13 @@ public class SuggestionService {
 				log.warn("Discover failed for {} genres {}: {}", type, topGenres, e.getMessage());
 			}
 		}
+
+		// Record what we're about to serve so tomorrow's compute suppresses it (#233)
+		Set<String> shownIds = shelves.stream()
+			.flatMap(s -> s.titles().stream())
+			.map(TitleSearchResponse::externalId)
+			.collect(Collectors.toSet());
+		suggestionImpressionService.recordShown(watchlistId, shownIds);
 
 		return shelves;
 	}
@@ -274,20 +288,38 @@ public class SuggestionService {
 		return results.isEmpty() && page > 1 ? fetch.apply(1) : results;
 	}
 
-	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER
-	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen) {
+	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER.
+	// Recently shown candidates (#233) are held back; if that leaves the shelf under
+	// MIN_SHELF_SIZE, the best of them top it back up rather than hiding the shelf.
+	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Set<String> suppressed) {
 		Map<Integer, Integer> genreCount = new HashMap<>();
 		List<TitleSearchResponse> shelf = new ArrayList<>();
+		List<TitleSearchResponse> heldBack = new ArrayList<>();
 		for (TitleSearchResponse r : candidates) {
 			if (!seen.add(r.externalId())) continue;
-			List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
-			int primaryGenre = genres.isEmpty() ? -1 : genres.get(0);
+			if (suppressed.contains(r.externalId())) {
+				heldBack.add(r);
+				continue;
+			}
+			int primaryGenre = primaryGenre(r);
 			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
 			shelf.add(r);
 			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
 			if (shelf.size() >= MAX_SHELF_SIZE) break;
 		}
+		for (TitleSearchResponse r : heldBack) {
+			if (shelf.size() >= MIN_SHELF_SIZE) break;
+			int primaryGenre = primaryGenre(r);
+			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
+			shelf.add(r);
+			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
+		}
 		return shelf;
+	}
+
+	private int primaryGenre(TitleSearchResponse r) {
+		List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
+		return genres.isEmpty() ? -1 : genres.get(0);
 	}
 
 	private double genreScore(TitleSearchResponse candidate, Map<Integer, Double> genreProfile) {
