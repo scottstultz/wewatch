@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
@@ -14,6 +14,9 @@ type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
 }
+
+// Scroll offset saved when opening a title so back-navigation can restore it (#241)
+const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
 
 // Similarity shelves first, exploration shelves after (#235); ties keep backend order
 const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
@@ -184,7 +187,11 @@ function DiscoverPage() {
   const api = useApi()
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
+  const navigationType = useNavigationType()
+  // Search query lives in the URL (?q=) so back-navigation and refresh restore it (#241)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const query = searchParams.get('q') ?? ''
+  const setQuery = (q: string) => setSearchParams(q ? { q } : {}, { replace: true })
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [results, setResults] = useState<TitleSearchResponse[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -297,7 +304,27 @@ function DiscoverPage() {
     return () => { cancelled = true }
   }, [query, api, selectedWatchlistId])
 
+  // Restore scroll on back-navigation once the content giving the page its
+  // height has rendered; anything else invalidates the saved offset (#241).
+  const scrollRestoredRef = useRef(false)
+  useEffect(() => {
+    if (scrollRestoredRef.current) return
+    if (navigationType !== 'POP') {
+      sessionStorage.removeItem(SCROLL_STORAGE_KEY)
+      scrollRestoredRef.current = true
+      return
+    }
+    const contentReady = query.trim()
+      ? !isLoading && searched
+      : !suggestionsLoading && suggestions.length > 0
+    if (!contentReady) return
+    scrollRestoredRef.current = true
+    const saved = Number(sessionStorage.getItem(SCROLL_STORAGE_KEY))
+    if (saved > 0) window.scrollTo(0, saved)
+  }, [navigationType, query, isLoading, searched, suggestionsLoading, suggestions.length])
+
   function openTitle(title: TitleSearchResponse) {
+    sessionStorage.setItem(SCROLL_STORAGE_KEY, String(window.scrollY))
     navigate(
       `/title/${title.type.toLowerCase()}/${title.externalSource}/${title.externalId}`,
       { state: { title } },
