@@ -8,7 +8,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
@@ -182,33 +181,6 @@ class UserServiceTest {
 		assertThat(updated.getEmail()).isEqualTo("user@example.com");
 		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
 		verify(repository).save(existing);
-	}
-
-	@Test
-	void findByFiltersReturnsMatchingUsers() {
-		UserRepository repository = Mockito.mock(UserRepository.class);
-		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
-		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
-		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
-
-		when(repository.findByFilters("user@example.com", "Scott")).thenReturn(List.of(existing));
-
-		assertThat(service.findByFilters("user@example.com", "Scott")).containsExactly(existing);
-		verify(repository).findByFilters("user@example.com", "Scott");
-	}
-
-	@Test
-	void findByFiltersNormalizesBlankValues() {
-		UserRepository repository = Mockito.mock(UserRepository.class);
-		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
-		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
-		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-
-		when(repository.findByFilters(null, null)).thenReturn(List.of());
-
-		assertThat(service.findByFilters("", " ")).isEmpty();
-		verify(repository).findByFilters(null, null);
 	}
 
 	@Test

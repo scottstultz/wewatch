@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -10,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.NoSuchElementException;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
+import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.UserService;
@@ -41,6 +42,9 @@ class UserControllerTest {
 
 	@MockBean
 	private UserService userService;
+
+	@MockBean
+	private AllowedEmailRepository allowedEmailRepository;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
@@ -109,6 +113,7 @@ class UserControllerTest {
 		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
 		User updatedUser = new User(1L, "updated@example.com", "Scott Stultz", createdAt, updatedAt);
 
+		when(allowedEmailRepository.existsByEmailIgnoreCase("updated@example.com")).thenReturn(true);
 		when(userService.update(1L, "updated@example.com", "Scott Stultz")).thenReturn(updatedUser);
 
 		mockMvc.perform(
@@ -217,6 +222,7 @@ class UserControllerTest {
 
 	@Test
 	void updateUserReturnsConflictForDuplicateEmail() throws Exception {
+		when(allowedEmailRepository.existsByEmailIgnoreCase("other@example.com")).thenReturn(true);
 		when(userService.update(1L, "other@example.com", null))
 			.thenThrow(new DuplicateEmailException("other@example.com"));
 
@@ -237,88 +243,65 @@ class UserControllerTest {
 	}
 
 	@Test
-	void getUsersReturnsMatchesForEmail() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
-
-		when(userService.findByFilters("user@example.com", null)).thenReturn(List.of(existingUser));
-
+	void getUsersListingIsGone() throws Exception {
 		mockMvc.perform(get("/api/users")
 			.header("Authorization", "Bearer test-token")
 			.param("email", "user@example.com"))
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].email").value("user@example.com"))
-			.andExpect(jsonPath("$[0].displayName").value("Scott"));
-
-		verify(userService).findByFilters("user@example.com", null);
+			.andExpect(status().isNotFound());
 	}
 
 	@Test
-	void getUsersReturnsMatchesForDisplayName() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
-
-		when(userService.findByFilters(null, "Scott")).thenReturn(List.of(existingUser));
-
-		mockMvc.perform(get("/api/users")
-			.header("Authorization", "Bearer test-token")
-			.param("displayName", "Scott"))
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].email").value("user@example.com"))
-			.andExpect(jsonPath("$[0].displayName").value("Scott"));
-
-		verify(userService).findByFilters(null, "Scott");
-	}
-
-	@Test
-	void getUsersCombinesQueryParameters() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		User existingUser = new User(1L, "user@example.com", "Scott", createdAt, createdAt);
-
-		when(userService.findByFilters("user@example.com", "Scott")).thenReturn(List.of(existingUser));
-
-		mockMvc.perform(
-			get("/api/users")
-				.header("Authorization", "Bearer test-token")
-				.param("email", "user@example.com")
-				.param("displayName", "Scott")
-		)
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].id").value(1))
-			.andExpect(jsonPath("$[0].email").value("user@example.com"))
-			.andExpect(jsonPath("$[0].displayName").value("Scott"));
-
-		verify(userService).findByFilters("user@example.com", "Scott");
-	}
-
-	@Test
-	void getUsersReturnsEmptyListWhenNoUsersMatch() throws Exception {
-		when(userService.findByFilters("missing@example.com", null)).thenReturn(List.of());
-
-		mockMvc.perform(get("/api/users")
-			.header("Authorization", "Bearer test-token")
-			.param("email", "missing@example.com"))
-			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$").isArray())
-			.andExpect(jsonPath("$").isEmpty());
-	}
-
-	@Test
-	void getUserReturnsNotFoundWhenMissing() throws Exception {
-		when(userService.findById(42L)).thenThrow(new NoSuchElementException("User not found: 42"));
-
+	void getUserReturnsForbiddenForOtherUser() throws Exception {
 		mockMvc.perform(get("/api/users/42")
 			.header("Authorization", "Bearer test-token"))
-			.andExpect(status().isNotFound())
+			.andExpect(status().isForbidden())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(404))
-			.andExpect(jsonPath("$.message").value("User not found: 42"));
+			.andExpect(jsonPath("$.status").value(403))
+			.andExpect(jsonPath("$.message").value("Cannot view another user's profile"));
+	}
+
+	@Test
+	void updateUserReturnsForbiddenWhenNewEmailNotAllowlisted() throws Exception {
+		when(allowedEmailRepository.existsByEmailIgnoreCase("intruder@example.com")).thenReturn(false);
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "intruder@example.com"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$.status").value(403))
+			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
+
+		verify(userService, never()).update(any(), any(), any());
+	}
+
+	@Test
+	void updateUserSkipsAllowlistCheckWhenEmailUnchanged() throws Exception {
+		User updatedUser = new User(1L, "test@example.com", "New Name", Instant.EPOCH, Instant.EPOCH);
+		when(userService.update(1L, "Test@Example.com", "New Name")).thenReturn(updatedUser);
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "Test@Example.com",
+					  "displayName": "New Name"
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.displayName").value("New Name"));
+
+		verify(allowedEmailRepository, never()).existsByEmailIgnoreCase(any());
 	}
 
 	@Test
