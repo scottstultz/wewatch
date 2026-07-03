@@ -1,6 +1,6 @@
 package com.wewatch.api.service;
 
-import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -9,14 +9,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
@@ -42,7 +45,6 @@ public class SuggestionService {
 	private static final int MAX_SHELF_SIZE = 12;
 	private static final int MAX_PER_GENRE_CLUSTER = 4;
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
-	private static final long CACHE_TTL_SECONDS = 30 * 60;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
@@ -50,36 +52,36 @@ public class SuggestionService {
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 
-	private record CachedShelf(List<SuggestionShelfResponse> shelves, Instant fetchedAt) {}
-	private final Map<Long, CachedShelf> cache = new ConcurrentHashMap<>();
+	// In-process cache: assumes a single backend instance. If the app ever scales
+	// horizontally, each node caches (and invalidates) independently, so recompute
+	// on one node won't refresh shelves served by another — move to a shared store then.
+	private final Cache<Long, List<SuggestionShelfResponse>> cache;
 
 	public SuggestionService(
 		WatchlistEntryRepository watchlistEntryRepository,
 		TitleService titleService,
 		TmdbClient tmdbClient,
-		TmdbTitleCacheRepository tmdbTitleCacheRepository
+		TmdbTitleCacheRepository tmdbTitleCacheRepository,
+		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
+		@Value("${suggestions.cache.max-size}") long cacheMaxSize
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
+		this.cache = Caffeine.newBuilder()
+			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
+			.maximumSize(cacheMaxSize)
+			.build();
 	}
 
 	public List<SuggestionShelfResponse> topPicks(Long watchlistId) {
-		CachedShelf cached = cache.get(watchlistId);
-		if (cached != null && cached.fetchedAt().isAfter(Instant.now().minusSeconds(CACHE_TTL_SECONDS))) {
-			return cached.shelves();
-		}
-		List<SuggestionShelfResponse> shelves = compute(watchlistId);
-		cache.put(watchlistId, new CachedShelf(shelves, Instant.now()));
-		return shelves;
+		return cache.get(watchlistId, this::compute);
 	}
 
 	@Async
 	public void recompute(Long watchlistId) {
-		cache.remove(watchlistId);
-		List<SuggestionShelfResponse> shelves = compute(watchlistId);
-		cache.put(watchlistId, new CachedShelf(shelves, Instant.now()));
+		cache.put(watchlistId, compute(watchlistId));
 	}
 
 	private List<SuggestionShelfResponse> compute(Long watchlistId) {
