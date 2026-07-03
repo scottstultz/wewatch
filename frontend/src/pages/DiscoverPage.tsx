@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
-import type { SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
+import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
 
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
 type OpenHandler = (title: TitleSearchResponse) => void
@@ -13,6 +13,16 @@ type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
 function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
+}
+
+// Similarity shelves first, exploration shelves after (#235); ties keep backend order
+const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
+  GENRE_PROFILE: 0,
+  PER_SEED: 1,
+  FINISHED_SEED: 2,
+  NEW_RELEASES: 3,
+  HIDDEN_GEMS: 3,
+  TRENDING: 3,
 }
 
 interface TitleCardProps {
@@ -405,11 +415,9 @@ function DiscoverPage() {
           <>
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
             {!suggestionsLoading && (() => {
-              const sorted = [...suggestions].sort((a, b) => {
-                if (a.kind === 'GENRE_PROFILE' && b.kind !== 'GENRE_PROFILE') return -1
-                if (b.kind === 'GENRE_PROFILE' && a.kind !== 'GENRE_PROFILE') return 1
-                return 0
-              })
+              const sorted = [...suggestions].sort(
+                (a, b) => (SHELF_KIND_ORDER[a.kind] ?? 4) - (SHELF_KIND_ORDER[b.kind] ?? 4)
+              )
               const shownKeys = new Set<string>()
               return sorted.map(shelf => {
                 const dedupedTitles = shelf.titles.filter(t => {
