@@ -121,6 +121,9 @@ function TitleDetailPage() {
 
   function goBack() {
     if (fromLibrary) navigate(`/library?status=${fromLibrary}`)
+    // location.key is 'default' when this page is the first in-app history
+    // entry (opened directly) — there is nothing to go back to (#241).
+    else if (location.key === 'default') navigate('/discover')
     else navigate(-1)
   }
 
