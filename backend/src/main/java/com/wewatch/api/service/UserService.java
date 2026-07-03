@@ -152,21 +152,10 @@ public class UserService {
 		return user;
 	}
 
-	public List<User> findByFilters(String email, String displayName) {
-		return userRepository.findByFilters(normalize(email), normalize(displayName));
-	}
-
 	private void validate(User user) {
 		Set<ConstraintViolation<User>> violations = validator.validate(user);
 		if (!violations.isEmpty()) {
 			throw new ConstraintViolationException(violations);
 		}
-	}
-
-	private String normalize(String value) {
-		if (value == null || value.isBlank()) {
-			return null;
-		}
-		return value;
 	}
 }
