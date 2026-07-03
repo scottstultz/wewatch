@@ -2,8 +2,12 @@ package com.wewatch.api.service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -156,10 +160,11 @@ public class TmdbCacheService {
 	private void upsertSeasonCache(String tmdbId, List<TmdbTvSeason> seasons) {
 		if (seasons == null) return;
 		Instant now = Instant.now();
+		Map<Integer, TmdbSeasonCache> existing = seasonCacheRepository.findByTmdbId(tmdbId).stream()
+			.collect(Collectors.toMap(TmdbSeasonCache::getSeasonNumber, Function.identity()));
+		List<TmdbSeasonCache> rows = new ArrayList<>();
 		for (TmdbTvSeason season : seasons) {
-			TmdbSeasonCache row = seasonCacheRepository
-				.findByTmdbIdAndSeasonNumber(tmdbId, season.seasonNumber())
-				.orElse(new TmdbSeasonCache());
+			TmdbSeasonCache row = existing.getOrDefault(season.seasonNumber(), new TmdbSeasonCache());
 			row.setTmdbId(tmdbId);
 			row.setSeasonNumber(season.seasonNumber());
 			row.setName(season.name());
@@ -168,8 +173,9 @@ public class TmdbCacheService {
 			row.setEpisodeCount(season.episodeCount());
 			row.setAirDate(TmdbDates.parse(season.airDate()));
 			row.setFetchedAt(now);
-			seasonCacheRepository.save(row);
+			rows.add(row);
 		}
+		seasonCacheRepository.saveAll(rows);
 	}
 
 	private List<TmdbTvSeason> toTvSeasons(List<TmdbSeasonCache> cachedSeasons) {
@@ -206,10 +212,12 @@ public class TmdbCacheService {
 	private void upsertEpisodeCache(String tmdbId, int seasonNumber, TmdbTvSeason season) {
 		if (season.episodes() == null) return;
 		Instant now = Instant.now();
+		Map<Integer, TmdbEpisodeCache> existing =
+			episodeCacheRepository.findByTmdbIdAndSeasonNumber(tmdbId, seasonNumber).stream()
+				.collect(Collectors.toMap(TmdbEpisodeCache::getEpisodeNumber, Function.identity()));
+		List<TmdbEpisodeCache> rows = new ArrayList<>();
 		for (TmdbTvEpisode ep : season.episodes()) {
-			TmdbEpisodeCache row = episodeCacheRepository
-				.findByTmdbIdAndSeasonNumberAndEpisodeNumber(tmdbId, seasonNumber, ep.episodeNumber())
-				.orElse(new TmdbEpisodeCache());
+			TmdbEpisodeCache row = existing.getOrDefault(ep.episodeNumber(), new TmdbEpisodeCache());
 			row.setTmdbId(tmdbId);
 			row.setSeasonNumber(seasonNumber);
 			row.setEpisodeNumber(ep.episodeNumber());
@@ -219,8 +227,9 @@ public class TmdbCacheService {
 			row.setRuntimeMinutes(ep.runtime());
 			row.setStillPath(ep.stillPath());
 			row.setFetchedAt(now);
-			episodeCacheRepository.save(row);
+			rows.add(row);
 		}
+		episodeCacheRepository.saveAll(rows);
 	}
 
 	private TmdbTvSeason toTmdbTvSeason(int seasonNumber, List<TmdbEpisodeCache> cachedEpisodes) {

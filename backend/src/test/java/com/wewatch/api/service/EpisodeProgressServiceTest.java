@@ -3,7 +3,9 @@ package com.wewatch.api.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -154,56 +156,59 @@ class EpisodeProgressServiceTest {
 	// ─── bulkMarkSeason ──────────────────────────────────────────────────────
 
 	@Test
+	@SuppressWarnings("unchecked")
 	void bulkMarkSeasonCreatesRowsAndMarksWatched() {
 		// Episodes 1 and 2 already exist, episode 3 does not
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 1))
-			.thenReturn(Optional.of(new EpisodeProgress(1L, 1L, 1, 1, false, null)));
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 2))
-			.thenReturn(Optional.of(new EpisodeProgress(2L, 1L, 1, 2, false, null)));
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 3))
-			.thenReturn(Optional.empty());
-		when(episodeProgressRepository.save(any(EpisodeProgress.class)))
-			.thenAnswer(inv -> {
-				EpisodeProgress ep = inv.getArgument(0);
-				ep.setId(99L);
-				return ep;
-			});
-		when(episodeProgressRepository.updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class)))
-			.thenReturn(3);
 		EpisodeProgress ep1 = new EpisodeProgress(1L, 1L, 1, 1, true, EPOCH);
 		EpisodeProgress ep2 = new EpisodeProgress(2L, 1L, 1, 2, true, EPOCH);
 		EpisodeProgress ep3 = new EpisodeProgress(99L, 1L, 1, 3, true, EPOCH);
 		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 1))
-			.thenReturn(List.of(ep1, ep2, ep3));
+			.thenReturn(
+				List.of(
+					new EpisodeProgress(1L, 1L, 1, 1, false, null),
+					new EpisodeProgress(2L, 1L, 1, 2, false, null)
+				),
+				List.of(ep1, ep2, ep3)
+			);
+		when(episodeProgressRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+		when(episodeProgressRepository.updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class)))
+			.thenReturn(3);
 
 		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 1, true, List.of(1, 2, 3));
 
 		assertThat(result).hasSize(3);
 		assertThat(result).allMatch(EpisodeProgress::getWatched);
-		// Should have created the missing episode 3
-		verify(episodeProgressRepository).save(any(EpisodeProgress.class));
+		// Should have created only the missing episode 3, in a single batched write
+		ArgumentCaptor<List<EpisodeProgress>> captor = ArgumentCaptor.forClass(List.class);
+		verify(episodeProgressRepository).saveAll(captor.capture());
+		assertThat(captor.getValue()).hasSize(1);
+		assertThat(captor.getValue().get(0).getEpisodeNumber()).isEqualTo(3);
 		verify(episodeProgressRepository).updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class));
 	}
 
 	@Test
 	void bulkMarkSeasonUnwatchedClearsTimestamp() {
 		// All episodes already exist
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 2, 1))
-			.thenReturn(Optional.of(new EpisodeProgress(4L, 1L, 2, 1, true, EPOCH)));
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 2, 2))
-			.thenReturn(Optional.of(new EpisodeProgress(5L, 1L, 2, 2, true, EPOCH)));
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 2))
+			.thenReturn(
+				List.of(
+					new EpisodeProgress(4L, 1L, 2, 1, true, EPOCH),
+					new EpisodeProgress(5L, 1L, 2, 2, true, EPOCH)
+				),
+				List.of(
+					new EpisodeProgress(4L, 1L, 2, 1, false, null),
+					new EpisodeProgress(5L, 1L, 2, 2, false, null)
+				)
+			);
 		when(episodeProgressRepository.updateSeasonWatched(1L, 2, false, null))
 			.thenReturn(2);
-		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 2))
-			.thenReturn(List.of(
-				new EpisodeProgress(4L, 1L, 2, 1, false, null),
-				new EpisodeProgress(5L, 1L, 2, 2, false, null)
-			));
 
 		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 2, false, List.of(1, 2));
 
 		assertThat(result).hasSize(2);
 		assertThat(result).noneMatch(EpisodeProgress::getWatched);
+		// Nothing to create — no insert issued at all
+		verify(episodeProgressRepository, never()).saveAll(anyList());
 		verify(episodeProgressRepository).updateSeasonWatched(1L, 2, false, null);
 	}
 

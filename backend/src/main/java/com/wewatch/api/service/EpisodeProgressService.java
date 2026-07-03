@@ -2,6 +2,8 @@ package com.wewatch.api.service;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -67,15 +69,16 @@ public class EpisodeProgressService {
 		requireTvShow(entry);
 
 		// Create rows for episodes that don't have progress yet
-		for (int epNum : episodeNumbers) {
-			boolean exists = episodeProgressRepository
-				.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(entry.getId(), seasonNumber, epNum)
-				.isPresent();
-			if (!exists) {
-				episodeProgressRepository.save(new EpisodeProgress(
-					null, entry.getId(), seasonNumber, epNum, false, null
-				));
-			}
+		Set<Integer> existing = episodeProgressRepository
+			.findByWatchlistEntryIdAndSeasonNumber(entry.getId(), seasonNumber).stream()
+			.map(EpisodeProgress::getEpisodeNumber)
+			.collect(Collectors.toSet());
+		List<EpisodeProgress> missing = episodeNumbers.stream()
+			.filter(epNum -> !existing.contains(epNum))
+			.map(epNum -> new EpisodeProgress(null, entry.getId(), seasonNumber, epNum, false, null))
+			.toList();
+		if (!missing.isEmpty()) {
+			episodeProgressRepository.saveAll(missing);
 		}
 
 		Instant watchedAt = watched ? Instant.now() : null;
