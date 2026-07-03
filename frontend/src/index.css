@@ -2213,3 +2213,43 @@ a {
     animation: none;
   }
 }
+
+/* ── Added-status chip (Discover cards & title detail) ────── */
+
+.discover-added-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.discover-added-chip .discover-round-btn-added,
+.discover-added-chip .discover-added-label {
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.discover-added-chip:hover .discover-round-btn-added {
+  background: rgba(52, 211, 153, 0.3);
+}
+
+.discover-added-chip:hover .discover-added-label {
+  color: #e2e8f0;
+}
+
+.discover-status-option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.title-detail-add {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+  max-width: 240px;
+}

@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import type { TitleDetailResponse, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
-type AddState = 'idle' | 'loading' | 'error' | WatchStatus
+type AddState = 'idle' | 'loading' | 'error'
 
 function parseType(raw: string | undefined): TitleType | null {
   const upper = (raw ?? '').toUpperCase()
@@ -31,6 +32,9 @@ function TitleDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [addState, setAddState] = useState<AddState>('idle')
+  const [entry, setEntry] = useState<{ id: number; status: WatchStatus } | null>(null)
+  const [entryLoaded, setEntryLoaded] = useState(false)
+  const [picking, setPicking] = useState(false)
 
   useEffect(() => {
     if (!source || !externalId || !type) {
@@ -58,15 +62,51 @@ function TitleDetailPage() {
     return () => { cancelled = true }
   }, [api, source, externalId, type])
 
-  async function handleAdd() {
+  // Look up whether this title is already on the selected watchlist.
+  useEffect(() => {
+    if (!selectedWatchlistId || !source || !externalId) return
+    let cancelled = false
+    setEntry(null)
+    setEntryLoaded(false)
+    setPicking(false)
+
+    api.getWatchlistEntries(selectedWatchlistId)
+      .then(entries => {
+        if (cancelled) return
+        const match = entries.find(
+          e => e.externalSource === source && e.externalId === externalId,
+        )
+        setEntry(match ? { id: match.id, status: match.status } : null)
+      })
+      .catch(() => { /* treat as not added */ })
+      .finally(() => { if (!cancelled) setEntryLoaded(true) })
+
+    return () => { cancelled = true }
+  }, [api, selectedWatchlistId, source, externalId])
+
+  async function handleAdd(status: WatchStatus) {
     if (!selectedWatchlistId || !detail) return
     setAddState('loading')
     try {
       const titleId = await api.findOrCreateTitle(detail)
-      await api.addToWatchlist(selectedWatchlistId, titleId, 'WANT_TO_WATCH')
-      setAddState('WANT_TO_WATCH')
+      const created = await api.addToWatchlist(selectedWatchlistId, titleId, status)
+      setEntry({ id: created.id, status: created.status })
+      setAddState('idle')
     } catch {
       setAddState('error')
+    }
+  }
+
+  async function handleChangeStatus(newStatus: WatchStatus) {
+    if (!selectedWatchlistId || !entry) return
+    setPicking(false)
+    if (newStatus === entry.status) return
+    const previous = entry
+    setEntry({ ...entry, status: newStatus })
+    try {
+      await api.updateWatchlistEntry(selectedWatchlistId, entry.id, newStatus)
+    } catch {
+      setEntry(previous)
     }
   }
 
@@ -75,7 +115,6 @@ function TitleDetailPage() {
   const posterUrl = detail?.posterUrl ?? hint?.posterUrl ?? null
   const displayType = detail?.type ?? hint?.type ?? type
   const year = yearOf(detail?.releaseDate ?? hint?.releaseDate ?? null)
-  const isAdded = addState === 'WANT_TO_WATCH'
 
   if (error && !detail) {
     return (
@@ -130,22 +169,36 @@ function TitleDetailPage() {
                 </div>
               )}
 
-              {isAdded ? (
-                <div className="discover-action-row">
-                  <span className="discover-round-btn discover-round-btn-added" aria-label="Added to watchlist">✓</span>
-                  <span className="discover-added-label">Want to Watch</span>
-                </div>
+              {entry ? (
+                picking ? (
+                  <StatusPicker current={entry.status} onSelect={handleChangeStatus} />
+                ) : (
+                  <div className="discover-action-row">
+                    <button
+                      className="discover-added-chip"
+                      onClick={() => setPicking(true)}
+                      aria-label={`Status: ${STATUS_LABELS[entry.status]}. Tap to change.`}
+                    >
+                      <span className="discover-round-btn discover-round-btn-added" aria-hidden="true">✓</span>
+                      <span className="discover-added-label">{STATUS_LABELS[entry.status]}</span>
+                    </button>
+                  </div>
+                )
               ) : (
-                <button
-                  className={`bulk-season-btn${addState === 'error' ? ' discover-round-btn-error' : ''}`}
-                  disabled={addState === 'loading' || !selectedWatchlistId}
-                  onClick={handleAdd}
-                >
-                  {addState === 'loading' ? 'Adding…' : addState === 'error' ? 'Failed — retry' : '+ Add to watchlist'}
-                </button>
+                <div className="title-detail-add">
+                  <span className="discover-picker-label">Add to watchlist as:</span>
+                  <StatusPicker
+                    current={null}
+                    disabled={addState === 'loading' || !selectedWatchlistId || !entryLoaded}
+                    onSelect={handleAdd}
+                  />
+                  {addState === 'error' && (
+                    <p className="discover-added-label discover-error-label">Failed to add. Try again.</p>
+                  )}
+                </div>
               )}
 
-              {watchlists.length > 1 && !isAdded && (
+              {watchlists.length > 1 && !entry && (
                 <div className="discover-watchlist-picker">
                   <span className="discover-picker-label">Adding to:</span>
                   <select
