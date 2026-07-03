@@ -7,5 +7,5 @@ public record SuggestionShelfResponse(
 	List<TitleSearchResponse> titles,
 	ShelfKind kind
 ) {
-	public enum ShelfKind { PER_SEED, GENRE_PROFILE }
+	public enum ShelfKind { PER_SEED, FINISHED_SEED, GENRE_PROFILE, NEW_RELEASES, HIDDEN_GEMS, TRENDING }
 }

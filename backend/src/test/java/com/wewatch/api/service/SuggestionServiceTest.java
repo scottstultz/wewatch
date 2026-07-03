@@ -6,7 +6,10 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.intThat;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.ArgumentMatchers.notNull;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -14,11 +17,13 @@ import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -179,7 +184,7 @@ class SuggestionServiceTest {
 	}
 
 	@Test
-	void watchedTitlesAreNotSelectedAsSeeds() {
+	void watchedTitlesSeedFinishedShelvesNotPerSeedShelves() {
 		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 5)
 			.mapToObj(i -> entry(i, "ext" + i, WatchStatus.WATCHED))
 			.toList();
@@ -190,11 +195,44 @@ class SuggestionServiceTest {
 			.thenReturn(new PageImpl<>(entries));
 		when(titleService.findByIds(any())).thenReturn(titles);
 		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
-		assertThat(shelves).isEmpty();
-		verify(tmdbClient, never()).getRecommendations(any(), anyString(), anyInt());
+		// WATCHED entries never get "Because you added X" shelves (#232); exactly
+		// one of them seeds a "Because you finished X" shelf instead (#235)
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.FINISHED_SEED);
+		assertThat(shelves.get(0).reason()).startsWith("Because you finished Show ");
+		verify(tmdbClient, times(1)).getRecommendations(any(), anyString(), anyInt());
+	}
+
+	@Test
+	void finishedSeedComesFromTheMostRecentFinishes() {
+		// Ten WATCHED entries finished a day apart: the seed pool is the five
+		// most recently updated, so the shelf's seed must be one of ids 6–10
+		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 10)
+			.mapToObj(i -> {
+				WatchlistEntry e = entry(i, "ext" + i, WatchStatus.WATCHED);
+				e.setUpdatedAt(Instant.parse("2026-06-01T00:00:00Z").plusSeconds(i * 86400L));
+				return e;
+			})
+			.toList();
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 10)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).reason()).matches("Because you finished Show (6|7|8|9|10)");
 	}
 
 	@Test
@@ -308,6 +346,113 @@ class SuggestionServiceTest {
 		assertThat(shelves).hasSize(3);
 		assertThat(shelves).allSatisfy(shelf ->
 			assertThat(shelf.titles()).isNotEmpty());
+	}
+
+	@Test
+	void newReleasesShelfUsesReleaseWindowAndLowerVoteFloor() {
+		stubPopulatedWatchlistWithGenres();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		// Only the new-release discover variant yields candidates, so whatever
+		// order the day's rotation tries the exploration kinds, this shelf fills.
+		// lenient: other discover variants hit this method with non-matching args
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(20), eq("popularity.desc"), notNull(), notNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("nr-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.NEW_RELEASES);
+			assertThat(shelf.reason()).isEqualTo("New in your genres");
+		});
+		// The window is the 60 days ending "today" on the fixed clock
+		verify(tmdbClient, atLeastOnce()).discover(eq(TitleType.TV), eq(List.of(99)), eq(List.of()), eq(20),
+			eq("popularity.desc"), eq(LocalDate.of(2026, 5, 4)), eq(LocalDate.of(2026, 7, 3)), anyInt());
+	}
+
+	@Test
+	void hiddenGemsShelfSortsByRatingWithModerateVoteFloor() {
+		stubPopulatedWatchlistWithGenres();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		// lenient: other discover variants hit this method with non-matching args
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+			assertThat(shelf.reason()).isEqualTo("Hidden gems");
+		});
+	}
+
+	@Test
+	void trendingShelfRanksByGenreProfileAffinity() {
+		// The owned titles' cached genre 99 builds the taste profile; per-seed
+		// and discover sources return nothing, so only trending can fill
+		stubPopulatedWatchlistWithGenres();
+		List<TitleSearchResponse> trending = new ArrayList<>();
+		trending.add(new TitleSearchResponse("trend-hit", "TMDB", TitleType.TV, "Hit",
+			null, null, null, List.of(99)));
+		IntStream.rangeClosed(1, 11).forEach(i -> trending.add(candidate("trend-" + i)));
+		when(tmdbClient.getTrending(eq(TitleType.TV), anyInt())).thenReturn(trending);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.TRENDING);
+			assertThat(shelf.reason()).isEqualTo("Trending now");
+			assertThat(shelf.titles().get(0).externalId()).isEqualTo("trend-hit");
+		});
+	}
+
+	@Test
+	void explorationShelvesAreCappedAndOrderedAfterSimilarityShelves() {
+		stubPopulatedWatchlistWithGenres();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		// Every exploration source is rich: whichever two kinds the day's
+		// rotation tries first fill, and the third is never fetched
+		AtomicInteger batch = new AtomicInteger();
+		when(tmdbClient.discover(any(), any(), any(), anyInt(), anyString(), any(), any(), anyInt()))
+			.thenAnswer(inv -> {
+				int b = batch.incrementAndGet();
+				return IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("d" + b + "-" + i)).toList();
+			});
+		lenient().when(tmdbClient.getTrending(any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("t-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		Set<SuggestionShelfResponse.ShelfKind> exploration = Set.of(
+			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
+			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
+			SuggestionShelfResponse.ShelfKind.TRENDING);
+		assertThat(shelves.stream().filter(s -> exploration.contains(s.kind()))).hasSize(2);
+		// Exploration shelves sit at the end, after every similarity shelf
+		int firstExploration = IntStream.range(0, shelves.size())
+			.filter(i -> exploration.contains(shelves.get(i).kind()))
+			.findFirst().orElseThrow();
+		assertThat(shelves.subList(firstExploration, shelves.size()))
+			.allSatisfy(s -> assertThat(exploration).contains(s.kind()));
+	}
+
+	// Like stubPopulatedWatchlist, but every owned title carries cached genre 99,
+	// enabling genre-profile and exploration shelves
+	private void stubPopulatedWatchlistWithGenres() {
+		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> entry(i, "ext" + i))
+			.toList();
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		stubCacheRows(IntStream.rangeClosed(1, 5).boxed()
+			.collect(Collectors.toMap(i -> "ext" + i, i -> cacheRow("ext" + i, List.of(99), null))));
 	}
 
 	private WatchlistEntry entry(long id, String externalId) {

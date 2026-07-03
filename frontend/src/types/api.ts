@@ -113,7 +113,13 @@ export interface TitleDetailResponse {
   seasons: SeasonSummary[] | null
 }
 
-export type ShelfKind = 'PER_SEED' | 'GENRE_PROFILE'
+export type ShelfKind =
+  | 'PER_SEED'
+  | 'FINISHED_SEED'
+  | 'GENRE_PROFILE'
+  | 'NEW_RELEASES'
+  | 'HIDDEN_GEMS'
+  | 'TRENDING'
 
 export interface SuggestionShelf {
   reason: string

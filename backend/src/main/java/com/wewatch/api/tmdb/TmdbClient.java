@@ -91,11 +91,11 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> getTrending(TitleType type) {
+	public List<TitleSearchResponse> getTrending(TitleType type, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri("/3/trending/{mediaType}/week?language=en-US", mediaType)
+				.uri("/3/trending/{mediaType}/week?language=en-US&page={page}", mediaType, pageNumber)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
@@ -131,18 +131,29 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds, int voteCountGte, int pageNumber) {
+	// sortBy is a TMDB discover sort key (e.g. popularity.desc, vote_average.desc).
+	// The optional release window filters on primary_release_date for movies and
+	// first_air_date for TV — TMDB uses different field names per media type.
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds,
+			int voteCountGte, String sortBy, LocalDate releasedAfter, LocalDate releasedBefore, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		// Use OR (|) so results match any of the user's top genres/keywords rather than requiring all
 		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
-		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US&page={page}";
+		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by={sortBy}&vote_count.gte={voteCount}&language=en-US&page={page}";
 		if (!keywordIds.isEmpty()) {
 			String keywords = keywordIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
 			uriStr += "&with_keywords=" + keywords;
 		}
+		String dateField = type == TitleType.MOVIE ? "primary_release_date" : "first_air_date";
+		if (releasedAfter != null) {
+			uriStr += "&" + dateField + ".gte=" + releasedAfter;
+		}
+		if (releasedBefore != null) {
+			uriStr += "&" + dateField + ".lte=" + releasedBefore;
+		}
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri(uriStr, mediaType, genres, voteCountGte, pageNumber)
+				.uri(uriStr, mediaType, genres, sortBy, voteCountGte, pageNumber)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();

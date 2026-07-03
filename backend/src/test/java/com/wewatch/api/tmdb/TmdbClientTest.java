@@ -2,6 +2,7 @@ package com.wewatch.api.tmdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
@@ -9,6 +10,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.net.SocketTimeoutException;
+import java.time.LocalDate;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -197,6 +199,50 @@ class TmdbClientTest {
 
 		assertThatThrownBy(() -> tmdbClient.search("inception", TitleType.MOVIE))
 			.isInstanceOf(TmdbApiException.class);
+	}
+
+	// ─── discover / trending ─────────────────────────────────────────────────
+
+	@Test
+	void discoverAppliesSortVoteFloorAndMovieReleaseWindow() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("sort_by=vote_average.desc"),
+			containsString("vote_count.gte=200"),
+			containsString("primary_release_date.gte=2026-05-04"),
+			containsString("primary_release_date.lte=2026-07-03"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.MOVIE, List.of(28), List.of(), 200,
+			"vote_average.desc", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 7, 3), 1);
+
+		assertThat(results).hasSize(1);
+		assertThat(results.get(0).name()).isEqualTo("Inception");
+	}
+
+	@Test
+	void discoverUsesFirstAirDateWindowForTv() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/tv"),
+			containsString("first_air_date.gte=2026-05-04"))))
+			.andRespond(withSuccess(TV_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.TV, List.of(18), List.of(), 20,
+			"popularity.desc", LocalDate.of(2026, 5, 4), null, 1);
+
+		assertThat(results).hasSize(1);
+	}
+
+	@Test
+	void trendingFetchesTheRequestedPage() {
+		server.expect(requestTo(allOf(
+			containsString("/3/trending/tv/week"),
+			containsString("page=2"))))
+			.andRespond(withSuccess(TV_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.getTrending(TitleType.TV, 2);
+
+		assertThat(results).hasSize(1);
 	}
 
 	// ─── getTvDetail ─────────────────────────────────────────────────────────
