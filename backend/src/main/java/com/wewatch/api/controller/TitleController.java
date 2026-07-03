@@ -77,6 +77,8 @@ public class TitleController {
 				TmdbClient.posterUrl(detail.posterPath()),
 				detail.status(),
 				genreNames(detail.genres()),
+				detail.voteAverage(),
+				detail.voteCount(),
 				null,
 				null
 			);
@@ -104,6 +106,8 @@ public class TitleController {
 			TmdbClient.posterUrl(detail.posterPath()),
 			detail.status(),
 			genreNames(detail.genres()),
+			detail.voteAverage(),
+			detail.voteCount(),
 			seasons.size(),
 			seasons
 		);

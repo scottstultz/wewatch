@@ -109,6 +109,8 @@ export interface TitleDetailResponse {
   posterUrl: string | null
   status: string | null
   genres: string[]
+  voteAverage: number | null
+  voteCount: number | null
   seasonCount: number | null
   seasons: SeasonSummary[] | null
 }

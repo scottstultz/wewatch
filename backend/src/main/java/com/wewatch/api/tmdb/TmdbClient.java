@@ -56,7 +56,7 @@ public class TmdbClient {
 				.uri("/3/tv/{id}?language=en-US", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of());
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
@@ -111,7 +111,7 @@ public class TmdbClient {
 				.uri("/3/movie/{id}?language=en-US", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of());
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}
