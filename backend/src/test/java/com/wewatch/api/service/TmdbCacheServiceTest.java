@@ -8,9 +8,11 @@ import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,8 +23,10 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.wewatch.api.model.TmdbEpisodeCache;
+import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
+import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbTvDetail;
@@ -34,6 +38,7 @@ class TmdbCacheServiceTest {
 
 	@Mock private TmdbClient tmdbClient;
 	@Mock private TmdbTitleCacheRepository titleCacheRepository;
+	@Mock private TmdbSeasonCacheRepository seasonCacheRepository;
 	@Mock private TmdbEpisodeCacheRepository episodeCacheRepository;
 
 	private TmdbCacheService service;
@@ -43,8 +48,10 @@ class TmdbCacheServiceTest {
 
 	@BeforeEach
 	void setUp() {
-		service = new TmdbCacheService(tmdbClient, titleCacheRepository, episodeCacheRepository, 7L);
+		service = new TmdbCacheService(
+			tmdbClient, titleCacheRepository, seasonCacheRepository, episodeCacheRepository, 7L);
 		lenient().when(titleCacheRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+		lenient().when(seasonCacheRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 		lenient().when(episodeCacheRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 	}
 
@@ -52,7 +59,10 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsCallsTmdbOnCacheMiss() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbIdAndSeasonNumber(anyString(), anyInt()))
+			.thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
 			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
 			"Game of Thrones", null, null, List.of());
@@ -64,13 +74,15 @@ class TmdbCacheServiceTest {
 		assertThat(result.get(0).seasonNumber()).isEqualTo(1);
 		verify(tmdbClient).getTvDetail(TMDB_ID);
 		verify(titleCacheRepository).save(any(TmdbTitleCache.class));
+		verify(seasonCacheRepository).save(any(TmdbSeasonCache.class));
 	}
 
 	@Test
 	void getSeasonsCallsTmdbOnStaleCache() {
-		TmdbTitleCache stale = freshTitleCache();
+		TmdbSeasonCache stale = freshSeasonCache(1);
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(stale));
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of());
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
@@ -81,23 +93,38 @@ class TmdbCacheServiceTest {
 	}
 
 	@Test
-	void getSeasonsServesFreshCacheWithoutRefetch() {
-		TmdbTitleCache fresh = freshTitleCache();
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(fresh));
-		when(tmdbClient.getSeasons(TMDB_ID)).thenReturn(List.of(
-			new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)
-		));
+	void getSeasonsServesFreshCacheWithoutTmdbCall() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+			.thenReturn(List.of(freshSeasonCache(1), freshSeasonCache(2)));
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
 
-		assertThat(result).hasSize(1);
-		verify(tmdbClient, never()).getTvDetail(anyString());
+		assertThat(result).hasSize(2);
+		assertThat(result.get(0).seasonNumber()).isEqualTo(1);
+		assertThat(result.get(0).name()).isEqualTo("Season 1");
+		assertThat(result.get(0).episodeCount()).isEqualTo(10);
+		assertThat(result.get(0).airDate()).isEqualTo("2011-04-17");
+		verifyNoInteractions(tmdbClient);
 		verify(titleCacheRepository, never()).save(any());
+		verify(seasonCacheRepository, never()).save(any());
+	}
+
+	@Test
+	void getSeasonsReturnsFreshCacheOrderedBySeasonNumber() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+			.thenReturn(List.of(freshSeasonCache(2), freshSeasonCache(1)));
+
+		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
+
+		assertThat(result).extracting(TmdbTvSeason::seasonNumber).containsExactly(1, 2);
 	}
 
 	@Test
 	void getSeasonsExcludesSeason0Specials() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbIdAndSeasonNumber(anyString(), anyInt()))
+			.thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 2, "Ended", "2011-04-17",
 			List.of(
 				new TmdbTvSeason(0L, 0, "Specials", null, null, 5, null, null),
@@ -115,17 +142,14 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsExcludesSeason0FromFreshCache() {
-		TmdbTitleCache fresh = freshTitleCache();
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(fresh));
-		when(tmdbClient.getSeasons(TMDB_ID)).thenReturn(List.of(
-			new TmdbTvSeason(0L, 0, "Specials", null, null, 5, null, null),
-			new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null)
-		));
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+			.thenReturn(List.of(freshSeasonCache(0), freshSeasonCache(1)));
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
 
 		assertThat(result).hasSize(1);
 		assertThat(result.get(0).seasonNumber()).isEqualTo(1);
+		verifyNoInteractions(tmdbClient);
 	}
 
 	// ── getSeasonDetail ──────────────────────────────────────
@@ -185,11 +209,13 @@ class TmdbCacheServiceTest {
 
 	// ── helpers ──────────────────────────────────────────────
 
-	private TmdbTitleCache freshTitleCache() {
-		TmdbTitleCache c = new TmdbTitleCache();
+	private TmdbSeasonCache freshSeasonCache(int seasonNumber) {
+		TmdbSeasonCache c = new TmdbSeasonCache();
 		c.setTmdbId(TMDB_ID);
-		c.setType("TV");
-		c.setName("Game of Thrones");
+		c.setSeasonNumber(seasonNumber);
+		c.setName(seasonNumber == 0 ? "Specials" : "Season " + seasonNumber);
+		c.setEpisodeCount(10);
+		c.setAirDate(LocalDate.parse("2011-04-17"));
 		c.setFetchedAt(Instant.now());
 		return c;
 	}

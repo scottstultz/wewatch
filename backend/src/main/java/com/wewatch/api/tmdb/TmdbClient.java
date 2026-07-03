@@ -62,11 +62,6 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TmdbTvSeason> getSeasons(String tmdbId) {
-		TmdbTvDetail detail = getTvDetail(tmdbId);
-		return detail.seasons() != null ? detail.seasons() : List.of();
-	}
-
 	public TmdbTvSeason getSeasonDetail(String tmdbId, int seasonNumber) {
 		try {
 			TmdbTvSeason season = restClient.get()

@@ -165,7 +165,7 @@ class TmdbClientTest {
 			.isInstanceOf(TmdbApiException.class);
 	}
 
-	// ─── getSeasons ──────────────────────────────────────────────────────────
+	// ─── getTvDetail ─────────────────────────────────────────────────────────
 
 	private static final String TV_DETAIL_JSON = """
 		{
@@ -193,11 +193,11 @@ class TmdbClientTest {
 		""";
 
 	@Test
-	void getSeasonsReturnsMappedSeasonList() {
+	void getTvDetailReturnsMappedSeasonList() {
 		server.expect(requestTo(containsString("/3/tv/1399")))
 			.andRespond(withSuccess(TV_DETAIL_JSON, MediaType.APPLICATION_JSON));
 
-		List<TmdbTvSeason> seasons = tmdbClient.getSeasons("1399");
+		List<TmdbTvSeason> seasons = tmdbClient.getTvDetail("1399").seasons();
 
 		assertThat(seasons).hasSize(2);
 		assertThat(seasons.get(0).seasonNumber()).isEqualTo(0);
