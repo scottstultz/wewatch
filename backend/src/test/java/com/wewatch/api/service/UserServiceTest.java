@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -338,6 +339,9 @@ class UserServiceTest {
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("nobody@example.com", "password123"))
 			.isInstanceOf(InvalidCredentialsException.class);
+
+		// dummy compare must run so timing doesn't reveal whether the email is registered (#215)
+		verify(passwordEncoder).matches(eq("password123"), anyString());
 	}
 
 	@Test
@@ -352,6 +356,23 @@ class UserServiceTest {
 		when(repository.findByEmail("google@example.com")).thenReturn(Optional.of(googleUser));
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("google@example.com", "password123"))
+			.isInstanceOf(InvalidCredentialsException.class);
+
+		// dummy compare must run so timing doesn't reveal whether the account has a password (#215)
+		verify(passwordEncoder).matches(eq("password123"), anyString());
+	}
+
+	@Test
+	void authenticateWithPasswordThrowsForNonexistentEmailEvenIfDummyCompareMatches() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+
+		when(repository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+		when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
+
+		assertThatThrownBy(() -> service.authenticateWithPassword("nobody@example.com", "password123"))
 			.isInstanceOf(InvalidCredentialsException.class);
 	}
 }
