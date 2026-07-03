@@ -141,12 +141,21 @@ public class UserService {
 		return saved;
 	}
 
+	/**
+	 * Valid BCrypt hash of a random unguessable value, compared against when the email is
+	 * unknown or has no password hash. Without this, the not-found path skips the ~100ms
+	 * BCrypt check and response timing reveals which emails are registered.
+	 */
+	private static final String DUMMY_PASSWORD_HASH = "$2a$10$ntarrN47RrxhmC4J/OvMQe2PSTM.z92G7iVpW9aIgvFDCdVZxIeYO";
+
 	public User authenticateWithPassword(String email, String password) {
 		User user = userRepository.findByEmail(email)
 			.filter(u -> u.getPasswordHash() != null)
-			.orElseThrow(InvalidCredentialsException::new);
+			.orElse(null);
 
-		if (!passwordEncoder.matches(password, user.getPasswordHash())) {
+		String hash = user != null ? user.getPasswordHash() : DUMMY_PASSWORD_HASH;
+		boolean matches = passwordEncoder.matches(password, hash);
+		if (user == null || !matches) {
 			throw new InvalidCredentialsException();
 		}
 		return user;
