@@ -1,7 +1,6 @@
 package com.wewatch.api.service;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +20,7 @@ import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbTvDetail;
@@ -143,7 +143,7 @@ public class TmdbCacheService {
 		row.setOverview(detail.overview());
 		row.setPosterPath(detail.posterPath());
 		row.setStatus(detail.status());
-		row.setFirstAirDate(parseDate(detail.firstAirDate()));
+		row.setFirstAirDate(TmdbDates.parse(detail.firstAirDate()));
 		row.setNumberOfSeasons(detail.numberOfSeasons());
 		if (detail.genres() != null) {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
@@ -166,7 +166,7 @@ public class TmdbCacheService {
 			row.setOverview(season.overview());
 			row.setPosterPath(season.posterPath());
 			row.setEpisodeCount(season.episodeCount());
-			row.setAirDate(parseDate(season.airDate()));
+			row.setAirDate(TmdbDates.parse(season.airDate()));
 			row.setFetchedAt(now);
 			seasonCacheRepository.save(row);
 		}
@@ -215,7 +215,7 @@ public class TmdbCacheService {
 			row.setEpisodeNumber(ep.episodeNumber());
 			row.setName(ep.name());
 			row.setOverview(ep.overview());
-			row.setAirDate(parseDate(ep.airDate()));
+			row.setAirDate(TmdbDates.parse(ep.airDate()));
 			row.setRuntimeMinutes(ep.runtime());
 			row.setStillPath(ep.stillPath());
 			row.setFetchedAt(now);
@@ -239,12 +239,4 @@ public class TmdbCacheService {
 		return new TmdbTvSeason(0L, seasonNumber, null, null, null, episodes.size(), null, episodes);
 	}
 
-	private LocalDate parseDate(String date) {
-		if (date == null || date.isBlank()) return null;
-		try {
-			return LocalDate.parse(date);
-		} catch (Exception e) {
-			return null;
-		}
-	}
 }
