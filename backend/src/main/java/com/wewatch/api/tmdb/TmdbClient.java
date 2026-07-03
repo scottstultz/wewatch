@@ -77,11 +77,11 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> getRecommendations(TitleType type, String tmdbId) {
+	public List<TitleSearchResponse> getRecommendations(TitleType type, String tmdbId, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri("/3/{mediaType}/{id}/recommendations?language=en-US&page=1", mediaType, tmdbId)
+				.uri("/3/{mediaType}/{id}/recommendations?language=en-US&page={page}", mediaType, tmdbId, pageNumber)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
@@ -117,11 +117,11 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> getSimilar(TitleType type, String tmdbId) {
+	public List<TitleSearchResponse> getSimilar(TitleType type, String tmdbId, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri("/3/{mediaType}/{id}/similar?language=en-US&page=1", mediaType, tmdbId)
+				.uri("/3/{mediaType}/{id}/similar?language=en-US&page={page}", mediaType, tmdbId, pageNumber)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
@@ -131,18 +131,18 @@ public class TmdbClient {
 		}
 	}
 
-	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds, int voteCountGte) {
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds, int voteCountGte, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		// Use OR (|) so results match any of the user's top genres/keywords rather than requiring all
 		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
-		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US";
+		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US&page={page}";
 		if (!keywordIds.isEmpty()) {
 			String keywords = keywordIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
 			uriStr += "&with_keywords=" + keywords;
 		}
 		try {
 			TmdbSearchPage page = restClient.get()
-				.uri(uriStr, mediaType, genres, voteCountGte)
+				.uri(uriStr, mediaType, genres, voteCountGte, pageNumber)
 				.retrieve()
 				.body(TmdbSearchPage.class);
 			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();

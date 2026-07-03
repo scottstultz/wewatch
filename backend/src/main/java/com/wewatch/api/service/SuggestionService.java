@@ -1,14 +1,19 @@
 package com.wewatch.api.service;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
+import java.util.function.IntFunction;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -46,11 +51,13 @@ public class SuggestionService {
 	private static final int MAX_PER_GENRE_CLUSTER = 4;
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
+	private static final int MAX_FETCH_PAGE = 3;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
+	private final Clock clock;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
 	// horizontally, each node caches (and invalidates) independently, so recompute
@@ -62,6 +69,7 @@ public class SuggestionService {
 		TitleService titleService,
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
+		Clock clock,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
 	) {
@@ -69,6 +77,7 @@ public class SuggestionService {
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
+		this.clock = clock;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
 			.maximumSize(cacheMaxSize)
@@ -111,21 +120,26 @@ public class SuggestionService {
 
 		List<SuggestionShelfResponse> shelves = new ArrayList<>();
 
+		// Seeded on (watchlist, calendar day): shelves are stable across recomputes
+		// within a day and rotate at midnight for free (#231)
+		Random rng = new Random(Objects.hash(watchlistId, LocalDate.now(clock).toEpochDay()));
+
 		// ── Per-seed shelves ───────────────────────────────────────
-		List<WatchlistEntry> seeds = allEntries.stream()
+		// Sort by id before shuffling: repository ordering isn't guaranteed, and the
+		// shuffle must see the same input order to be reproducible within a day
+		List<WatchlistEntry> eligibleSeeds = allEntries.stream()
 			.filter(e -> e.getStatus() == WatchStatus.WATCHING || e.getStatus() == WatchStatus.WANT_TO_WATCH)
 			.filter(e -> titlesById.containsKey(e.getTitleId()))
-			.sorted(Comparator.comparingInt((WatchlistEntry e) -> statusWeight(e.getStatus()))
-				.reversed()
-				.thenComparing(WatchlistEntry::getUpdatedAt, Comparator.reverseOrder()))
-			.limit(MAX_SEEDS)
-			.toList();
+			.sorted(Comparator.comparing(WatchlistEntry::getId))
+			.collect(Collectors.toCollection(ArrayList::new));
+		Collections.shuffle(eligibleSeeds, rng);
+		List<WatchlistEntry> seeds = eligibleSeeds.subList(0, Math.min(MAX_SEEDS, eligibleSeeds.size()));
 
 		for (WatchlistEntry seed : seeds) {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
@@ -181,8 +195,10 @@ public class SuggestionService {
 				.toList();
 
 			String label = type == TitleType.TV ? "More like your shows" : "More like your movies";
+			int discoverPage = 1 + rng.nextInt(MAX_FETCH_PAGE);
 			try {
-				List<TitleSearchResponse> discovered = tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE);
+				List<TitleSearchResponse> discovered = fetchPageWithFallback(
+					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE, p), discoverPage);
 				List<TitleSearchResponse> shelf = fillShelf(discovered, seen);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
 					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
@@ -196,16 +212,19 @@ public class SuggestionService {
 	}
 
 	// Fetch candidates from recommendations + similar top-up, then score by genre affinity
-	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile) {
+	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Random rng) {
+		// One page draw per seed, shared by recommendations and similar, so RNG
+		// consumption doesn't depend on how many results TMDB happens to return
+		int page = 1 + rng.nextInt(MAX_FETCH_PAGE);
 		List<TitleSearchResponse> results = new ArrayList<>();
 		try {
-			results.addAll(tmdbClient.getRecommendations(type, tmdbId));
+			results.addAll(fetchPageWithFallback(p -> tmdbClient.getRecommendations(type, tmdbId, p), page));
 		} catch (TmdbApiException e) {
 			log.warn("Recommendations failed for {}: {}", tmdbId, e.getMessage());
 		}
 		if (results.size() < SIMILAR_TOP_UP_THRESHOLD) {
 			try {
-				results.addAll(tmdbClient.getSimilar(type, tmdbId));
+				results.addAll(fetchPageWithFallback(p -> tmdbClient.getSimilar(type, tmdbId, p), page));
 			} catch (TmdbApiException e) {
 				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
 			}
@@ -214,13 +233,23 @@ public class SuggestionService {
 		Set<String> seen = new HashSet<>();
 		List<TitleSearchResponse> deduped = results.stream()
 			.filter(r -> seen.add(r.externalId()))
-			.toList();
+			.collect(Collectors.toCollection(ArrayList::new));
+
+		// Shuffle before the stable score sort: candidates with equal genre scores
+		// keep the shuffled order, so ties rotate day to day
+		Collections.shuffle(deduped, rng);
 
 		if (genreProfile.isEmpty()) return deduped;
 
-		return deduped.stream()
-			.sorted(Comparator.comparingDouble((TitleSearchResponse r) -> genreScore(r, genreProfile)).reversed())
-			.toList();
+		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) -> genreScore(r, genreProfile)).reversed());
+		return deduped;
+	}
+
+	// Deeper pages can be empty (few recommendations, thin discover results) — fall
+	// back to page 1 rather than dropping the shelf for falling under MIN_SHELF_SIZE
+	private List<TitleSearchResponse> fetchPageWithFallback(IntFunction<List<TitleSearchResponse>> fetch, int page) {
+		List<TitleSearchResponse> results = fetch.apply(page);
+		return results.isEmpty() && page > 1 ? fetch.apply(1) : results;
 	}
 
 	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER
