@@ -9,7 +9,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,18 +24,26 @@ import org.mockito.Mockito;
 import com.wewatch.api.model.EpisodeProgress;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.EpisodeProgressRepository;
+import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 
 class EpisodeProgressServiceTest {
 
 	private EpisodeProgressRepository episodeProgressRepository;
 	private WatchlistEntryService watchlistEntryService;
 	private TitleService titleService;
+	private TmdbEpisodeCacheRepository episodeCacheRepository;
 	private EpisodeProgressService service;
 
 	private static final Instant EPOCH = Instant.EPOCH;
+
+	// Fixed "today" for deterministic air-date comparisons.
+	private static final LocalDate TODAY = LocalDate.of(2026, 7, 3);
+	private static final Clock FIXED_CLOCK =
+		Clock.fixed(TODAY.atStartOfDay(ZoneOffset.UTC).toInstant(), ZoneOffset.UTC);
 
 	private static final WatchlistEntry TV_ENTRY = new WatchlistEntry(
 		1L, 10L, 100L, WatchStatus.WATCHING, EPOCH, EPOCH, EPOCH, null
@@ -55,12 +66,24 @@ class EpisodeProgressServiceTest {
 		episodeProgressRepository = Mockito.mock(EpisodeProgressRepository.class);
 		watchlistEntryService = Mockito.mock(WatchlistEntryService.class);
 		titleService = Mockito.mock(TitleService.class);
-		service = new EpisodeProgressService(episodeProgressRepository, watchlistEntryService, titleService);
+		episodeCacheRepository = Mockito.mock(TmdbEpisodeCacheRepository.class);
+		service = new EpisodeProgressService(
+			episodeProgressRepository, watchlistEntryService, titleService, episodeCacheRepository, FIXED_CLOCK
+		);
 
 		when(watchlistEntryService.findById(10L, 1L)).thenReturn(TV_ENTRY);
 		when(watchlistEntryService.findById(10L, 2L)).thenReturn(MOVIE_ENTRY);
 		when(titleService.findById(100L)).thenReturn(TV_TITLE);
 		when(titleService.findById(200L)).thenReturn(MOVIE_TITLE);
+	}
+
+	private TmdbEpisodeCache episodeCache(int seasonNumber, int episodeNumber, LocalDate airDate) {
+		TmdbEpisodeCache row = new TmdbEpisodeCache();
+		row.setTmdbId(TV_TITLE.getExternalId());
+		row.setSeasonNumber(seasonNumber);
+		row.setEpisodeNumber(episodeNumber);
+		row.setAirDate(airDate);
+		return row;
 	}
 
 	// ─── getProgress ─────────────────────────────────────────────────────────
@@ -153,6 +176,53 @@ class EpisodeProgressServiceTest {
 			.hasMessage("Episode tracking is only available for TV shows");
 	}
 
+	@Test
+	void toggleEpisodeRejectsUnairedEpisode() {
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 5))
+			.thenReturn(Optional.empty());
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+			.thenReturn(List.of(episodeCache(1, 5, TODAY.plusDays(7))));
+
+		assertThatThrownBy(() -> service.toggleEpisode(10L, 1L, 1, 5))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("Episode has not aired yet");
+
+		verify(episodeProgressRepository, never()).save(any());
+	}
+
+	@Test
+	void toggleEpisodeAllowsUnmarkingUnairedEpisode() {
+		// A stray watched row on an episode that later slipped to a future date can still be cleared.
+		EpisodeProgress existing = new EpisodeProgress(5L, 1L, 1, 5, true, EPOCH);
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 5))
+			.thenReturn(Optional.of(existing));
+		when(episodeProgressRepository.save(any(EpisodeProgress.class))).thenAnswer(inv -> inv.getArgument(0));
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+			.thenReturn(List.of(episodeCache(1, 5, TODAY.plusDays(7))));
+
+		EpisodeProgress result = service.toggleEpisode(10L, 1L, 1, 5);
+
+		assertThat(result.getWatched()).isFalse();
+		assertThat(result.getWatchedAt()).isNull();
+	}
+
+	@Test
+	void toggleEpisodeAllowsEpisodeWithNullAirDate() {
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 5))
+			.thenReturn(Optional.empty());
+		when(episodeProgressRepository.save(any(EpisodeProgress.class))).thenAnswer(inv -> {
+			EpisodeProgress ep = inv.getArgument(0);
+			ep.setId(99L);
+			return ep;
+		});
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+			.thenReturn(List.of(episodeCache(1, 5, null)));
+
+		EpisodeProgress result = service.toggleEpisode(10L, 1L, 1, 5);
+
+		assertThat(result.getWatched()).isTrue();
+	}
+
 	// ─── bulkMarkSeason ──────────────────────────────────────────────────────
 
 	@Test
@@ -171,7 +241,7 @@ class EpisodeProgressServiceTest {
 				List.of(ep1, ep2, ep3)
 			);
 		when(episodeProgressRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
-		when(episodeProgressRepository.updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class)))
+		when(episodeProgressRepository.updateEpisodesWatched(eq(1L), eq(1), eq(List.of(1, 2, 3)), eq(true), any(Instant.class)))
 			.thenReturn(3);
 
 		List<EpisodeProgress> result = service.bulkMarkSeason(10L, 1L, 1, true, List.of(1, 2, 3));
@@ -183,7 +253,7 @@ class EpisodeProgressServiceTest {
 		verify(episodeProgressRepository).saveAll(captor.capture());
 		assertThat(captor.getValue()).hasSize(1);
 		assertThat(captor.getValue().get(0).getEpisodeNumber()).isEqualTo(3);
-		verify(episodeProgressRepository).updateSeasonWatched(eq(1L), eq(1), eq(true), any(Instant.class));
+		verify(episodeProgressRepository).updateEpisodesWatched(eq(1L), eq(1), eq(List.of(1, 2, 3)), eq(true), any(Instant.class));
 	}
 
 	@Test
@@ -217,5 +287,61 @@ class EpisodeProgressServiceTest {
 		assertThatThrownBy(() -> service.bulkMarkSeason(10L, 2L, 1, true, List.of(1, 2)))
 			.isInstanceOf(IllegalArgumentException.class)
 			.hasMessage("Episode tracking is only available for TV shows");
+	}
+
+	@Test
+	void bulkMarkSeasonWatchedExcludesUnairedEpisodes() {
+		// Episodes 1–2 aired; episode 3 airs in the future and must be skipped.
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+			.thenReturn(List.of(
+				episodeCache(1, 1, TODAY.minusDays(14)),
+				episodeCache(1, 2, TODAY.minusDays(7)),
+				episodeCache(1, 3, TODAY.plusDays(7))
+			));
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 1))
+			.thenReturn(
+				List.of(),
+				List.of(
+					new EpisodeProgress(1L, 1L, 1, 1, true, EPOCH),
+					new EpisodeProgress(2L, 1L, 1, 2, true, EPOCH)
+				)
+			);
+		when(episodeProgressRepository.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+		service.bulkMarkSeason(10L, 1L, 1, true, List.of(1, 2, 3));
+
+		// Only aired episodes get progress rows created and marked watched.
+		ArgumentCaptor<List<EpisodeProgress>> captor = ArgumentCaptor.forClass(List.class);
+		verify(episodeProgressRepository).saveAll(captor.capture());
+		assertThat(captor.getValue())
+			.extracting(EpisodeProgress::getEpisodeNumber)
+			.containsExactlyInAnyOrder(1, 2);
+		verify(episodeProgressRepository)
+			.updateEpisodesWatched(eq(1L), eq(1), eq(List.of(1, 2)), eq(true), any(Instant.class));
+		verify(episodeProgressRepository, never())
+			.updateSeasonWatched(any(), any(), eq(true), any());
+	}
+
+	@Test
+	void bulkMarkSeasonUnwatchedIncludesUnairedEpisodes() {
+		// Clearing watched flags is always allowed, even for unaired episodes.
+		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumber(1L, 1))
+			.thenReturn(
+				List.of(
+					new EpisodeProgress(1L, 1L, 1, 1, true, EPOCH),
+					new EpisodeProgress(2L, 1L, 1, 2, true, EPOCH)
+				),
+				List.of(
+					new EpisodeProgress(1L, 1L, 1, 1, false, null),
+					new EpisodeProgress(2L, 1L, 1, 2, false, null)
+				)
+			);
+		when(episodeProgressRepository.updateSeasonWatched(1L, 1, false, null)).thenReturn(2);
+
+		service.bulkMarkSeason(10L, 1L, 1, false, List.of(1, 2, 3));
+
+		// No air-date lookup needed when unmarking.
+		verify(episodeCacheRepository, never()).findByTmdbIdAndSeasonNumber(any(), any());
+		verify(episodeProgressRepository).updateSeasonWatched(1L, 1, false, null);
 	}
 }

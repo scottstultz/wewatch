@@ -310,7 +310,10 @@ function ShowDetailPage() {
     if (!watchlistId || !entry || activeSeason == null) return
     setIsBulkMarking(true)
     try {
-      const epNumbers = episodes.map(ep => ep.episodeNumber)
+      // Unaired episodes can't be marked watched (the backend rejects them too)
+      const epNumbers = episodes
+        .filter(ep => !watched || !isFutureDate(ep.airDate))
+        .map(ep => ep.episodeNumber)
       await api.bulkMarkSeason(watchlistId, entry.id, activeSeason, watched, epNumbers)
       // Re-fetch progress for this season and the overall progress
       const [seasonProg, allProg] = await Promise.all([
@@ -492,9 +495,14 @@ function ShowDetailPage() {
                   >
                     <button
                       className={`episode-checkbox${watched ? ' episode-checkbox-checked' : ''}`}
-                      disabled={!canEdit || toggling}
+                      disabled={!canEdit || toggling || (future && !watched)}
                       onClick={() => handleToggle(activeSeason!, ep.episodeNumber)}
-                      aria-label={`${watched ? 'Unmark' : 'Mark'} episode ${ep.episodeNumber} as watched`}
+                      aria-label={
+                        future && !watched
+                          ? `Episode ${ep.episodeNumber} has not aired yet`
+                          : `${watched ? 'Unmark' : 'Mark'} episode ${ep.episodeNumber} as watched`
+                      }
+                      title={future && !watched ? 'Not aired yet' : undefined}
                     >
                       {watched ? '✓' : ''}
                     </button>

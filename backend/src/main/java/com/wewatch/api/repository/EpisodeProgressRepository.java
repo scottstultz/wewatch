@@ -82,4 +82,16 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		@Param("watched") boolean watched,
 		@Param("watchedAt") Instant watchedAt
 	);
+
+	@Modifying
+	@Query("UPDATE EpisodeProgress ep SET ep.watched = :watched, ep.watchedAt = :watchedAt " +
+		"WHERE ep.watchlistEntryId = :entryId AND ep.seasonNumber = :seasonNumber " +
+		"AND ep.episodeNumber IN :episodeNumbers")
+	int updateEpisodesWatched(
+		@Param("entryId") Long entryId,
+		@Param("seasonNumber") Integer seasonNumber,
+		@Param("episodeNumbers") List<Integer> episodeNumbers,
+		@Param("watched") boolean watched,
+		@Param("watchedAt") Instant watchedAt
+	);
 }
