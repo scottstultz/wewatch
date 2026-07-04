@@ -4,7 +4,7 @@ import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
-import RollTheDiceModal from '../components/RollTheDiceModal'
+import RollTheDiceModal, { MIN_PICKS } from '../components/RollTheDiceModal'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import type { WatchlistEntryResponse, WatchStatus } from '../types/api'
 
@@ -196,7 +196,13 @@ function LibraryPage() {
   const visible = (activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab))
     .filter(e => (e.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase()))
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
-  const canRoll = activeTab === 'WATCHING' && watchingEntries.length >= 2
+  const wantToWatchEntries = entries.filter(e => e.status === 'WANT_TO_WATCH')
+  const wantToWatchEligible =
+    wantToWatchEntries.filter(e => e.type === 'MOVIE').length >= MIN_PICKS
+    || wantToWatchEntries.filter(e => e.type === 'TV').length >= MIN_PICKS
+  const canRoll =
+    (activeTab === 'WATCHING' && watchingEntries.length >= MIN_PICKS)
+    || (activeTab === 'WANT_TO_WATCH' && wantToWatchEligible)
 
   return (
     <div className="page">
@@ -392,7 +398,11 @@ function LibraryPage() {
         <button
           className="flip-fab"
           onClick={() => setShowDice(true)}
-          aria-label="Roll the dice — pick a random show to watch"
+          aria-label={
+            activeTab === 'WANT_TO_WATCH'
+              ? 'Roll the dice — pick a random title from Want to Watch'
+              : 'Roll the dice — pick a random show to watch'
+          }
           title="Roll the dice"
         >
           🎲
@@ -401,7 +411,8 @@ function LibraryPage() {
 
       {showDice && selectedWatchlistId && (
         <RollTheDiceModal
-          entries={watchingEntries}
+          entries={activeTab === 'WANT_TO_WATCH' ? wantToWatchEntries : watchingEntries}
+          wantToWatchMode={activeTab === 'WANT_TO_WATCH'}
           onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {
             setShowDice(false)

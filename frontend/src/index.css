@@ -2163,6 +2163,28 @@ a {
   cursor: not-allowed;
 }
 
+.flip-mode-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.flip-back-btn {
+  align-self: flex-start;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.flip-back-btn:hover {
+  color: #e2e8f0;
+}
+
 .flip-reveal {
   display: flex;
   flex-direction: column;

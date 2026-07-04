@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { WatchlistEntryResponse } from '../types/api'
+import type { TitleType, WatchlistEntryResponse } from '../types/api'
 
 const MAX_PICKS = 6
-const MIN_PICKS = 2
+export const MIN_PICKS = 2
 
 interface RollTheDiceModalProps {
   entries: WatchlistEntryResponse[]
+  wantToWatchMode?: boolean
   onClose: () => void
   onOpenEntry: (entry: WatchlistEntryResponse) => void
 }
 
-type Phase = 'select' | 'reveal'
+type Phase = 'type' | 'mode' | 'select' | 'reveal'
 
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 }
 
-function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalProps) {
-  const [phase, setPhase] = useState<Phase>('select')
+function RollTheDiceModal({ entries, wantToWatchMode, onClose, onOpenEntry }: RollTheDiceModalProps) {
+  const [phase, setPhase] = useState<Phase>(wantToWatchMode ? 'type' : 'select')
+  const [mediaType, setMediaType] = useState<TitleType | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [displayId, setDisplayId] = useState<number | null>(null)
   const [chosenId, setChosenId] = useState<number | null>(null)
@@ -42,6 +45,16 @@ function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalPro
     [onClose],
   )
 
+  const eligibleEntries = wantToWatchMode
+    ? entries.filter(e => e.type === mediaType)
+    : entries
+  const visibleEntries = eligibleEntries.filter(e =>
+    (e.name ?? '').toLowerCase().includes(searchTerm.trim().toLowerCase()),
+  )
+
+  const movieCount = entries.filter(e => e.type === 'MOVIE').length
+  const showCount = entries.filter(e => e.type === 'TV').length
+
   function toggle(id: number) {
     setSelected(prev => {
       const next = new Set(prev)
@@ -51,8 +64,14 @@ function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalPro
     })
   }
 
-  function roll() {
-    const ids = [...selected]
+  function chooseType(type: TitleType) {
+    setMediaType(type)
+    setSelected(new Set())
+    setSearchTerm('')
+    setPhase('mode')
+  }
+
+  function roll(ids: number[]) {
     if (ids.length < MIN_PICKS) return
     const chosen = ids[Math.floor(Math.random() * ids.length)]
     setChosenId(chosen)
@@ -82,31 +101,115 @@ function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalPro
     tick()
   }
 
+  function rollAll() {
+    const ids = eligibleEntries.map(e => e.id)
+    if (ids.length < MIN_PICKS) return
+    setSelected(new Set(ids))
+    roll(ids)
+  }
+
   function rollAgain() {
     if (timerRef.current) clearTimeout(timerRef.current)
     setChosenId(null)
     setDisplayId(null)
     setIsShuffling(false)
-    setPhase('select')
+    setSelected(new Set())
+    setSearchTerm('')
+    setPhase(wantToWatchMode ? 'mode' : 'select')
   }
 
   const byId = (id: number | null) => entries.find(e => e.id === id) ?? null
   const revealEntry = byId(isShuffling ? displayId : chosenId)
+
+  const typeLabel = mediaType === 'MOVIE' ? 'Movies' : 'Shows'
 
   return (
     <div className="flip-overlay" onClick={handleBackdropClick}>
       <div className="flip-modal" role="dialog" aria-modal="true" aria-label="Roll the dice">
         <button className="list-manage-close" onClick={onClose} aria-label="Close">×</button>
 
-        {phase === 'select' ? (
+        {phase === 'type' && (
           <>
             <h3 className="flip-title">Roll the dice</h3>
+            <p className="flip-subtitle">What do you want to roll for?</p>
+
+            <div className="flip-mode-actions">
+              <button
+                className="flip-go-btn"
+                disabled={movieCount < MIN_PICKS}
+                onClick={() => chooseType('MOVIE')}
+              >
+                Movies ({movieCount})
+              </button>
+              <button
+                className="flip-go-btn"
+                disabled={showCount < MIN_PICKS}
+                onClick={() => chooseType('TV')}
+              >
+                Shows ({showCount})
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === 'mode' && (
+          <>
+            <button className="flip-back-btn" onClick={() => setPhase('type')}>‹ Back</button>
+            <h3 className="flip-title">Roll the dice</h3>
             <p className="flip-subtitle">
-              Pick {MIN_PICKS}–{MAX_PICKS} of the shows you're watching and let fate choose.
+              {typeLabel} in Want to Watch — how do you want to roll?
             </p>
 
+            <div className="flip-mode-actions">
+              <button
+                className="flip-go-btn"
+                disabled={eligibleEntries.length < MIN_PICKS}
+                onClick={rollAll}
+              >
+                Roll all ({eligibleEntries.length})
+              </button>
+              <button
+                className="flip-secondary-btn"
+                disabled={eligibleEntries.length < MIN_PICKS}
+                onClick={() => { setSelected(new Set()); setPhase('select') }}
+              >
+                Narrow it down
+              </button>
+            </div>
+          </>
+        )}
+
+        {phase === 'select' && (
+          <>
+            {wantToWatchMode && (
+              <button className="flip-back-btn" onClick={() => setPhase('mode')}>‹ Back</button>
+            )}
+            <h3 className="flip-title">Roll the dice</h3>
+            <p className="flip-subtitle">
+              Pick {MIN_PICKS}–{MAX_PICKS}{wantToWatchMode ? ` ${typeLabel.toLowerCase()}` : " of the shows you're watching"} and let fate choose.
+            </p>
+
+            <div className="search-input-wrapper">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="Search titles…"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+              />
+              {searchTerm && (
+                <button
+                  className="search-clear-btn"
+                  onClick={() => setSearchTerm('')}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
             <div className="flip-select-grid">
-              {entries.map(entry => {
+              {visibleEntries.map(entry => {
                 const isSelected = selected.has(entry.id)
                 const atCap = selected.size >= MAX_PICKS && !isSelected
                 return (
@@ -135,13 +238,15 @@ function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalPro
               <button
                 className="flip-go-btn"
                 disabled={selected.size < MIN_PICKS}
-                onClick={roll}
+                onClick={() => roll([...selected])}
               >
                 Roll!
               </button>
             </div>
           </>
-        ) : (
+        )}
+
+        {phase === 'reveal' && (
           <div className="flip-reveal">
             <h3 className="flip-title">{isShuffling ? 'Rolling…' : 'You should watch'}</h3>
 
@@ -168,7 +273,7 @@ function RollTheDiceModal({ entries, onClose, onOpenEntry }: RollTheDiceModalPro
 
             {!isShuffling && (
               <div className="flip-reveal-actions">
-                {revealEntry?.type === 'TV' && (
+                {revealEntry?.type && (
                   <button className="flip-go-btn" onClick={() => onOpenEntry(revealEntry)}>
                     Open
                   </button>
