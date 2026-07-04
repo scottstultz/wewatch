@@ -143,6 +143,10 @@ public class SuggestionService {
 		// excluded from shelves so rotation digs deeper into the candidate pool
 		Set<String> suppressed = suggestionImpressionService.recentlyShownIds(watchlistId);
 
+		// Ids pulled back into a shelf via the top-up path (#246): tracked so we can
+		// skip re-recording them below, preserving their original suppression clock
+		Set<String> toppedUpIds = new HashSet<>();
+
 		List<SuggestionShelfResponse> shelves = new ArrayList<>();
 
 		// Seeded on (watchlist, calendar day): shelves are stable across recomputes
@@ -165,7 +169,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -193,7 +197,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -237,7 +241,7 @@ public class SuggestionService {
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
 						SORT_POPULARITY, null, null, p), discoverPage);
-				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, suppressed);
+				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, suppressed, toppedUpIds);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
 					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
 				}
@@ -262,17 +266,21 @@ public class SuggestionService {
 		int explorationCount = 0;
 		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
 			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, seen, suppressed, rng);
+			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, seen, suppressed, toppedUpIds, rng);
 			if (shelf != null) {
 				shelves.add(shelf);
 				explorationCount++;
 			}
 		}
 
-		// Record what we're about to serve so tomorrow's compute suppresses it (#233)
+		// Record what we're about to serve so tomorrow's compute suppresses it (#233).
+		// Top-up titles (#246) are excluded: they were already suppressed and only
+		// reappeared to keep a shelf at MIN_SHELF_SIZE, so re-recording them would reset
+		// their suppression clock and trap them in the top-up path instead of aging out.
 		Set<String> shownIds = shelves.stream()
 			.flatMap(s -> s.titles().stream())
 			.map(TitleSearchResponse::externalId)
+			.filter(id -> !toppedUpIds.contains(id))
 			.collect(Collectors.toSet());
 		suggestionImpressionService.recordShown(watchlistId, shownIds);
 
@@ -290,6 +298,7 @@ public class SuggestionService {
 		Map<Integer, Double> genreProfile,
 		Set<String> seen,
 		Set<String> suppressed,
+		Set<String> toppedUpIds,
 		Random rng
 	) {
 		int page = 1 + rng.nextInt(MAX_FETCH_PAGE);
@@ -334,7 +343,7 @@ public class SuggestionService {
 			return null;
 		}
 
-		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed);
+		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
 		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind) : null;
 	}
 
@@ -437,7 +446,10 @@ public class SuggestionService {
 	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER.
 	// Recently shown candidates (#233) are held back; if that leaves the shelf under
 	// MIN_SHELF_SIZE, the best of them top it back up rather than hiding the shelf.
-	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Set<String> suppressed) {
+	// Top-up ids are collected into toppedUpIds so the caller can skip re-recording
+	// them as impressions (#246) — re-recording would reset their suppression clock and
+	// keep them stuck in the top-up path forever instead of aging out.
+	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Set<String> suppressed, Set<String> toppedUpIds) {
 		Map<Integer, Integer> genreCount = new HashMap<>();
 		List<TitleSearchResponse> shelf = new ArrayList<>();
 		List<TitleSearchResponse> heldBack = new ArrayList<>();
@@ -458,6 +470,7 @@ public class SuggestionService {
 			int primaryGenre = primaryGenre(r);
 			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
 			shelf.add(r);
+			toppedUpIds.add(r.externalId());
 			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
 		}
 		return shelf;

@@ -30,6 +30,7 @@ import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -305,6 +306,37 @@ class SuggestionServiceTest {
 		assertThat(shelfIds).hasSize(3);
 		assertThat(shelfIds).contains("rec-4", "rec-5");
 		assertThat(shelfIds.stream().filter(suppressed::contains)).hasSize(1);
+	}
+
+	@Test
+	@SuppressWarnings("unchecked")
+	void topUpTitlesAreNotReRecordedAsImpressions() {
+		// Same setup as the top-up test: two fresh candidates and one suppressed title
+		// pulled back in to reach MIN_SHELF_SIZE. The topped-up title must NOT be
+		// re-recorded, or its suppression clock resets and it never ages out (#246).
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
+		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
+		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		String toppedUpId = shelves.get(0).titles().stream()
+			.map(TitleSearchResponse::externalId)
+			.filter(suppressed::contains)
+			.findFirst().orElseThrow();
+
+		ArgumentCaptor<Set<String>> captor = ArgumentCaptor.forClass(Set.class);
+		verify(suggestionImpressionService).recordShown(eq(WATCHLIST_ID), captor.capture());
+		Set<String> recorded = captor.getValue();
+		// Fresh titles are recorded; the topped-up (previously suppressed) one is not
+		assertThat(recorded).contains("rec-4", "rec-5");
+		assertThat(recorded).doesNotContain(toppedUpId);
 	}
 
 	@Test
