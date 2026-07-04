@@ -71,6 +71,11 @@ public class SuggestionService {
 	// A shared keyword is a much stronger similarity signal than a shared genre,
 	// which only ever contributes profileWeight (1–2) per genre
 	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
+	// Day-seeded ± offset added to each candidate's score so ranking rotates daily
+	// beyond exact ties (#248). Calibrated against the score scale (genre affinity
+	// ~1–6, keyword boost 2.0/match): large enough to reorder near-scores, small
+	// enough that a clearly stronger affinity still wins on average.
+	private static final double SCORE_JITTER = 1.0;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
@@ -331,15 +336,14 @@ public class SuggestionService {
 					label = "Hidden gems";
 				}
 				case TRENDING -> {
-					// Rank the raw popularity feed by taste-profile affinity;
-					// shuffle-then-stable-sort so equal-affinity ties rotate daily
+					// Rank the raw popularity feed by taste-profile affinity plus
+					// day-seeded jitter (#248) so the order rotates daily beyond ties;
+					// with no genre profile the sort degrades to stable-per-day random
 					List<TitleSearchResponse> trending = new ArrayList<>(
 						fetchPageWithFallback(p -> tmdbClient.getTrending(type, p), page));
-					Collections.shuffle(trending, rng);
-					if (!genreProfile.isEmpty()) {
-						trending.sort(Comparator.comparingDouble(
-							(TitleSearchResponse r) -> genreScore(r, genreProfile)).reversed());
-					}
+					Map<String, Double> jitter = jitterByCandidate(trending, rng);
+					trending.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
+						genreScore(r, genreProfile) + jitter.getOrDefault(r.externalId(), 0.0)).reversed());
 					candidates = trending;
 					label = "Trending now";
 				}
@@ -418,16 +422,30 @@ public class SuggestionService {
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		// Shuffle before the stable score sort: candidates with equal scores
-		// keep the shuffled order, so ties rotate day to day
-		Collections.shuffle(deduped, rng);
-
+		// Day-seeded score jitter (#248): a small ± offset per candidate rotates the
+		// ranking daily beyond exact ties, so stable high-affinity candidates don't
+		// float to the top of a shelf every single day. Applied even with no genre/
+		// keyword signal, where the sort degrades to a stable-per-day random order.
+		Map<String, Double> jitter = jitterByCandidate(deduped, rng);
 		Map<String, Double> keywordBoosts = keywordBoosts(deduped, keywordProfile);
-		if (genreProfile.isEmpty() && keywordBoosts.isEmpty()) return deduped;
 
 		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
-			genreScore(r, genreProfile) + keywordBoosts.getOrDefault(r.externalId(), 0.0)).reversed());
+			genreScore(r, genreProfile)
+			+ keywordBoosts.getOrDefault(r.externalId(), 0.0)
+			+ jitter.getOrDefault(r.externalId(), 0.0)).reversed());
 		return deduped;
+	}
+
+	// Day-seeded per-candidate score offset (#248). Draws from the shared day-seeded
+	// rng in list order, so the assignment is reproducible within a day (identical
+	// shelves across recomputes) and rotates at midnight. Keyed by externalId, one
+	// draw per distinct id so duplicates don't desync the rng stream.
+	private Map<String, Double> jitterByCandidate(List<TitleSearchResponse> candidates, Random rng) {
+		Map<String, Double> jitter = new HashMap<>();
+		for (TitleSearchResponse c : candidates) {
+			jitter.computeIfAbsent(c.externalId(), id -> (rng.nextDouble() * 2 - 1) * SCORE_JITTER);
+		}
+		return jitter;
 	}
 
 	// TMDB recommendations/similar responses carry no keywords, so candidate keywords
