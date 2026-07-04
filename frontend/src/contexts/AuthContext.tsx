@@ -8,7 +8,7 @@ import {
   isTokenValid,
   storeToken,
 } from '../services/auth'
-import { createApiClient, getCurrentUser } from '../services/api'
+import { UnauthorizedError, createApiClient, getCurrentUser } from '../services/api'
 import type { ApiClient } from '../services/api'
 
 interface User {
@@ -39,13 +39,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(stored)
       getCurrentUser(stored)
         .then(backendUser => setUser({ id: backendUser.id, name: backendUser.displayName, email: backendUser.email }))
-        .catch(() => {
-          clearToken()
-          setToken(null)
+        .catch(err => {
+          // Only a confirmed 401 means the token is bad. A transient network
+          // error (e.g. mobile reconnecting after a resume) must not force a
+          // sign-out — keep the token and let the next request retry (#242).
+          if (err instanceof UnauthorizedError) {
+            clearToken()
+            setToken(null)
+          }
         })
     } else if (stored) {
       clearToken()
       setSessionExpired(true)
+    }
+  }, [])
+
+  // Re-validate the token whenever the tab is restored (#242). On mobile,
+  // closing the browser freezes/bfcaches the page rather than reloading it, so
+  // neither the bootstrap effect nor the expiry timer below run on restore —
+  // the app could resume with an already-expired token. pageshow (bfcache) and
+  // visibilitychange (foregrounding) cover the restore paths; an expired token
+  // routes the user to sign-in with the "session expired" notice.
+  useEffect(() => {
+    function revalidate() {
+      if (document.visibilityState === 'hidden') return
+      const stored = getStoredToken()
+      if (stored && !isTokenValid(stored)) {
+        clearToken()
+        setToken(null)
+        setUser(null)
+        setSessionExpired(true)
+      }
+    }
+    window.addEventListener('pageshow', revalidate)
+    document.addEventListener('visibilitychange', revalidate)
+    return () => {
+      window.removeEventListener('pageshow', revalidate)
+      document.removeEventListener('visibilitychange', revalidate)
     }
   }, [])
 
