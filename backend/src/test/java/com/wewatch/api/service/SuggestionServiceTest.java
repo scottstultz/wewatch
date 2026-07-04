@@ -46,25 +46,30 @@ import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.repository.WatchlistEntryRepository;
+import com.wewatch.api.repository.WatchlistMemberRepository;
 import com.wewatch.api.tmdb.TmdbClient;
 
 @ExtendWith(MockitoExtension.class)
 class SuggestionServiceTest {
 
 	@Mock private WatchlistEntryRepository watchlistEntryRepository;
+	@Mock private WatchlistMemberRepository watchlistMemberRepository;
 	@Mock private TitleService titleService;
 	@Mock private TmdbClient tmdbClient;
 	@Mock private TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	@Mock private SuggestionImpressionService suggestionImpressionService;
 
 	private static final long WATCHLIST_ID = 42L;
+	// The watchlist's members — suppression is scoped to these users, not the list (#247)
+	private static final List<Long> MEMBER_IDS = List.of(7L, 8L);
 	private static final Instant DAY_1 = Instant.parse("2026-07-03T12:00:00Z");
 	private static final Instant DAY_2 = Instant.parse("2026-07-04T12:00:00Z");
 
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
-			watchlistEntryRepository, titleService, tmdbClient, tmdbTitleCacheRepository,
-			suggestionImpressionService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
+			watchlistEntryRepository, watchlistMemberRepository, titleService, tmdbClient,
+			tmdbTitleCacheRepository, suggestionImpressionService,
+			Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
 	}
 
 	private void stubEmptyWatchlist() {
@@ -86,6 +91,7 @@ class SuggestionServiceTest {
 			.thenReturn(new PageImpl<>(entries));
 		when(titleService.findByIds(any())).thenReturn(titles);
 		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 	}
 
 	// Namespaced per seed title so cross-shelf dedup doesn't empty later shelves
@@ -274,7 +280,7 @@ class SuggestionServiceTest {
 		Set<String> suppressed = IntStream.rangeClosed(1, 5)
 			.mapToObj(i -> "rec-ext" + i + "-1")
 			.collect(Collectors.toSet());
-		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
@@ -294,8 +300,9 @@ class SuggestionServiceTest {
 		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
 			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
-		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
@@ -321,8 +328,9 @@ class SuggestionServiceTest {
 		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
 			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
-		when(suggestionImpressionService.recentlyShownIds(WATCHLIST_ID)).thenReturn(suppressed);
+		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
@@ -332,7 +340,7 @@ class SuggestionServiceTest {
 			.findFirst().orElseThrow();
 
 		ArgumentCaptor<Set<String>> captor = ArgumentCaptor.forClass(Set.class);
-		verify(suggestionImpressionService).recordShown(eq(WATCHLIST_ID), captor.capture());
+		verify(suggestionImpressionService).recordShown(eq(MEMBER_IDS), captor.capture());
 		Set<String> recorded = captor.getValue();
 		// Fresh titles are recorded; the topped-up (previously suppressed) one is not
 		assertThat(recorded).contains("rec-4", "rec-5");
@@ -352,7 +360,7 @@ class SuggestionServiceTest {
 			.map(TitleSearchResponse::externalId)
 			.collect(Collectors.toSet());
 		assertThat(shownIds).isNotEmpty();
-		verify(suggestionImpressionService).recordShown(WATCHLIST_ID, shownIds);
+		verify(suggestionImpressionService).recordShown(MEMBER_IDS, shownIds);
 	}
 
 	@Test
