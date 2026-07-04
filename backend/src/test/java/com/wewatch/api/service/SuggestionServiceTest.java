@@ -152,6 +152,41 @@ class SuggestionServiceTest {
 	}
 
 	@Test
+	void rankingRotatesAcrossDaysWhenCandidateScoresAreUnequal() {
+		// One WATCHING seed (ext1, genre 10 → weight 2) and one WANT_TO_WATCH title
+		// (ext2, genre 11 → weight 1) build a graded genre profile. The seed's
+		// candidates carry distinct affinities (0/1/2/3) whose gaps fall within the
+		// ±1.0 score jitter (#248) band, so day-to-day ordering must change even
+		// though the underlying scores are unequal — not just among tied candidates.
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WANT_TO_WATCH));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of(
+			"ext1", cacheRow("ext1", List.of(10), null),
+			"ext2", cacheRow("ext2", List.of(11), null)));
+
+		// Distinct filler primary genres keep the per-genre diversification cap out
+		// of the picture; only genres 10/11 contribute to the score
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		for (int i = 0; i < 3; i++) {
+			candidates.add(scored("hit-both-" + i, List.of(3000 + i, 10, 11))); // score 3
+			candidates.add(scored("hit-ten-" + i, List.of(1000 + i, 10)));      // score 2
+			candidates.add(scored("hit-eleven-" + i, List.of(2000 + i, 11)));   // score 1
+			candidates.add(scored("miss-" + i, List.of(4000 + i)));             // score 0
+		}
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<String> day1 = seededShelfOrder(serviceAt(DAY_1).topPicks(WATCHLIST_ID));
+		List<String> day2 = seededShelfOrder(serviceAt(DAY_2).topPicks(WATCHLIST_ID));
+
+		assertThat(day1).isNotEmpty();
+		assertThat(day2).isNotEqualTo(day1);
+	}
+
+	@Test
 	void recommendationPagesStayWithinTheRotationRange() {
 		stubPopulatedWatchlist();
 		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
@@ -166,25 +201,27 @@ class SuggestionServiceTest {
 	@Test
 	void watchedTitlesContributeToGenreProfileScoring() {
 		// One WATCHING seed with no cached metadata, one WATCHED entry whose cached
-		// genre (99) is the only source for the taste profile
+		// genres (97/98/99) are the only source for the taste profile. The gap is
+		// several genres wide so it clears the ±1.0 score jitter (#248) and the hit
+		// still ranks first deterministically.
 		List<WatchlistEntry> entries = List.of(
 			entry(1, "ext1", WatchStatus.WATCHING),
 			entry(2, "ext2", WatchStatus.WATCHED));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
 		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
-		stubCacheRows(Map.of("ext2", cacheRow("ext2", List.of(99), null)));
+		stubCacheRows(Map.of("ext2", cacheRow("ext2", List.of(97, 98, 99), null)));
 
 		List<TitleSearchResponse> candidates = new ArrayList<>();
 		candidates.add(new TitleSearchResponse("rec-hit", "TMDB", TitleType.TV, "Hit",
-			null, null, null, List.of(99)));
+			null, null, null, List.of(97, 98, 99)));
 		IntStream.rangeClosed(1, 11).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
-		// Only the WATCHING entry seeds a shelf, but the WATCHED entry's genre
-		// ranks the matching candidate first
+		// Only the WATCHING entry seeds a shelf, but the WATCHED entry's genres
+		// rank the matching candidate first
 		assertThat(shelves).hasSize(1);
 		assertThat(shelves.get(0).reason()).isEqualTo("Because you added Show 1");
 		assertThat(shelves.get(0).titles().get(0).externalId()).isEqualTo("rec-hit");
@@ -545,5 +582,19 @@ class SuggestionServiceTest {
 	private TitleSearchResponse candidate(String externalId) {
 		return new TitleSearchResponse(externalId, "TMDB", TitleType.TV, "Title " + externalId,
 			null, null, null, List.of());
+	}
+
+	private TitleSearchResponse scored(String externalId, List<Integer> genreIds) {
+		return new TitleSearchResponse(externalId, "TMDB", TitleType.TV, "Title " + externalId,
+			null, null, null, genreIds);
+	}
+
+	// externalId order of the single per-seed shelf, for comparing day-to-day ranking
+	private List<String> seededShelfOrder(List<SuggestionShelfResponse> shelves) {
+		return shelves.stream()
+			.filter(s -> s.kind() == SuggestionShelfResponse.ShelfKind.PER_SEED)
+			.flatMap(s -> s.titles().stream())
+			.map(TitleSearchResponse::externalId)
+			.toList();
 	}
 }
