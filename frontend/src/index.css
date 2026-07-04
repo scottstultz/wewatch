@@ -51,6 +51,27 @@ a {
   min-height: 100vh;
 }
 
+.error-boundary {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 2rem;
+  text-align: center;
+  background: #0f1720;
+}
+
+.error-boundary button {
+  padding: 0.6rem 1.4rem;
+  border: 1px solid #334155;
+  border-radius: 0.5rem;
+  background: #1e293b;
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
 .shell {
   min-height: 100vh;
   display: grid;

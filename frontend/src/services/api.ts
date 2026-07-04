@@ -18,7 +18,7 @@ import { notifyTokenRefreshed } from './auth'
 const BASE_URL = '/api'
 const REFRESHED_TOKEN_HEADER = 'X-Refreshed-Token'
 
-class UnauthorizedError extends Error {
+export class UnauthorizedError extends Error {
   constructor() {
     super('Unauthorized')
     this.name = 'UnauthorizedError'
