@@ -37,6 +37,7 @@ import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.repository.WatchlistEntryRepository;
+import com.wewatch.api.repository.WatchlistMemberRepository;
 import com.wewatch.api.tmdb.TmdbClient;
 
 @Service
@@ -72,6 +73,7 @@ public class SuggestionService {
 	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
+	private final WatchlistMemberRepository watchlistMemberRepository;
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
@@ -85,6 +87,7 @@ public class SuggestionService {
 
 	public SuggestionService(
 		WatchlistEntryRepository watchlistEntryRepository,
+		WatchlistMemberRepository watchlistMemberRepository,
 		TitleService titleService,
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
@@ -94,6 +97,7 @@ public class SuggestionService {
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
+		this.watchlistMemberRepository = watchlistMemberRepository;
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
@@ -139,9 +143,14 @@ public class SuggestionService {
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
 
+		// Suppression follows the user, not the list (#247): a shelf answers to every
+		// member's suppression state, so a title one member saw elsewhere stays hidden
+		// here too. For a personal list this is just the single owner.
+		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
+
 		// Titles shown on previous days within the suppression window (#233):
 		// excluded from shelves so rotation digs deeper into the candidate pool
-		Set<String> suppressed = suggestionImpressionService.recentlyShownIds(watchlistId);
+		Set<String> suppressed = suggestionImpressionService.recentlyShownIds(memberUserIds);
 
 		// Ids pulled back into a shelf via the top-up path (#246): tracked so we can
 		// skip re-recording them below, preserving their original suppression clock
@@ -282,7 +291,7 @@ public class SuggestionService {
 			.map(TitleSearchResponse::externalId)
 			.filter(id -> !toppedUpIds.contains(id))
 			.collect(Collectors.toSet());
-		suggestionImpressionService.recordShown(watchlistId, shownIds);
+		suggestionImpressionService.recordShown(memberUserIds, shownIds);
 
 		return shelves;
 	}

@@ -29,24 +29,30 @@ public class SuggestionImpressionService {
 		this.suppressionDays = suppressionDays;
 	}
 
-	// Titles shown within the suppression window on a *previous* day. Today's own
-	// impressions are excluded so same-day recomputes reproduce identical shelves
-	// (#231's day-seeded rotation); a title shown this morning only becomes
+	// Titles shown within the suppression window on a *previous* day, across every
+	// user whose suppression the shelf answers to (#247 — a watchlist's members).
+	// Today's own impressions are excluded so same-day recomputes reproduce identical
+	// shelves (#231's day-seeded rotation); a title shown this morning only becomes
 	// suppressed at the next day rollover.
-	public Set<String> recentlyShownIds(Long watchlistId) {
-		return Set.copyOf(repository.findShownTmdbIds(watchlistId, windowStart(), startOfToday()));
+	public Set<String> recentlyShownIds(Collection<Long> userIds) {
+		if (userIds.isEmpty()) return Set.of();
+		return Set.copyOf(repository.findShownTmdbIds(userIds, windowStart(), startOfToday()));
 	}
 
 	@Transactional
-	public void recordShown(Long watchlistId, Collection<String> tmdbIds) {
-		if (tmdbIds.isEmpty()) return;
+	public void recordShown(Collection<Long> userIds, Collection<String> tmdbIds) {
+		if (userIds.isEmpty() || tmdbIds.isEmpty()) return;
 		Instant now = clock.instant();
-		for (String tmdbId : tmdbIds) {
-			repository.upsertImpression(watchlistId, tmdbId, now);
+		// Record the impression against every member so suppression follows each of
+		// them into their other lists, not just the watchlist that served the shelf.
+		for (Long userId : userIds) {
+			for (String tmdbId : tmdbIds) {
+				repository.upsertImpression(userId, tmdbId, now);
+			}
 		}
 		// Rows that aged out of the window are dead weight — prune them while we
-		// already hold a write transaction for this watchlist
-		repository.deleteShownBefore(watchlistId, windowStart());
+		// already hold a write transaction for these users
+		repository.deleteShownBefore(userIds, windowStart());
 	}
 
 	private Instant startOfToday() {
