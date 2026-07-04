@@ -8,6 +8,7 @@ import {
   isTokenValid,
   storeToken,
 } from '../services/auth'
+import { clearStoredWatchlistId } from '../services/watchlistStorage'
 import { UnauthorizedError, createApiClient, getCurrentUser } from '../services/api'
 import type { ApiClient } from '../services/api'
 
@@ -117,6 +118,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     clearToken()
+    // Clear the persisted watchlist selection so a different user signing in on
+    // this browser doesn't inherit the previous user's list (#243). Expiry/401
+    // paths deliberately keep it — the same user returns and their selection
+    // should survive.
+    clearStoredWatchlistId()
     setToken(null)
     setUser(null)
     setSessionExpired(false)
