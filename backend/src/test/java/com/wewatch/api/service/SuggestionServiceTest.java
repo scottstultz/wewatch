@@ -16,10 +16,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -513,6 +515,64 @@ class SuggestionServiceTest {
 			.findFirst().orElseThrow();
 		assertThat(shelves.subList(firstExploration, shelves.size()))
 			.allSatisfy(s -> assertThat(exploration).contains(s.kind()));
+	}
+
+	@Test
+	void genreProfileDiscoverDrawsFromDeeperRange() {
+		// Genre-profile discover is the vote-floor-100 popularity.desc variant with no
+		// release window (#249: deepened from a 3-page to a 6-page draw range)
+		stubPopulatedWatchlistWithGenres();
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+
+		for (int d = 0; d < 40; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<Integer> page = ArgumentCaptor.forClass(Integer.class);
+		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+			isNull(), isNull(), page.capture());
+		assertThat(page.getAllValues()).allSatisfy(p -> assertThat(p).isBetween(1, 6));
+		// Across days the draw reaches past the old 3-page ceiling
+		assertThat(page.getAllValues()).anyMatch(p -> p > 3);
+	}
+
+	@Test
+	void hiddenGemsDrawsFromDeepBandSkippingTheStaticHead() {
+		// Only the hidden-gems discover variant fills, so the exploration rotation
+		// always reaches it and exercises its page draw every day (#249)
+		stubPopulatedWatchlistWithGenres();
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
+
+		for (int d = 0; d < 40; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<Integer> page = ArgumentCaptor.forClass(Integer.class);
+		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
+			isNull(), isNull(), page.capture());
+		// Every draw lands in the mid-deep band [4, 18] — never the static top-rated
+		// head (pages 1–3) that is identical for everyone with the same genre profile
+		assertThat(page.getAllValues()).allSatisfy(p -> assertThat(p).isBetween(4, 18));
+		assertThat(page.getAllValues()).doesNotContain(1, 2, 3);
+		// And the page actually rotates across days rather than pinning to one deep page
+		assertThat(new HashSet<>(page.getAllValues())).hasSizeGreaterThan(1);
+	}
+
+	@Test
+	void trendingPagesStayShallow() {
+		// Trending/week thins fast, so its draw stays in the shallow 1–3 range (#249)
+		stubPopulatedWatchlistWithGenres();
+		lenient().when(tmdbClient.getTrending(any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("t-" + i)).toList());
+
+		for (int d = 0; d < 30; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, atLeastOnce()).getTrending(any(), intThat(p -> p >= 1 && p <= 3));
+		verify(tmdbClient, never()).getTrending(any(), intThat(p -> p < 1 || p > 3));
 	}
 
 	// Like stubPopulatedWatchlist, but every owned title carries cached genre 99,

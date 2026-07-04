@@ -53,7 +53,20 @@ public class SuggestionService {
 	private static final int MAX_PER_GENRE_CLUSTER = 4;
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
-	private static final int MAX_FETCH_PAGE = 3;
+	// Per-feed page depth (#249). The daily draw rotates a single page within these
+	// bounds — deeper bounds mean the pool the draw can reach before repeating within
+	// the suppression window, not more calls per compute.
+	// Recommendations/similar genuinely run out after a few pages, so seeds stay shallow.
+	private static final int MAX_SEED_FETCH_PAGE = 3;
+	// Discover result sets are deep; pages 1–6 stay relevant with the page-1 fallback.
+	private static final int MAX_DISCOVER_FETCH_PAGE = 6;
+	// Trending/week thins into obscurity fast, so keep its draw shallow.
+	private static final int MAX_TRENDING_FETCH_PAGE = 3;
+	// Hidden gems draw from a mid-deep band so the shelf skips the static top-rated head
+	// (pages 1–3 of vote_average.desc are identical for everyone with the same genres)
+	// without reaching the emptiest deep pages that just trigger the page-1 fallback.
+	private static final int HIDDEN_GEM_MIN_FETCH_PAGE = 4;
+	private static final int HIDDEN_GEM_MAX_FETCH_PAGE = 18;
 	private static final int MAX_FINISHED_SEEDS = 1;
 	private static final int RECENT_FINISHED_POOL = 5;
 	// Exploration shelves (#235) each cost TMDB calls, so only a rotating subset
@@ -250,7 +263,7 @@ public class SuggestionService {
 				.toList();
 
 			String label = type == TitleType.TV ? "More like your shows" : "More like your movies";
-			int discoverPage = 1 + rng.nextInt(MAX_FETCH_PAGE);
+			int discoverPage = 1 + rng.nextInt(MAX_DISCOVER_FETCH_PAGE);
 			try {
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
@@ -315,13 +328,16 @@ public class SuggestionService {
 		Set<String> toppedUpIds,
 		Random rng
 	) {
-		int page = 1 + rng.nextInt(MAX_FETCH_PAGE);
+		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
+		// draws from a mid-deep band, trending stays shallow. Exactly one rng.nextInt
+		// per kind either way, so daily reproducibility (#231/#248) is preserved.
 		List<TitleSearchResponse> candidates;
 		String label;
 		try {
 			switch (kind) {
 				case NEW_RELEASES -> {
 					if (topGenres.isEmpty()) return null;
+					int page = 1 + rng.nextInt(MAX_DISCOVER_FETCH_PAGE);
 					LocalDate today = LocalDate.now(clock);
 					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
 						type, topGenres, List.of(), NEW_RELEASE_VOTE_COUNT_GTE,
@@ -330,12 +346,15 @@ public class SuggestionService {
 				}
 				case HIDDEN_GEMS -> {
 					if (topGenres.isEmpty()) return null;
+					int page = HIDDEN_GEM_MIN_FETCH_PAGE
+						+ rng.nextInt(HIDDEN_GEM_MAX_FETCH_PAGE - HIDDEN_GEM_MIN_FETCH_PAGE + 1);
 					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
 						type, topGenres, List.of(), HIDDEN_GEM_VOTE_COUNT_GTE,
 						SORT_VOTE_AVERAGE, null, null, p), page);
 					label = "Hidden gems";
 				}
 				case TRENDING -> {
+					int page = 1 + rng.nextInt(MAX_TRENDING_FETCH_PAGE);
 					// Rank the raw popularity feed by taste-profile affinity plus
 					// day-seeded jitter (#248) so the order rotates daily beyond ties;
 					// with no genre profile the sort degrades to stable-per-day random
@@ -402,7 +421,7 @@ public class SuggestionService {
 	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
 		// One page draw per seed, shared by recommendations and similar, so RNG
 		// consumption doesn't depend on how many results TMDB happens to return
-		int page = 1 + rng.nextInt(MAX_FETCH_PAGE);
+		int page = 1 + rng.nextInt(MAX_SEED_FETCH_PAGE);
 		List<TitleSearchResponse> results = new ArrayList<>();
 		try {
 			results.addAll(fetchPageWithFallback(p -> tmdbClient.getRecommendations(type, tmdbId, p), page));
