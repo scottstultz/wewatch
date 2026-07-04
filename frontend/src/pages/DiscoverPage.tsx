@@ -8,6 +8,7 @@ import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchStatus } fro
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
 type OpenHandler = (title: TitleSearchResponse) => void
 type ToggleHandler = (title: TitleSearchResponse) => void
+type RemoveHandler = (title: TitleSearchResponse) => void
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
@@ -36,9 +37,10 @@ interface TitleCardProps {
   onChangeStatus: AddHandler
   onTogglePicker: ToggleHandler
   onOpen: OpenHandler
+  onRemove: RemoveHandler
 }
 
-function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen }: TitleCardProps) {
+function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove }: TitleCardProps) {
   const addedStatus =
     status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED' ? status : null
   return (
@@ -73,6 +75,7 @@ function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePi
             <StatusPicker
               current={addedStatus}
               onSelect={(s) => onChangeStatus(title, s)}
+              onRemove={() => onRemove(title)}
             />
           ) : (
             <div className="discover-action-row">
@@ -118,9 +121,10 @@ interface ShelfRowProps {
   onChangeStatus: AddHandler
   onTogglePicker: ToggleHandler
   onOpen: OpenHandler
+  onRemove: RemoveHandler
 }
 
-function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen }: ShelfRowProps) {
+function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove }: ShelfRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -170,6 +174,7 @@ function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTog
             onChangeStatus={onChangeStatus}
             onTogglePicker={onTogglePicker}
             onOpen={onOpen}
+            onRemove={onRemove}
           />
         ))}
       </div>
@@ -365,6 +370,31 @@ function DiscoverPage() {
     }
   }
 
+  async function handleRemove(title: TitleSearchResponse) {
+    if (!selectedWatchlistId) return
+    const key = cardKey(title)
+    setPickingKey(null)
+    const entryId = entryIds[key]
+    const previous = cardStatus[key]
+    if (entryId == null) return
+    setCardStatus(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    setEntryIds(prev => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+    try {
+      await api.removeFromWatchlist(selectedWatchlistId, entryId)
+    } catch {
+      setCardStatus(prev => ({ ...prev, [key]: previous }))
+      setEntryIds(prev => ({ ...prev, [key]: entryId }))
+    }
+  }
+
   return (
     <div className="page">
       <section className="hero-panel compact-panel">
@@ -430,6 +460,7 @@ function DiscoverPage() {
                     onChangeStatus={handleChangeStatus}
                     onTogglePicker={togglePicker}
                     onOpen={openTitle}
+                    onRemove={handleRemove}
                   />
                 ))}
               </div>
@@ -465,6 +496,7 @@ function DiscoverPage() {
                       onChangeStatus={handleChangeStatus}
                       onTogglePicker={togglePicker}
                       onOpen={openTitle}
+                      onRemove={handleRemove}
                     />
                   </div>
                 )
