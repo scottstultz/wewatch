@@ -19,9 +19,11 @@ interface StatusPickerProps {
   current: WatchStatus | null
   disabled?: boolean
   onSelect: (status: WatchStatus) => void
+  /** When provided, renders a destructive Remove option below the statuses. */
+  onRemove?: () => void
 }
 
-function StatusPicker({ current, disabled, onSelect }: StatusPickerProps) {
+function StatusPicker({ current, disabled, onSelect, onRemove }: StatusPickerProps) {
   return (
     <div className="discover-status-picker" onClick={(e) => e.stopPropagation()}>
       {STATUSES.map(status => (
@@ -34,6 +36,15 @@ function StatusPicker({ current, disabled, onSelect }: StatusPickerProps) {
           {current === status ? '✓ ' : ''}{STATUS_LABELS[status]}
         </button>
       ))}
+      {onRemove && (
+        <button
+          className="discover-status-option discover-status-option-remove"
+          disabled={disabled}
+          onClick={(e) => { e.stopPropagation(); onRemove() }}
+        >
+          Remove from list
+        </button>
+      )}
     </div>
   )
 }

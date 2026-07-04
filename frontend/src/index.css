@@ -1139,6 +1139,19 @@ a {
   opacity: 1;
 }
 
+/* Destructive Remove option, separated from the statuses above it */
+.discover-status-option-remove {
+  margin-top: 6px;
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.3);
+  background: rgba(248, 113, 113, 0.08);
+}
+
+.discover-status-option-remove:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: rgba(248, 113, 113, 0.6);
+}
+
 /* ── Home page panel rows ─────────────────────────────────── */
 
 .panel-empty {
