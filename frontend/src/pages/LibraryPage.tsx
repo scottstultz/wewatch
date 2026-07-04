@@ -79,6 +79,7 @@ function LibraryPage() {
   const activeTab: WatchStatus | 'ALL' = paramStatus && VALID_STATUSES.includes(paramStatus) ? paramStatus : 'WATCHING'
   const [entryActions, setEntryActions] = useState<Record<number, EntryAction>>({})
   const [pickingEntry, setPickingEntry] = useState<number | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Create watchlist form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -107,9 +108,10 @@ function LibraryPage() {
     return () => { cancelled = true }
   }, [api, selectedWatchlistId])
 
-  // Close manage modal when switching watchlists
+  // Close manage modal and clear search when switching watchlists
   useEffect(() => {
     setShowManageModal(false)
+    setSearchQuery('')
   }, [selectedWatchlistId])
 
   async function handleUpdateStatus(entry: WatchlistEntryResponse, newStatus: WatchStatus) {
@@ -191,7 +193,8 @@ function LibraryPage() {
     }
   }
 
-  const visible = activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab)
+  const visible = (activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab))
+    .filter(e => (e.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase()))
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
   const canRoll = activeTab === 'WATCHING' && watchingEntries.length >= 2
 
@@ -267,6 +270,26 @@ function LibraryPage() {
             ))}
           </div>
 
+          {/* Search */}
+          <div className="search-input-wrapper">
+            <input
+              className="search-input"
+              type="search"
+              placeholder="Search your library…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+            {searchQuery && (
+              <button
+                className="search-clear-btn"
+                onClick={() => setSearchQuery('')}
+                aria-label="Clear search"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
         </div>
       </section>
 
@@ -277,11 +300,13 @@ function LibraryPage() {
 
         {!isLoading && !error && visible.length === 0 && (
           <p className="library-empty">
-            {activeTab === 'ALL'
-              ? 'This watchlist is empty. Head to Discover to add titles.'
-              : activeTab === 'WATCHING'
-                ? 'No titles in progress. Move a title from Want to Watch to start tracking it.'
-                : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
+            {searchQuery.trim()
+              ? `No titles match "${searchQuery.trim()}".`
+              : activeTab === 'ALL'
+                ? 'This watchlist is empty. Head to Discover to add titles.'
+                : activeTab === 'WATCHING'
+                  ? 'No titles in progress. Move a title from Want to Watch to start tracking it.'
+                  : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
           </p>
         )}
 
