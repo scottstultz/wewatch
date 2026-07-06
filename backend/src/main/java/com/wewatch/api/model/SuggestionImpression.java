@@ -1,6 +1,6 @@
 package com.wewatch.api.model;
 
-import java.time.Instant;
+import java.time.LocalDate;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -14,7 +14,7 @@ import jakarta.persistence.UniqueConstraint;
 @Table(
 	name = "suggestion_impressions",
 	uniqueConstraints = {
-		@UniqueConstraint(name = "uq_suggestion_impressions_user_tmdb", columnNames = {"user_id", "tmdb_id"})
+		@UniqueConstraint(name = "uq_suggestion_impressions_user_tmdb_day", columnNames = {"user_id", "tmdb_id", "shown_on"})
 	}
 )
 public class SuggestionImpression {
@@ -29,8 +29,8 @@ public class SuggestionImpression {
 	@Column(name = "tmdb_id", nullable = false, length = 255)
 	private String tmdbId;
 
-	@Column(name = "last_shown_at", nullable = false)
-	private Instant lastShownAt;
+	@Column(name = "shown_on", nullable = false)
+	private LocalDate shownOn;
 
 	public SuggestionImpression() {
 	}
@@ -43,6 +43,6 @@ public class SuggestionImpression {
 	public String getTmdbId() { return tmdbId; }
 	public void setTmdbId(String tmdbId) { this.tmdbId = tmdbId; }
 
-	public Instant getLastShownAt() { return lastShownAt; }
-	public void setLastShownAt(Instant lastShownAt) { this.lastShownAt = lastShownAt; }
+	public LocalDate getShownOn() { return shownOn; }
+	public void setShownOn(LocalDate shownOn) { this.shownOn = shownOn; }
 }

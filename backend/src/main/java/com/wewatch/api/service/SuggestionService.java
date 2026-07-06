@@ -16,6 +16,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.function.IntFunction;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -89,6 +90,12 @@ public class SuggestionService {
 	// ~1–6, keyword boost 2.0/match): large enough to reorder near-scores, small
 	// enough that a clearly stronger affinity still wins on average.
 	private static final double SCORE_JITTER = 1.0;
+	// Soft recency penalty (#264), replacing #233's binary suppression. Applied in
+	// fillShelf — the one point both score-ranked seed feeds and order-only discover
+	// feeds flow through — as a positional demotion: a title shown yesterday sinks
+	// this many positions (past a full shelf, so it resurfaces only when the pool is
+	// thin), decaying linearly to ~2 positions at the window edge.
+	private static final double RECENCY_DEMOTION = 16.0;
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
@@ -161,18 +168,16 @@ public class SuggestionService {
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
 
-		// Suppression follows the user, not the list (#247): a shelf answers to every
-		// member's suppression state, so a title one member saw elsewhere stays hidden
+		// The recency penalty follows the user, not the list (#247): a shelf answers
+		// to every member's impressions, so a title one member saw elsewhere sinks
 		// here too. For a personal list this is just the single owner.
 		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
 
-		// Titles shown on previous days within the suppression window (#233):
-		// excluded from shelves so rotation digs deeper into the candidate pool
-		Set<String> suppressed = suggestionImpressionService.recentlyShownIds(memberUserIds);
-
-		// Ids pulled back into a shelf via the top-up path (#246): tracked so we can
-		// skip re-recording them below, preserving their original suppression clock
-		Set<String> toppedUpIds = new HashSet<>();
+		// Titles shown on previous days within the penalty window sink in the ranking
+		// instead of being held back outright (#264): thin pools still fill a whole
+		// shelf, and recently shown titles rotate out by penalty decay + jitter rather
+		// than boomeranging back the day a binary suppression window expires.
+		Map<String, Double> recencyWeights = suggestionImpressionService.recencyWeights(memberUserIds);
 
 		List<SuggestionShelfResponse> shelves = new ArrayList<>();
 
@@ -196,7 +201,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -224,7 +229,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -268,7 +273,7 @@ public class SuggestionService {
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
 						SORT_POPULARITY, null, null, p), discoverPage);
-				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, suppressed, toppedUpIds);
+				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, recencyWeights);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
 					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
 				}
@@ -293,21 +298,20 @@ public class SuggestionService {
 		int explorationCount = 0;
 		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
 			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, seen, suppressed, toppedUpIds, rng);
+			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, seen, recencyWeights, rng);
 			if (shelf != null) {
 				shelves.add(shelf);
 				explorationCount++;
 			}
 		}
 
-		// Record what we're about to serve so tomorrow's compute suppresses it (#233).
-		// Top-up titles (#246) are excluded: they were already suppressed and only
-		// reappeared to keep a shelf at MIN_SHELF_SIZE, so re-recording them would reset
-		// their suppression clock and trap them in the top-up path instead of aging out.
+		// Record everything we're about to serve so tomorrow's compute penalizes it
+		// (#264). Re-served titles are recorded too — safe under a continuous penalty,
+		// they just start sinking again, where the binary window needed re-records
+		// excluded to keep top-ups from being trapped forever (#246).
 		Set<String> shownIds = shelves.stream()
 			.flatMap(s -> s.titles().stream())
 			.map(TitleSearchResponse::externalId)
-			.filter(id -> !toppedUpIds.contains(id))
 			.collect(Collectors.toSet());
 		suggestionImpressionService.recordShown(memberUserIds, shownIds);
 
@@ -316,7 +320,7 @@ public class SuggestionService {
 
 	// Exploration shelves (#235) trade similarity for discovery: recent releases,
 	// well-rated titles outside the popularity head, and this week's trending —
-	// still deduped, suppressed, and diversified like every other shelf. Returns
+	// still deduped, recency-demoted, and diversified like every other shelf. Returns
 	// null when the kind can't produce a shelf so the caller can try the next kind.
 	private SuggestionShelfResponse buildExplorationShelf(
 		SuggestionShelfResponse.ShelfKind kind,
@@ -324,8 +328,7 @@ public class SuggestionService {
 		List<Integer> topGenres,
 		Map<Integer, Double> genreProfile,
 		Set<String> seen,
-		Set<String> suppressed,
-		Set<String> toppedUpIds,
+		Map<String, Double> recencyWeights,
 		Random rng
 	) {
 		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
@@ -375,7 +378,7 @@ public class SuggestionService {
 			return null;
 		}
 
-		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, suppressed, toppedUpIds);
+		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
 		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind) : null;
 	}
 
@@ -490,34 +493,27 @@ public class SuggestionService {
 	}
 
 	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER.
-	// Recently shown candidates (#233) are held back; if that leaves the shelf under
-	// MIN_SHELF_SIZE, the best of them top it back up rather than hiding the shelf.
-	// Top-up ids are collected into toppedUpIds so the caller can skip re-recording
-	// them as impressions (#246) — re-recording would reset their suppression clock and
-	// keep them stuck in the top-up path forever instead of aging out.
-	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Set<String> suppressed, Set<String> toppedUpIds) {
+	// Recently shown candidates (#264) are demoted, not held back: a stable re-sort
+	// pushes each one down by RECENCY_DEMOTION positions scaled by its recency weight
+	// (1.0 = shown yesterday, decaying to 1/window at the window edge). Shown-yesterday
+	// sinks past a full shelf and resurfaces only when the pool is thin, so shelves
+	// fill toward MAX_SHELF_SIZE instead of pinning at a suppression floor, while a
+	// title near the window edge recovers most of its rank.
+	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Map<String, Double> recencyWeights) {
+		List<TitleSearchResponse> ranked = IntStream.range(0, candidates.size()).boxed()
+			.sorted(Comparator.comparingDouble((Integer i) ->
+				i + RECENCY_DEMOTION * recencyWeights.getOrDefault(candidates.get(i).externalId(), 0.0)))
+			.map(candidates::get)
+			.toList();
 		Map<Integer, Integer> genreCount = new HashMap<>();
 		List<TitleSearchResponse> shelf = new ArrayList<>();
-		List<TitleSearchResponse> heldBack = new ArrayList<>();
-		for (TitleSearchResponse r : candidates) {
+		for (TitleSearchResponse r : ranked) {
 			if (!seen.add(r.externalId())) continue;
-			if (suppressed.contains(r.externalId())) {
-				heldBack.add(r);
-				continue;
-			}
 			int primaryGenre = primaryGenre(r);
 			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
 			shelf.add(r);
 			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
 			if (shelf.size() >= MAX_SHELF_SIZE) break;
-		}
-		for (TitleSearchResponse r : heldBack) {
-			if (shelf.size() >= MIN_SHELF_SIZE) break;
-			int primaryGenre = primaryGenre(r);
-			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
-			shelf.add(r);
-			toppedUpIds.add(r.externalId());
-			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
 		}
 		return shelf;
 	}
