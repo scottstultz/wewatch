@@ -51,6 +51,10 @@ public class SuggestionService {
 	private static final int MAX_KEYWORDS = 5;
 	private static final int MIN_SHELF_SIZE = 3;
 	private static final int MAX_SHELF_SIZE = 12;
+	// Same-genre run cap for feeds with a real genre mix (recommendations/similar/
+	// trending). Discover-backed feeds are exempt (#265): they are filtered to the
+	// user's top genres by construction, so nearly every candidate shares a genre
+	// and the cap would chop a 20-result page to ~4 before the shelf fills.
 	private static final int MAX_PER_GENRE_CLUSTER = 4;
 	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
 	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
@@ -201,7 +205,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -229,7 +233,7 @@ public class SuggestionService {
 			if (title == null || title.getExternalId() == null) continue;
 
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
+			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				String label = title.getName() != null
@@ -273,7 +277,8 @@ public class SuggestionService {
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
 						SORT_POPULARITY, null, null, p), discoverPage);
-				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, recencyWeights);
+				// No genre diversification (#265): this feed is filtered to topGenres
+				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, recencyWeights, false);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
 					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
 				}
@@ -320,8 +325,8 @@ public class SuggestionService {
 
 	// Exploration shelves (#235) trade similarity for discovery: recent releases,
 	// well-rated titles outside the popularity head, and this week's trending —
-	// still deduped, recency-demoted, and diversified like every other shelf. Returns
-	// null when the kind can't produce a shelf so the caller can try the next kind.
+	// still deduped and recency-demoted like every other shelf. Returns null when
+	// the kind can't produce a shelf so the caller can try the next kind.
 	private SuggestionShelfResponse buildExplorationShelf(
 		SuggestionShelfResponse.ShelfKind kind,
 		TitleType type,
@@ -378,7 +383,10 @@ public class SuggestionService {
 			return null;
 		}
 
-		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights);
+		// Only trending carries a real genre mix worth diversifying; the discover-backed
+		// kinds are genre-filtered by construction and are exempt from the cap (#265)
+		boolean diversify = kind == SuggestionShelfResponse.ShelfKind.TRENDING;
+		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, diversify);
 		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind) : null;
 	}
 
@@ -492,14 +500,17 @@ public class SuggestionService {
 		return results.isEmpty() && page > 1 ? fetch.apply(1) : results;
 	}
 
-	// Fill a shelf with diversification: cap same-primary-genre candidates to MAX_PER_GENRE_CLUSTER.
+	// Fill a shelf, optionally diversified: with diversify on, a candidate is skipped
+	// once every genre it carries is at MAX_PER_GENRE_CLUSTER — keyed on the full
+	// genre set, not TMDB's arbitrary first genre id (#265), so a title bringing any
+	// fresh genre still enters.
 	// Recently shown candidates (#264) are demoted, not held back: a stable re-sort
 	// pushes each one down by RECENCY_DEMOTION positions scaled by its recency weight
 	// (1.0 = shown yesterday, decaying to 1/window at the window edge). Shown-yesterday
 	// sinks past a full shelf and resurfaces only when the pool is thin, so shelves
 	// fill toward MAX_SHELF_SIZE instead of pinning at a suppression floor, while a
 	// title near the window edge recovers most of its rank.
-	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Map<String, Double> recencyWeights) {
+	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Map<String, Double> recencyWeights, boolean diversify) {
 		List<TitleSearchResponse> ranked = IntStream.range(0, candidates.size()).boxed()
 			.sorted(Comparator.comparingDouble((Integer i) ->
 				i + RECENCY_DEMOTION * recencyWeights.getOrDefault(candidates.get(i).externalId(), 0.0)))
@@ -509,18 +520,19 @@ public class SuggestionService {
 		List<TitleSearchResponse> shelf = new ArrayList<>();
 		for (TitleSearchResponse r : ranked) {
 			if (!seen.add(r.externalId())) continue;
-			int primaryGenre = primaryGenre(r);
-			if (primaryGenre != -1 && genreCount.getOrDefault(primaryGenre, 0) >= MAX_PER_GENRE_CLUSTER) continue;
+			List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
+			if (diversify && allGenresSaturated(genres, genreCount)) continue;
 			shelf.add(r);
-			if (primaryGenre != -1) genreCount.merge(primaryGenre, 1, Integer::sum);
+			if (diversify) genres.forEach(g -> genreCount.merge(g, 1, Integer::sum));
 			if (shelf.size() >= MAX_SHELF_SIZE) break;
 		}
 		return shelf;
 	}
 
-	private int primaryGenre(TitleSearchResponse r) {
-		List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
-		return genres.isEmpty() ? -1 : genres.get(0);
+	// Genre-less candidates are never capped, matching the old primary-genre rule
+	private boolean allGenresSaturated(List<Integer> genres, Map<Integer, Integer> genreCount) {
+		return !genres.isEmpty()
+			&& genres.stream().allMatch(g -> genreCount.getOrDefault(g, 0) >= MAX_PER_GENRE_CLUSTER);
 	}
 
 	private double genreScore(TitleSearchResponse candidate, Map<Integer, Double> genreProfile) {

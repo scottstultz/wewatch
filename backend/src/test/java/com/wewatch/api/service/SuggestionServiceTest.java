@@ -595,6 +595,94 @@ class SuggestionServiceTest {
 	}
 
 	@Test
+	void sameGenreDiscoverPageFillsTheShelfWithoutGenreCapping() {
+		// Genre-profile discover is filtered to the user's top genres by construction,
+		// so a full page shares one genre; exempt from the cluster cap (#265), the
+		// shelf fills to MAX_SHELF_SIZE instead of being chopped to ~4
+		stubPopulatedWatchlistWithGenres();
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("gp-" + i, List.of(99))).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.GENRE_PROFILE);
+		assertThat(shelves.get(0).titles()).hasSize(12);
+	}
+
+	@Test
+	void discoverExplorationShelvesSkipTheCapButTrendingKeepsIt() {
+		// Hidden gems is discover-backed (genre-filtered → exempt, #265) while
+		// trending carries a real genre mix and stays diversified
+		stubPopulatedWatchlistWithGenres();
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("gem-" + i, List.of(99))).toList());
+		lenient().when(tmdbClient.getTrending(any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("t-" + i, List.of(99))).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+			assertThat(shelf.titles()).hasSize(12);
+		});
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.TRENDING);
+			assertThat(shelf.titles()).hasSize(4);
+		});
+	}
+
+	@Test
+	void recommendationShelvesStillCapSameGenreRuns() {
+		// Mixed recommendation feeds keep diversification (#265): a run of 20
+		// candidates sharing their only genre is capped at MAX_PER_GENRE_CLUSTER
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 20).mapToObj(i -> scored("rec-" + i, List.of(50))).toList());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PER_SEED);
+		assertThat(shelves.get(0).titles()).hasSize(4);
+	}
+
+	@Test
+	void anUnderCapSecondaryGenreAdmitsACandidatePastThePrimaryGenreCap() {
+		// The cap keys on the candidate's full genre set, not TMDB's arbitrary first
+		// genre id (#265): once genres 10/11/50 saturate on the high-affinity pure
+		// candidates, the low-affinity dual still enters through its fresh genre 60
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1", cacheRow("ext1", List.of(10, 11), null)));
+
+		// Pures score 4 (genres 10+11, weight 2 each), the dual scores 0 — a gap
+		// beyond the ±1.0 jitter, so exactly four pures rank ahead of the dual
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		IntStream.rangeClosed(1, 8).forEach(i -> candidates.add(scored("pure-" + i, List.of(10, 11, 50))));
+		candidates.add(scored("dual", List.of(50, 60)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		List<String> ids = shelves.get(0).titles().stream()
+			.map(TitleSearchResponse::externalId).toList();
+		// Four pures fill the 10/11/50 clusters; the dual's genre 50 is saturated
+		// but genre 60 is not, so it gets the fifth slot instead of being skipped
+		assertThat(ids).hasSize(5);
+		assertThat(ids.get(4)).isEqualTo("dual");
+	}
+
+	@Test
 	void trendingPagesStayShallow() {
 		// Trending/week thins fast, so its draw stays in the shallow 1–3 range (#249)
 		stubPopulatedWatchlistWithGenres();
