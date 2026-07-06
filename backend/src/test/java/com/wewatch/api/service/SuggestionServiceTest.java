@@ -311,27 +311,35 @@ class SuggestionServiceTest {
 	}
 
 	@Test
-	void recentlyShownTitlesAreExcludedFromShelves() {
+	void recentlyShownTitlesSinkToTheBottomOfAFullShelf() {
 		stubPopulatedWatchlist();
 		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
 			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
-		// Suppress one candidate per potential seed; plenty of fresh ones remain
-		Set<String> suppressed = IntStream.rangeClosed(1, 5)
+		// One shown-yesterday candidate per potential seed: full recency weight
+		// demotes it past every fresh candidate in its 12-deep pool (#264)
+		Set<String> shown = IntStream.rangeClosed(1, 5)
 			.mapToObj(i -> "rec-ext" + i + "-1")
 			.collect(Collectors.toSet());
-		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(shown.stream().collect(Collectors.toMap(Function.identity(), id -> 1.0)));
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		assertThat(shelves).isNotEmpty();
-		assertThat(shelves).allSatisfy(shelf ->
-			assertThat(shelf.titles()).noneMatch(t -> suppressed.contains(t.externalId())));
+		assertThat(shelves).allSatisfy(shelf -> {
+			List<String> ids = shelf.titles().stream().map(TitleSearchResponse::externalId).toList();
+			// The shelf still fills completely — the shown title sinks, it doesn't vanish
+			assertThat(ids).hasSize(12);
+			assertThat(shown).contains(ids.get(11));
+			assertThat(ids.subList(0, 11)).noneMatch(shown::contains);
+		});
 	}
 
 	@Test
-	void suppressionRelaxesToKeepTheShelfAtMinimumSize() {
-		// One seed with five candidates, three of them recently shown: only two are
-		// fresh, so one suppressed title must come back to reach MIN_SHELF_SIZE
+	void thinPoolsFillPastTheOldSuppressionFloor() {
+		// One seed with five candidates, three of them recently shown: under binary
+		// suppression this shelf pinned at MIN_SHELF_SIZE; under the soft penalty
+		// (#264) it serves the whole pool, fresh candidates first
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
@@ -340,26 +348,59 @@ class SuggestionServiceTest {
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
 			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
 		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
-		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
-		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(Map.of("rec-1", 1.0, "rec-2", 1.0, "rec-3", 1.0));
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		assertThat(shelves).hasSize(1);
 		List<String> shelfIds = shelves.get(0).titles().stream()
 			.map(TitleSearchResponse::externalId).toList();
-		// Both fresh candidates plus exactly one suppressed top-up
-		assertThat(shelfIds).hasSize(3);
-		assertThat(shelfIds).contains("rec-4", "rec-5");
-		assertThat(shelfIds.stream().filter(suppressed::contains)).hasSize(1);
+		assertThat(shelfIds).hasSize(5);
+		assertThat(shelfIds.subList(0, 2)).containsExactlyInAnyOrder("rec-4", "rec-5");
+		assertThat(shelfIds.subList(2, 5)).containsExactlyInAnyOrder("rec-1", "rec-2", "rec-3");
+	}
+
+	@Test
+	void recencyPenaltyDecaysFromYesterdayToTheWindowEdge() {
+		// A graded profile (genres 10–13, weight 2 each) pins the base ranking beyond
+		// the ±1.0 jitter: shown-yesterday (affinity 8) ranks first, shown-week-ago
+		// (affinity 4) second, zero-affinity fillers after. The penalty then sinks
+		// yesterday's title below every fresh candidate despite its top affinity,
+		// while the window-edge title only slips a couple of positions (#264).
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1", cacheRow("ext1", List.of(10, 11, 12, 13), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(scored("shown-yesterday", List.of(10, 11, 12, 13)));
+		candidates.add(scored("shown-week-ago", List.of(10, 11)));
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(Map.of("shown-yesterday", 1.0, "shown-week-ago", 1.0 / 7));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		List<String> ids = shelves.get(0).titles().stream()
+			.map(TitleSearchResponse::externalId).toList();
+		assertThat(ids).hasSize(12);
+		assertThat(ids.get(11)).isEqualTo("shown-yesterday");
+		// Demoted 16/7 ≈ 2.3 positions from the top: rank mostly recovered
+		assertThat(ids.indexOf("shown-week-ago")).isEqualTo(2);
 	}
 
 	@Test
 	@SuppressWarnings("unchecked")
-	void topUpTitlesAreNotReRecordedAsImpressions() {
-		// Same setup as the top-up test: two fresh candidates and one suppressed title
-		// pulled back in to reach MIN_SHELF_SIZE. The topped-up title must NOT be
-		// re-recorded, or its suppression clock resets and it never ages out (#246).
+	void reServedTitlesAreRecordedAgain() {
+		// Thin pool: three previously shown titles are re-served alongside the fresh
+		// ones. Under the soft penalty every served title is re-recorded (#264) —
+		// re-serving just starts the sink again, unlike the binary window where a
+		// re-record trapped top-ups forever (#246).
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
@@ -368,22 +409,15 @@ class SuggestionServiceTest {
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
 			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
 		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
-		Set<String> suppressed = Set.of("rec-1", "rec-2", "rec-3");
-		when(suggestionImpressionService.recentlyShownIds(MEMBER_IDS)).thenReturn(suppressed);
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(Map.of("rec-1", 1.0, "rec-2", 1.0, "rec-3", 1.0));
 
-		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
-
-		String toppedUpId = shelves.get(0).titles().stream()
-			.map(TitleSearchResponse::externalId)
-			.filter(suppressed::contains)
-			.findFirst().orElseThrow();
+		serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		ArgumentCaptor<Set<String>> captor = ArgumentCaptor.forClass(Set.class);
 		verify(suggestionImpressionService).recordShown(eq(MEMBER_IDS), captor.capture());
-		Set<String> recorded = captor.getValue();
-		// Fresh titles are recorded; the topped-up (previously suppressed) one is not
-		assertThat(recorded).contains("rec-4", "rec-5");
-		assertThat(recorded).doesNotContain(toppedUpId);
+		assertThat(captor.getValue())
+			.containsExactlyInAnyOrder("rec-1", "rec-2", "rec-3", "rec-4", "rec-5");
 	}
 
 	@Test
