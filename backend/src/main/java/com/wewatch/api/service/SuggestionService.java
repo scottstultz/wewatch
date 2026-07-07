@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
 import java.util.function.IntFunction;
+import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -100,10 +101,15 @@ public class SuggestionService {
 	// which only ever contributes profileWeight (1–2) per genre
 	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
 	// Day-seeded ± offset added to each candidate's score so ranking rotates daily
-	// beyond exact ties (#248). Calibrated against the score scale (genre affinity
-	// ~1–6, keyword boost 2.0/match): large enough to reorder near-scores, small
-	// enough that a clearly stronger affinity still wins on average.
-	private static final double SCORE_JITTER = 1.0;
+	// beyond exact ties (#248). Proportional to the candidate's base score (#267):
+	// rotation reorders near-peers while a clearly dominant score (2× the runner-up)
+	// stays on top every day, and the amplitude tracks the score scale by itself —
+	// profile weights are unnormalized sums, so scores grow with the watchlist and
+	// a flat amplitude was noise-dominant on sparse profiles and negligible on rich
+	// ones. The floor keeps zero/low-score candidates rotating among themselves
+	// without ever lifting them over a real (≥1) genre match.
+	private static final double SCORE_JITTER_FRACTION = 0.15;
+	private static final double SCORE_JITTER_FLOOR = 0.25;
 	// Soft recency penalty (#264), replacing #233's binary suppression. Applied in
 	// fillShelf — the one point both score-ranked seed feeds and order-only discover
 	// feeds flow through — as a positional demotion: a title shown yesterday sinks
@@ -413,11 +419,12 @@ public class SuggestionService {
 				case TRENDING -> {
 					int page = 1 + rng.nextInt(MAX_TRENDING_FETCH_PAGE);
 					// Rank the raw popularity feed by taste-profile affinity plus
-					// day-seeded jitter (#248) so the order rotates daily beyond ties;
-					// with no genre profile the sort degrades to stable-per-day random
+					// day-seeded score-proportional jitter (#248/#267) so the order
+					// rotates daily beyond ties; with no genre profile the floor
+					// amplitude degrades the sort to stable-per-day random
 					List<TitleSearchResponse> trending = new ArrayList<>(
 						fetchPageWithFallback(p -> tmdbClient.getTrending(type, p), page));
-					Map<String, Double> jitter = jitterByCandidate(trending, rng);
+					Map<String, Double> jitter = jitterByCandidate(trending, r -> genreScore(r, genreProfile), rng);
 					trending.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
 						genreScore(r, genreProfile) + jitter.getOrDefault(r.externalId(), 0.0)).reversed());
 					candidates = trending;
@@ -499,23 +506,25 @@ public class SuggestionService {
 	}
 
 	// Dedupe by externalId, then sort by taste-profile score: genre affinity plus
-	// keyword boost plus day-seeded score jitter (#248) — a small ± offset per
-	// candidate that rotates the ranking daily beyond exact ties, so stable
-	// high-affinity candidates don't float to the top of a shelf every single day.
-	// Applied even with no genre/keyword signal, where the sort degrades to a
-	// stable-per-day random order. Also ranks the pooled catch-all shelf (#266).
+	// keyword boost plus day-seeded score jitter (#248) — a score-proportional ±
+	// offset per candidate (#267) that rotates the ranking of near-peers daily
+	// beyond exact ties, so stable high-affinity candidates don't float to the top
+	// of a shelf every single day. Applied even with no genre/keyword signal, where
+	// the floor amplitude degrades the sort to a stable-per-day random order. Also
+	// ranks the pooled catch-all shelf (#266).
 	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
 		Set<String> seen = new HashSet<>();
 		List<TitleSearchResponse> deduped = results.stream()
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		Map<String, Double> jitter = jitterByCandidate(deduped, rng);
 		Map<String, Double> keywordBoosts = keywordBoosts(deduped, keywordProfile);
+		ToDoubleFunction<TitleSearchResponse> baseScore = r ->
+			genreScore(r, genreProfile) + keywordBoosts.getOrDefault(r.externalId(), 0.0);
+		Map<String, Double> jitter = jitterByCandidate(deduped, baseScore, rng);
 
 		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
-			genreScore(r, genreProfile)
-			+ keywordBoosts.getOrDefault(r.externalId(), 0.0)
+			baseScore.applyAsDouble(r)
 			+ jitter.getOrDefault(r.externalId(), 0.0)).reversed());
 		return deduped;
 	}
@@ -542,11 +551,20 @@ public class SuggestionService {
 	// Day-seeded per-candidate score offset (#248). Draws from the shared day-seeded
 	// rng in list order, so the assignment is reproducible within a day (identical
 	// shelves across recomputes) and rotates at midnight. Keyed by externalId, one
-	// draw per distinct id so duplicates don't desync the rng stream.
-	private Map<String, Double> jitterByCandidate(List<TitleSearchResponse> candidates, Random rng) {
+	// draw per distinct id so duplicates don't desync the rng stream. The amplitude
+	// is proportional to the candidate's base score with an absolute floor (#267);
+	// scaling happens after the draw, so amplitude never affects rng consumption.
+	private Map<String, Double> jitterByCandidate(
+		List<TitleSearchResponse> candidates,
+		ToDoubleFunction<TitleSearchResponse> baseScore,
+		Random rng
+	) {
 		Map<String, Double> jitter = new HashMap<>();
 		for (TitleSearchResponse c : candidates) {
-			jitter.computeIfAbsent(c.externalId(), id -> (rng.nextDouble() * 2 - 1) * SCORE_JITTER);
+			jitter.computeIfAbsent(c.externalId(), id -> {
+				double amplitude = Math.max(SCORE_JITTER_FLOOR, SCORE_JITTER_FRACTION * baseScore.applyAsDouble(c));
+				return (rng.nextDouble() * 2 - 1) * amplitude;
+			});
 		}
 		return jitter;
 	}
