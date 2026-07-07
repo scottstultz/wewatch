@@ -9,6 +9,7 @@ type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
 type OpenHandler = (title: TitleSearchResponse) => void
 type ToggleHandler = (title: TitleSearchResponse) => void
 type RemoveHandler = (title: TitleSearchResponse) => void
+type DismissHandler = (title: TitleSearchResponse) => void
 
 type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
@@ -40,9 +41,12 @@ interface TitleCardProps {
   onTogglePicker: ToggleHandler
   onOpen: OpenHandler
   onRemove: RemoveHandler
+  // Only suggestion tiles get the "Not interested" affordance (#268); search
+  // results have no dismiss concept, so the prop is absent there
+  onDismiss?: DismissHandler
 }
 
-function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove }: TitleCardProps) {
+function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss }: TitleCardProps) {
   const addedStatus =
     status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED' ? status : null
   return (
@@ -59,6 +63,16 @@ function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePi
       }}
       aria-label={`View details for ${title.name}`}
     >
+      {onDismiss && (
+        <button
+          className="title-dismiss-btn"
+          onClick={(e) => { e.stopPropagation(); onDismiss(title) }}
+          aria-label={`Not interested in ${title.name}`}
+          title="Not interested"
+        >
+          ✕
+        </button>
+      )}
       {title.posterUrl ? (
         <img className="title-poster" src={title.posterUrl} alt={title.name} loading="lazy" />
       ) : (
@@ -124,9 +138,10 @@ interface ShelfRowProps {
   onTogglePicker: ToggleHandler
   onOpen: OpenHandler
   onRemove: RemoveHandler
+  onDismiss: DismissHandler
 }
 
-function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove }: ShelfRowProps) {
+function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss }: ShelfRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -177,6 +192,7 @@ function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTog
             onTogglePicker={onTogglePicker}
             onOpen={onOpen}
             onRemove={onRemove}
+            onDismiss={onDismiss}
           />
         ))}
       </div>
@@ -209,6 +225,15 @@ function DiscoverPage() {
   const [pickingKey, setPickingKey] = useState<string | null>(null)
   const [suggestions, setSuggestions] = useState<SuggestionShelf[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  // Optimistically hidden "Not interested" tiles (#268) — the backend excludes
+  // them from the next compute; this filters the already-fetched shelves
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
+  const [undoTarget, setUndoTarget] = useState<TitleSearchResponse | null>(null)
+  const undoTimerRef = useRef<number | null>(null)
+
+  useEffect(() => () => {
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+  }, [])
 
   // Search effect
   useEffect(() => {
@@ -372,6 +397,44 @@ function DiscoverPage() {
     }
   }
 
+  async function handleDismiss(title: TitleSearchResponse) {
+    const key = cardKey(title)
+    setDismissedKeys(prev => new Set(prev).add(key))
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoTarget(title)
+    undoTimerRef.current = window.setTimeout(() => setUndoTarget(null), 6000)
+    try {
+      await api.dismissSuggestion(title.externalId)
+    } catch {
+      // Revert the optimistic removal — the dismissal never landed
+      setDismissedKeys(prev => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+      setUndoTarget(prev => (prev && cardKey(prev) === key ? null : prev))
+    }
+  }
+
+  async function handleUndoDismiss() {
+    const title = undoTarget
+    if (!title) return
+    const key = cardKey(title)
+    if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
+    setUndoTarget(null)
+    setDismissedKeys(prev => {
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+    try {
+      await api.undoDismissSuggestion(title.externalId)
+    } catch {
+      // The dismissal still stands server-side, so hide the tile again
+      setDismissedKeys(prev => new Set(prev).add(key))
+    }
+  }
+
   async function handleRemove(title: TitleSearchResponse) {
     if (!selectedWatchlistId) return
     const key = cardKey(title)
@@ -482,7 +545,7 @@ function DiscoverPage() {
               return sorted.map(shelf => {
                 const dedupedTitles = shelf.titles.filter(t => {
                   const k = cardKey(t)
-                  if (shownKeys.has(k)) return false
+                  if (dismissedKeys.has(k) || shownKeys.has(k)) return false
                   shownKeys.add(k)
                   return true
                 })
@@ -499,6 +562,7 @@ function DiscoverPage() {
                       onTogglePicker={togglePicker}
                       onOpen={openTitle}
                       onRemove={handleRemove}
+                      onDismiss={handleDismiss}
                     />
                   </div>
                 )
@@ -507,6 +571,17 @@ function DiscoverPage() {
           </>
         )}
       </section>
+
+      {undoTarget && (
+        <div className="undo-snackbar" role="status">
+          <span className="undo-snackbar-text">
+            We won&rsquo;t suggest &ldquo;{undoTarget.name}&rdquo; again
+          </span>
+          <button className="undo-snackbar-btn" onClick={handleUndoDismiss}>
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   )
 }

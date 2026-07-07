@@ -287,6 +287,23 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       return response.json() as Promise<SuggestionShelf[]>
     },
 
+    // "Not interested" (#268): user-scoped, permanent until undone — no watchlist id
+    async dismissSuggestion(tmdbId: string): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/suggestions/dismissals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tmdbId }),
+      })
+      if (!response.ok) throw new Error(`Failed to dismiss suggestion: ${response.status}`)
+    },
+
+    async undoDismissSuggestion(tmdbId: string): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/suggestions/dismissals/${tmdbId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error(`Failed to undo dismissal: ${response.status}`)
+    },
+
     // ── Seasons & episode progress ──────────────────────────
 
     async getSeasons(titleId: number): Promise<SeasonSummary[]> {

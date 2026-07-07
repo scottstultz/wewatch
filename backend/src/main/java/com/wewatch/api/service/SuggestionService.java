@@ -123,6 +123,7 @@ public class SuggestionService {
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	private final SuggestionImpressionService suggestionImpressionService;
+	private final SuggestionDismissalService suggestionDismissalService;
 	private final Clock clock;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
@@ -137,6 +138,7 @@ public class SuggestionService {
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
 		SuggestionImpressionService suggestionImpressionService,
+		SuggestionDismissalService suggestionDismissalService,
 		Clock clock,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
@@ -147,6 +149,7 @@ public class SuggestionService {
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
 		this.suggestionImpressionService = suggestionImpressionService;
+		this.suggestionDismissalService = suggestionDismissalService;
 		this.clock = clock;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
@@ -161,6 +164,15 @@ public class SuggestionService {
 	@Async
 	public void recompute(Long watchlistId) {
 		cache.put(watchlistId, compute(watchlistId));
+	}
+
+	// A dismissal (#268) changes what every one of the user's lists may serve, so
+	// drop each of their cached shelf sets and let the next read recompute lazily —
+	// cheaper than recomputing all lists eagerly on every dismissal, and the client
+	// already removed the tile optimistically. Undo evicts through here too so the
+	// title can come back.
+	public void evictForUser(Long userId) {
+		watchlistMemberRepository.findWatchlistIdsByUserId(userId).forEach(cache::invalidate);
 	}
 
 	private List<SuggestionShelfResponse> compute(Long watchlistId) {
@@ -192,6 +204,12 @@ public class SuggestionService {
 		// to every member's impressions, so a title one member saw elsewhere sinks
 		// here too. For a personal list this is just the single owner.
 		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
+
+		// "Not interested" dismissals (#268) are a hard exclusion, not a penalty:
+		// seeding the dedup set keeps a dismissed title out of every shelf kind at
+		// the one point they all flow through. Union of members, like the recency
+		// penalty above — dismissals are personal but shelves are per-watchlist.
+		seen.addAll(suggestionDismissalService.dismissedTmdbIds(memberUserIds));
 
 		// Titles shown on previous days within the penalty window sink in the ranking
 		// instead of being held back outright (#264): thin pools still fill a whole
