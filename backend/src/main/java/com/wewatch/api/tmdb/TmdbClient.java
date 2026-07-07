@@ -196,6 +196,32 @@ public class TmdbClient {
 		}
 	}
 
+	// Keyword-seeded shelves (#271): unlike with_people, with_keywords works for
+	// both media types, so the shelf follows the list's dominant type. Takes the
+	// same optional provider filter as the generic discover — it's a
+	// discover-backed feed, so provider-filtering conventions (#270) apply.
+	public List<TitleSearchResponse> discoverByKeyword(TitleType type, int keywordId, int voteCountGte,
+			String watchRegion, List<Integer> watchProviderIds, int pageNumber) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		String uriStr = "/3/discover/{mediaType}?with_keywords={keywordId}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US&page={page}";
+		if (watchRegion != null && watchProviderIds != null && !watchProviderIds.isEmpty()) {
+			String providers = watchProviderIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
+			uriStr += "&watch_region=" + watchRegion
+				+ "&with_watch_providers=" + providers
+				+ "&with_watch_monetization_types=flatrate";
+		}
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri(uriStr, mediaType, keywordId, voteCountGte, pageNumber)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, type)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB keyword discover failed: " + e.getMessage(), e);
+		}
+	}
+
 	// All streaming services TMDB knows for a region and media type (#270),
 	// with region-local display priority — feeds the settings picker and the
 	// id -> name/logo lookup for availability badges.
@@ -224,7 +250,8 @@ public class TmdbClient {
 		}
 	}
 
-	public List<Integer> getKeywords(TitleType type, String tmdbId) {
+	// Full keyword objects, not just ids (#271): names label keyword-seeded shelves
+	public List<TmdbKeyword> getKeywords(TitleType type, String tmdbId) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		try {
 			TmdbKeywordsResponse response = restClient.get()
@@ -232,9 +259,8 @@ public class TmdbClient {
 				.retrieve()
 				.body(TmdbKeywordsResponse.class);
 			if (response == null) return List.of();
-			List<TmdbKeyword> kws = response.keywords() != null ? response.keywords()
+			return response.keywords() != null ? response.keywords()
 				: response.results() != null ? response.results() : List.of();
-			return kws.stream().map(TmdbKeyword::id).toList();
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB keywords failed: " + e.getMessage(), e);
 		}

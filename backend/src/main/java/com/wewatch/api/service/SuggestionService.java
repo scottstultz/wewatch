@@ -86,6 +86,10 @@ public class SuggestionService {
 	// without reaching the emptiest deep pages that just trigger the page-1 fallback.
 	private static final int HIDDEN_GEM_MIN_FETCH_PAGE = 4;
 	private static final int HIDDEN_GEM_MAX_FETCH_PAGE = 18;
+	// A single keyword's catalog is far thinner than a genre's — niche themes run
+	// out within a few pages — so the keyword shelf (#271) draws shallow like the
+	// seed feeds; its main rotation lever is which keyword the day picks anyway.
+	private static final int MAX_KEYWORD_FETCH_PAGE = 3;
 	private static final int MAX_FINISHED_SEEDS = 1;
 	private static final int RECENT_FINISHED_POOL = 5;
 	// Exploration shelves (#235) each cost TMDB calls, so only a rotating subset
@@ -219,7 +223,12 @@ public class SuggestionService {
 			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
 
 		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId);
-		Set<Integer> keywordProfile = buildKeywordProfile(cacheByTmdbId.values());
+		// Top keywords across the list: ids boost candidate scores, and the ones
+		// with a cached display name can seed a keyword shelf (#271)
+		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values());
+		Set<Integer> keywordProfile = keywordAffinities.stream()
+			.map(KeywordAffinity::id)
+			.collect(Collectors.toSet());
 		// Recurring cast/directors across the list (#269): ids boost candidate
 		// scores, names label the person-seeded exploration shelf
 		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values());
@@ -410,13 +419,14 @@ public class SuggestionService {
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
 			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
 			SuggestionShelfResponse.ShelfKind.TRENDING,
-			SuggestionShelfResponse.ShelfKind.PERSON));
+			SuggestionShelfResponse.ShelfKind.PERSON,
+			SuggestionShelfResponse.ShelfKind.KEYWORD));
 		Collections.shuffle(explorationOrder, rng);
 
 		int explorationCount = 0;
 		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
 			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, providerCtx, seen, recencyWeights, rng);
+			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, keywordAffinities, providerCtx, seen, recencyWeights, rng);
 			if (shelf != null) {
 				shelves.add(shelf);
 				explorationCount++;
@@ -530,22 +540,25 @@ public class SuggestionService {
 		List<Integer> topGenres,
 		Map<Integer, Double> genreProfile,
 		List<PersonAffinity> personProfile,
+		List<KeywordAffinity> keywordAffinities,
 		ProviderContext providerCtx,
 		Set<String> seen,
 		Map<String, Double> recencyWeights,
 		Random rng
 	) {
 		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
-		// draws from a mid-deep band, trending stays shallow, and PERSON spends its
-		// draw picking the person instead of a page. Exactly one rng.nextInt per
-		// kind either way, so daily reproducibility (#231/#248) is preserved.
+		// draws from a mid-deep band, trending stays shallow, PERSON spends its draw
+		// picking the person instead of a page, and KEYWORD draws a keyword plus a
+		// shallow page. A fixed draw count per kind either way, so daily
+		// reproducibility (#231/#248) is preserved.
 		List<TitleSearchResponse> candidates;
 		String label;
 		// Discover-backed kinds take TMDB's provider filter (#270); trending and
 		// person feeds don't support it and stay unfiltered
 		boolean providerFiltered = providerCtx.enabled()
 			&& (kind == SuggestionShelfResponse.ShelfKind.NEW_RELEASES
-				|| kind == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+				|| kind == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS
+				|| kind == SuggestionShelfResponse.ShelfKind.KEYWORD);
 		try {
 			switch (kind) {
 				case NEW_RELEASES -> {
@@ -579,6 +592,21 @@ public class SuggestionService {
 						? "Directed by " + person.name()
 						: "More with " + person.name();
 				}
+				case KEYWORD -> {
+					// Only keywords with a cached display name qualify — the label
+					// is the whole point (#271); rows cached before V20 contribute
+					// scoring ids but no shelf until the TTL refresh backfills names
+					List<KeywordAffinity> named = keywordAffinities.stream()
+						.filter(k -> k.name() != null && !k.name().isBlank())
+						.toList();
+					if (named.isEmpty()) return null;
+					KeywordAffinity keyword = named.get(rng.nextInt(named.size()));
+					int page = 1 + rng.nextInt(MAX_KEYWORD_FETCH_PAGE);
+					candidates = fetchPageWithFallback(p -> tmdbClient.discoverByKeyword(
+						type, keyword.id(), DISCOVER_VOTE_COUNT_GTE,
+						providerCtx.region(), providerCtx.providerIdList(), p), page);
+					label = keywordLabel(keyword.name(), type);
+				}
 				case TRENDING -> {
 					int page = 1 + rng.nextInt(MAX_TRENDING_FETCH_PAGE);
 					// Rank the raw popularity feed by taste-profile affinity plus
@@ -604,8 +632,8 @@ public class SuggestionService {
 
 		// Only trending carries a real genre mix worth diversifying; the discover-backed
 		// kinds are genre-filtered by construction and are exempt from the cap (#265).
-		// PERSON is exempt too: the person is the shelf's coherence axis, and a
-		// same-genre run of their films is the point, not a lack of variety.
+		// PERSON and KEYWORD are exempt too: the person or theme is the shelf's
+		// coherence axis, and a same-genre run is the point, not a lack of variety.
 		boolean diversify = kind == SuggestionShelfResponse.ShelfKind.TRENDING;
 		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, diversify);
 		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind, providerFiltered) : null;
@@ -880,17 +908,38 @@ public class SuggestionService {
 			.toList();
 	}
 
-	private Set<Integer> buildKeywordProfile(Collection<TmdbTitleCache> caches) {
+	// A top keyword across the list (#271). name labels the keyword-seeded shelf
+	// and is null on rows cached before names were stored — such keywords still
+	// boost scoring but can't seed a shelf until the cache TTL backfills them.
+	private record KeywordAffinity(int id, String name) {}
+
+	// Frequency counting stays on the flat keyword_ids column (every row has it);
+	// names come from the keywords JSON where present. Ties break by id so the
+	// profile is stable across recomputes — the daily rng never touches profile
+	// construction (#231).
+	private List<KeywordAffinity> buildKeywordAffinities(Collection<TmdbTitleCache> caches) {
 		Map<Integer, Integer> freq = new HashMap<>();
+		Map<Integer, String> names = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
 			if (c.getKeywordIds() == null) continue;
 			for (int kw : c.getKeywordIds()) freq.merge(kw, 1, Integer::sum);
+			if (c.getKeywords() != null) {
+				c.getKeywords().forEach(k -> names.putIfAbsent(k.id(), k.name()));
+			}
 		}
 		return freq.entrySet().stream()
-			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()
+				.thenComparing(Map.Entry::getKey))
 			.limit(MAX_KEYWORDS)
-			.map(Map.Entry::getKey)
-			.collect(Collectors.toSet());
+			.map(e -> new KeywordAffinity(e.getKey(), names.get(e.getKey())))
+			.toList();
+	}
+
+	// "space race" → "Space race stories" / "heist" → "Heist movies": TMDB keyword
+	// names are lowercase phrases, so capitalize and suffix by media type
+	private String keywordLabel(String name, TitleType type) {
+		String display = name.substring(0, 1).toUpperCase() + name.substring(1);
+		return display + (type == TitleType.MOVIE ? " movies" : " stories");
 	}
 
 	// Taste-profile weights only. Seed eligibility is a separate filter in compute

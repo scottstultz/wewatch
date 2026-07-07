@@ -15,5 +15,5 @@ public record SuggestionShelfResponse(
 		this(reason, titles, kind, false);
 	}
 
-	public enum ShelfKind { PER_SEED, FINISHED_SEED, MORE_PICKS, GENRE_PROFILE, NEW_RELEASES, HIDDEN_GEMS, TRENDING, PERSON }
+	public enum ShelfKind { PER_SEED, FINISHED_SEED, MORE_PICKS, GENRE_PROFILE, NEW_RELEASES, HIDDEN_GEMS, TRENDING, PERSON, KEYWORD }
 }
