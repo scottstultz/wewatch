@@ -48,6 +48,13 @@ public class TmdbTitleCache {
 	@Column(name = "keyword_ids", length = 500)
 	private List<Integer> keywordIds;
 
+	// Same ids with display names (#271): keyword-seeded shelf labels need the
+	// name; scoring keeps reading the flat keyword_ids column. null means "not
+	// fetched since #271" — TTL refresh backfills.
+	@Convert(converter = CachedKeywordListConverter.class)
+	@Column(name = "keywords", columnDefinition = "TEXT")
+	private List<CachedKeyword> keywords;
+
 	@Column(name = "vote_count")
 	private Integer voteCount;
 
@@ -101,6 +108,9 @@ public class TmdbTitleCache {
 
 	public List<Integer> getKeywordIds() { return keywordIds; }
 	public void setKeywordIds(List<Integer> keywordIds) { this.keywordIds = keywordIds; }
+
+	public List<CachedKeyword> getKeywords() { return keywords; }
+	public void setKeywords(List<CachedKeyword> keywords) { this.keywords = keywords; }
 
 	public Integer getVoteCount() { return voteCount; }
 	public void setVoteCount(Integer voteCount) { this.voteCount = voteCount; }

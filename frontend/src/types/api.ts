@@ -144,6 +144,7 @@ export type ShelfKind =
   | 'HIDDEN_GEMS'
   | 'TRENDING'
   | 'PERSON'
+  | 'KEYWORD'
 
 export interface SuggestionShelf {
   reason: string

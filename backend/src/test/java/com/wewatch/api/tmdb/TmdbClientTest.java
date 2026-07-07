@@ -251,6 +251,58 @@ class TmdbClientTest {
 	}
 
 	@Test
+	void discoverByKeywordQueriesTheDominantMediaType() {
+		// Keyword shelves follow the list's dominant type (#271): with_keywords
+		// works on TV discover, unlike with_people
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/tv"),
+			containsString("with_keywords=9882"),
+			containsString("vote_count.gte=100"),
+			containsString("page=2"))))
+			.andRespond(withSuccess(TV_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discoverByKeyword(TitleType.TV, 9882, 100, null, null, 2);
+
+		assertThat(results).hasSize(1);
+		assertThat(results.get(0).type()).isEqualTo(TitleType.TV);
+		assertThat(results.get(0).name()).isEqualTo("Breaking Bad");
+	}
+
+	@Test
+	void discoverByKeywordAppliesTheWatchProviderFilter() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("with_keywords=9882"),
+			containsString("watch_region=US"),
+			containsString("with_watch_providers=8"),
+			containsString("with_watch_monetization_types=flatrate"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discoverByKeyword(TitleType.MOVIE, 9882, 100, "US", List.of(8), 1);
+
+		assertThat(results).hasSize(1);
+	}
+
+	@Test
+	void getKeywordsParsesNamesFromBothResponseShapes() {
+		// Movie responses nest under "keywords", TV under "results"; both carry
+		// the names that label keyword shelves (#271)
+		server.expect(requestTo(containsString("/3/movie/27205/keywords")))
+			.andRespond(withSuccess("""
+				{ "keywords": [ { "id": 9882, "name": "space race" } ] }
+				""", MediaType.APPLICATION_JSON));
+		server.expect(requestTo(containsString("/3/tv/1396/keywords")))
+			.andRespond(withSuccess("""
+				{ "results": [ { "id": 10391, "name": "drug cartel" } ] }
+				""", MediaType.APPLICATION_JSON));
+
+		assertThat(tmdbClient.getKeywords(TitleType.MOVIE, "27205"))
+			.containsExactly(new TmdbKeyword(9882, "space race"));
+		assertThat(tmdbClient.getKeywords(TitleType.TV, "1396"))
+			.containsExactly(new TmdbKeyword(10391, "drug cartel"));
+	}
+
+	@Test
 	void trendingFetchesTheRequestedPage() {
 		server.expect(requestTo(allOf(
 			containsString("/3/trending/tv/week"),

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -24,7 +25,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -35,6 +38,8 @@ import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbCrewMember;
+import com.wewatch.api.tmdb.TmdbKeyword;
+import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
@@ -212,6 +217,31 @@ class TmdbCacheServiceTest {
 		// A TMDB response without the appended credits leaves the people signal alone
 		assertThat(captor.getValue().getTopCast()).containsExactly(new CachedPerson(1, "Lead"));
 		assertThat(captor.getValue().getDirectors()).containsExactly(new CachedPerson(100, "The Director"));
+	}
+
+	@Test
+	void prewarmStoresKeywordIdsAndNames() {
+		// Ids keep feeding the scoring CSV; names land in the JSON column that
+		// labels keyword-seeded shelves (#271)
+		TmdbTitleCache existing = new TmdbTitleCache();
+		existing.setTmdbId(TMDB_ID);
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		when(tmdbClient.getMovieDetail(TMDB_ID)).thenReturn(new TmdbMovieDetail(
+			1399L, "Inception", null, null, null, null, List.of(), null, null, null, null));
+		when(tmdbClient.getKeywords(TitleType.MOVIE, TMDB_ID)).thenReturn(List.of(
+			new TmdbKeyword(9882, "space race"),
+			new TmdbKeyword(4565, "dystopia")));
+
+		service.prewarmMovie(TMDB_ID);
+
+		ArgumentCaptor<TmdbTitleCache> captor = ArgumentCaptor.forClass(TmdbTitleCache.class);
+		// One save from the detail upsert, one from the keyword write — the
+		// keyword pass is the last
+		verify(titleCacheRepository, times(2)).save(captor.capture());
+		assertThat(captor.getValue().getKeywordIds()).containsExactly(9882, 4565);
+		assertThat(captor.getValue().getKeywords()).containsExactly(
+			new CachedKeyword(9882, "space race"),
+			new CachedKeyword(4565, "dystopia"));
 	}
 
 	@Test

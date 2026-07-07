@@ -26,12 +26,14 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
+import com.wewatch.api.tmdb.TmdbKeyword;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
@@ -137,9 +139,12 @@ public class TmdbCacheService {
 
 	private void cacheKeywords(TitleType type, String tmdbId) {
 		try {
-			List<Integer> kws = tmdbClient.getKeywords(type, tmdbId);
+			List<TmdbKeyword> kws = tmdbClient.getKeywords(type, tmdbId);
 			titleCacheRepository.findByTmdbId(tmdbId).ifPresent(row -> {
-				row.setKeywordIds(kws);
+				row.setKeywordIds(kws.stream().map(TmdbKeyword::id).toList());
+				// Names ride along for keyword-seeded shelf labels (#271); the id
+				// CSV above stays the scoring path
+				row.setKeywords(kws.stream().map(k -> new CachedKeyword(k.id(), k.name())).toList());
 				titleCacheRepository.save(row);
 			});
 		} catch (Exception e) {

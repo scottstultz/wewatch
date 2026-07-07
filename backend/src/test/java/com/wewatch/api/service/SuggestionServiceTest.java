@@ -42,6 +42,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
@@ -480,6 +481,133 @@ class SuggestionServiceTest {
 		return c;
 	}
 
+	// ── keyword-seeded shelves (#271) ─────────────────────────
+
+	@Test
+	void keywordShelfIsLabeledWithTheKeywordName() {
+		// The cached keyword is the only signal that can fill a shelf: no genres,
+		// empty recommendation feeds, empty trending — the KEYWORD kind gets its
+		// exploration slot and the label carries the keyword's display name (#271)
+		stubWatchlistWithNamedKeyword();
+		when(tmdbClient.discoverByKeyword(eq(TitleType.TV), eq(9882), anyInt(), any(), any(), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("kw-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.KEYWORD);
+		assertThat(shelves.get(0).reason()).isEqualTo("Space race stories");
+		assertThat(shelves.get(0).titles()).hasSize(12);
+		// Dominant-type discover with the standard vote floor and a shallow page
+		// draw (#271) — a single keyword's catalog thins fast
+		verify(tmdbClient).discoverByKeyword(eq(TitleType.TV), eq(9882), eq(100),
+			isNull(), isNull(), intThat(p -> p >= 1 && p <= 3));
+	}
+
+	@Test
+	void keywordShelfUsesMoviesSuffixForAMovieLeaningList() {
+		Title movie = title(1, "ext1");
+		movie.setType(TitleType.MOVIE);
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie));
+		stubCacheRows(Map.of("ext1",
+			keywordRow("ext1", List.of(1701), List.of(new CachedKeyword(1701, "heist")))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.discoverByKeyword(eq(TitleType.MOVIE), eq(1701), anyInt(), any(), any(), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("kw-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).reason()).isEqualTo("Heist movies");
+	}
+
+	@Test
+	void keywordShelfYieldsWhenNoNamesAreCached() {
+		// Pre-V20 rows carry keyword ids but no names: the ids still boost scoring,
+		// but a shelf can't be labeled, so the kind yields its exploration slot on
+		// every day's rotation (#271)
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1", cacheRow("ext1", null, List.of(9882))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		for (int d = 0; d < 10; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, never()).discoverByKeyword(any(), anyInt(), anyInt(), any(), any(), anyInt());
+	}
+
+	@Test
+	void keywordShelfRotatesAcrossDaysButIsStableWithinADay() {
+		// Three named keywords tie at one appearance each: the day-seeded draw must
+		// reach more than one of them across days, while two computes on the same
+		// day serve identical shelves (#271 acceptance criteria)
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1", keywordRow("ext1", List.of(100, 200, 300), List.of(
+			new CachedKeyword(100, "heist"),
+			new CachedKeyword(200, "space race"),
+			new CachedKeyword(300, "con artist")))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.discoverByKeyword(any(), anyInt(), anyInt(), any(), any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12)
+				.mapToObj(i -> candidate("kw-" + inv.getArgument(1) + "-" + i)).toList());
+
+		assertThat(serviceAt(DAY_1).topPicks(WATCHLIST_ID))
+			.isEqualTo(serviceAt(DAY_1).topPicks(WATCHLIST_ID));
+
+		for (int d = 0; d < 15; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<Integer> keywordId = ArgumentCaptor.forClass(Integer.class);
+		verify(tmdbClient, atLeastOnce()).discoverByKeyword(any(), keywordId.capture(), anyInt(), any(), any(), anyInt());
+		assertThat(new HashSet<>(keywordId.getAllValues())).hasSizeGreaterThan(1);
+	}
+
+	@Test
+	void keywordShelfTakesTheProviderFilter() {
+		// Keyword discover is a discover-backed feed, so it takes TMDB's provider
+		// filter directly and the shelf is marked providerFiltered (#270 conventions)
+		stubWatchlistWithNamedKeyword();
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, "US", List.of(8))));
+		when(tmdbClient.discoverByKeyword(eq(TitleType.TV), eq(9882), anyInt(), eq("US"), eq(List.of(8)), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("kw-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.KEYWORD);
+		assertThat(shelves.get(0).providerFiltered()).isTrue();
+	}
+
+	// One owned title whose only cached signal is a named keyword: no genres, no
+	// people, empty seed feeds — only the KEYWORD exploration kind can fill
+	private void stubWatchlistWithNamedKeyword() {
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1",
+			keywordRow("ext1", List.of(9882), List.of(new CachedKeyword(9882, "space race")))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+	}
+
+	private TmdbTitleCache keywordRow(String tmdbId, List<Integer> keywordIds, List<CachedKeyword> keywords) {
+		TmdbTitleCache c = cacheRow(tmdbId, null, keywordIds);
+		c.setKeywords(keywords);
+		return c;
+	}
+
 	@Test
 	void dismissedTitlesAreExcludedFromEveryShelf() {
 		stubPopulatedWatchlist();
@@ -767,7 +895,8 @@ class SuggestionServiceTest {
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
 			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
 			SuggestionShelfResponse.ShelfKind.TRENDING,
-			SuggestionShelfResponse.ShelfKind.PERSON);
+			SuggestionShelfResponse.ShelfKind.PERSON,
+			SuggestionShelfResponse.ShelfKind.KEYWORD);
 		assertThat(shelves.stream().filter(s -> exploration.contains(s.kind()))).hasSize(2);
 		// Exploration shelves sit at the end, after every similarity shelf
 		int firstExploration = IntStream.range(0, shelves.size())
