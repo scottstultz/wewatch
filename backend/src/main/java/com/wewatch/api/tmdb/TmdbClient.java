@@ -19,6 +19,7 @@ public class TmdbClient {
 
 	private static final String POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500";
 	private static final String STILL_BASE_URL = "https://image.tmdb.org/t/p/w300";
+	private static final String PROVIDER_LOGO_BASE_URL = "https://image.tmdb.org/t/p/w92";
 
 	private final RestClient restClient;
 
@@ -52,12 +53,13 @@ public class TmdbClient {
 
 	public TmdbTvDetail getTvDetail(String tmdbId) {
 		try {
-			// Credits ride along for free (#269) — one call still, bigger payload
+			// Credits (#269) and watch providers (#270) ride along for free —
+			// one call still, bigger payload
 			TmdbTvDetail detail = restClient.get()
-				.uri("/3/tv/{id}?language=en-US&append_to_response=credits", tmdbId)
+				.uri("/3/tv/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null, null);
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
@@ -108,12 +110,13 @@ public class TmdbClient {
 
 	public TmdbMovieDetail getMovieDetail(String tmdbId) {
 		try {
-			// Credits ride along for free (#269) — one call still, bigger payload
+			// Credits (#269) and watch providers (#270) ride along for free —
+			// one call still, bigger payload
 			TmdbMovieDetail detail = restClient.get()
-				.uri("/3/movie/{id}?language=en-US&append_to_response=credits", tmdbId)
+				.uri("/3/movie/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}
@@ -136,8 +139,11 @@ public class TmdbClient {
 	// sortBy is a TMDB discover sort key (e.g. popularity.desc, vote_average.desc).
 	// The optional release window filters on primary_release_date for movies and
 	// first_air_date for TV — TMDB uses different field names per media type.
+	// With a watch region and provider ids (#270), results are restricted to
+	// titles streamable (flatrate) on any of those services in that region.
 	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds,
-			int voteCountGte, String sortBy, LocalDate releasedAfter, LocalDate releasedBefore, int pageNumber) {
+			int voteCountGte, String sortBy, LocalDate releasedAfter, LocalDate releasedBefore,
+			String watchRegion, List<Integer> watchProviderIds, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		// Use OR (|) so results match any of the user's top genres/keywords rather than requiring all
 		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
@@ -152,6 +158,14 @@ public class TmdbClient {
 		}
 		if (releasedBefore != null) {
 			uriStr += "&" + dateField + ".lte=" + releasedBefore;
+		}
+		if (watchRegion != null && watchProviderIds != null && !watchProviderIds.isEmpty()) {
+			String providers = watchProviderIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
+			// monetization_types=flatrate: without it, with_watch_providers also
+			// matches rent/buy listings on the same provider
+			uriStr += "&watch_region=" + watchRegion
+				+ "&with_watch_providers=" + providers
+				+ "&with_watch_monetization_types=flatrate";
 		}
 		try {
 			TmdbSearchPage page = restClient.get()
@@ -182,6 +196,34 @@ public class TmdbClient {
 		}
 	}
 
+	// All streaming services TMDB knows for a region and media type (#270),
+	// with region-local display priority — feeds the settings picker and the
+	// id -> name/logo lookup for availability badges.
+	public List<TmdbWatchProvider> getWatchProviders(TitleType type, String watchRegion) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbWatchProviderListResponse response = restClient.get()
+				.uri("/3/watch/providers/{mediaType}?language=en-US&watch_region={region}", mediaType, watchRegion)
+				.retrieve()
+				.body(TmdbWatchProviderListResponse.class);
+			return response != null && response.results() != null ? response.results() : List.of();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB watch provider list failed: " + e.getMessage(), e);
+		}
+	}
+
+	public List<TmdbWatchRegion> getWatchRegions() {
+		try {
+			TmdbWatchRegionListResponse response = restClient.get()
+				.uri("/3/watch/providers/regions?language=en-US")
+				.retrieve()
+				.body(TmdbWatchRegionListResponse.class);
+			return response != null && response.results() != null ? response.results() : List.of();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB watch region list failed: " + e.getMessage(), e);
+		}
+	}
+
 	public List<Integer> getKeywords(TitleType type, String tmdbId) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
 		try {
@@ -204,6 +246,10 @@ public class TmdbClient {
 
 	public static String stillUrl(String stillPath) {
 		return stillPath != null ? STILL_BASE_URL + stillPath : null;
+	}
+
+	public static String providerLogoUrl(String logoPath) {
+		return logoPath != null ? PROVIDER_LOGO_BASE_URL + logoPath : null;
 	}
 
 	private List<TmdbItem> fetchItems(String path, String query) {

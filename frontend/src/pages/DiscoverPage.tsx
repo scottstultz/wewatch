@@ -3,7 +3,8 @@ import { useNavigate, useNavigationType, useSearchParams } from 'react-router-do
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
-import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchStatus } from '../types/api'
+import JustWatchAttribution from '../components/JustWatchAttribution'
+import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider, WatchStatus } from '../types/api'
 
 type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
 type OpenHandler = (title: TitleSearchResponse) => void
@@ -45,11 +46,18 @@ interface TitleCardProps {
   // Only suggestion tiles get the "Not interested" affordance (#268); search
   // results have no dismiss concept, so the prop is absent there
   onDismiss?: DismissHandler
+  // id -> provider lookup for availability badges (#270); absent on search
+  // results and when the user has no streaming services configured
+  providersById?: Map<number, WatchProvider>
 }
 
-function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss }: TitleCardProps) {
+function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss, providersById }: TitleCardProps) {
   const addedStatus =
     status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED' ? status : null
+  const badgeProviders = (providersById && title.providerIds ? title.providerIds : [])
+    .map(id => providersById?.get(id))
+    .filter((p): p is WatchProvider => p != null)
+    .slice(0, 3)
   return (
     <article
       className="title-card title-card-clickable"
@@ -78,6 +86,13 @@ function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePi
         <img className="title-poster" src={title.posterUrl} alt={title.name} loading="lazy" />
       ) : (
         <div className="title-poster title-poster-empty" />
+      )}
+      {badgeProviders.length > 0 && (
+        <div className="provider-badge-row" aria-label="Streaming on your services">
+          {badgeProviders.map(p => (
+            p.logoUrl && <img key={p.id} className="provider-badge-logo" src={p.logoUrl} alt={p.name} title={p.name} loading="lazy" />
+          ))}
+        </div>
       )}
       <div className="title-card-body">
         <span className="title-type-badge">
@@ -140,9 +155,10 @@ interface ShelfRowProps {
   onOpen: OpenHandler
   onRemove: RemoveHandler
   onDismiss: DismissHandler
+  providersById?: Map<number, WatchProvider>
 }
 
-function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss }: ShelfRowProps) {
+function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss, providersById }: ShelfRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -194,6 +210,7 @@ function ShelfRow({ titles, cardStatus, pickingKey, onAdd, onChangeStatus, onTog
             onOpen={onOpen}
             onRemove={onRemove}
             onDismiss={onDismiss}
+            providersById={providersById}
           />
         ))}
       </div>
@@ -231,6 +248,22 @@ function DiscoverPage() {
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
   const [undoTarget, setUndoTarget] = useState<TitleSearchResponse | null>(null)
   const undoTimerRef = useRef<number | null>(null)
+  // id -> provider lookup for availability badges (#270); stays null when the
+  // user has no streaming services configured, which hides all badge UI
+  const [providersById, setProvidersById] = useState<Map<number, WatchProvider> | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getMe()
+      .then(user => {
+        if (cancelled || !user.watchRegion || !user.watchProviderIds?.length) return
+        return api.getWatchProviders(user.watchRegion).then(list => {
+          if (!cancelled) setProvidersById(new Map(list.map(p => [p.id, p])))
+        })
+      })
+      .catch(() => { /* badges are decoration — fail silently */ })
+    return () => { cancelled = true }
+  }, [api])
 
   useEffect(() => () => {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
@@ -553,7 +586,12 @@ function DiscoverPage() {
                 if (dedupedTitles.length === 0) return null
                 return (
                   <div key={shelf.reason} className="suggestion-shelf">
-                    <p className="suggestion-shelf-heading">{shelf.reason}</p>
+                    <p className="suggestion-shelf-heading">
+                      {shelf.reason}
+                      {shelf.providerFiltered && (
+                        <span className="shelf-provider-chip">On your services</span>
+                      )}
+                    </p>
                     <ShelfRow
                       titles={dedupedTitles}
                       cardStatus={cardStatus}
@@ -564,11 +602,15 @@ function DiscoverPage() {
                       onOpen={openTitle}
                       onRemove={handleRemove}
                       onDismiss={handleDismiss}
+                      providersById={providersById ?? undefined}
                     />
                   </div>
                 )
               })
             })()}
+            {providersById && suggestions.length > 0 && !suggestionsLoading && (
+              <JustWatchAttribution />
+            )}
           </>
         )}
       </section>

@@ -36,9 +36,11 @@ import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
+import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.repository.UserRepository;
 import com.wewatch.api.repository.WatchlistEntryRepository;
 import com.wewatch.api.repository.WatchlistMemberRepository;
 import com.wewatch.api.tmdb.TmdbClient;
@@ -106,6 +108,12 @@ public class SuggestionService {
 	// any single genre weight — but proportional jitter (#267) scales with it, so
 	// it biases rather than pins the ranking.
 	private static final double PERSON_MATCH_WEIGHT = 3.0;
+	// Streamability boost (#270) for candidates on feeds that can't take TMDB's
+	// provider filter (recommendations/similar/pooled). Below the person weight
+	// (availability is orthogonal to taste and shouldn't outrank the strongest
+	// taste signal) but above a keyword: a suggestion the user can actually
+	// press play on beats a marginally better-matched one they can't.
+	private static final double STREAMABLE_BOOST = 2.5;
 	private static final int MAX_PEOPLE = 5;
 	// One appearance is just a cast list; recurring across the user's titles is
 	// the "you keep watching this person" signal the shelf label claims
@@ -132,6 +140,7 @@ public class SuggestionService {
 
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
+	private final UserRepository userRepository;
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
@@ -147,6 +156,7 @@ public class SuggestionService {
 	public SuggestionService(
 		WatchlistEntryRepository watchlistEntryRepository,
 		WatchlistMemberRepository watchlistMemberRepository,
+		UserRepository userRepository,
 		TitleService titleService,
 		TmdbClient tmdbClient,
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
@@ -158,6 +168,7 @@ public class SuggestionService {
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.watchlistMemberRepository = watchlistMemberRepository;
+		this.userRepository = userRepository;
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
@@ -224,6 +235,12 @@ public class SuggestionService {
 		// here too. For a personal list this is just the single owner.
 		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
 
+		// Watch-provider context (#270): which streaming services this shelf set
+		// may assume, and in which region. Union across members with a settings
+		// bearing on it; disabled entirely when regions conflict or nobody has
+		// configured services — behavior is then exactly the pre-#270 one.
+		ProviderContext providerCtx = providerContext(memberUserIds);
+
 		// "Not interested" dismissals (#268) are a hard exclusion, not a penalty:
 		// seeding the dedup set keeps a dismissed title out of every shelf kind at
 		// the one point they all flow through. Union of members, like the recency
@@ -275,7 +292,7 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, rng);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
@@ -308,7 +325,7 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, rng);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
@@ -328,7 +345,7 @@ public class SuggestionService {
 		// pool — a handful of full shelves plus one aggregate instead of a row of
 		// 3–4 tile stubs
 		if (!pooledLeftovers.isEmpty()) {
-			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, personIdProfile, rng);
+			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
 			List<TitleSearchResponse> shelf = fillShelf(pooled, seen, recencyWeights, true);
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				shelves.add(new SuggestionShelfResponse("More picks for you", shelf, SuggestionShelfResponse.ShelfKind.MORE_PICKS));
@@ -366,13 +383,16 @@ public class SuggestionService {
 			String label = type == TitleType.TV ? "More like your shows" : "More like your movies";
 			int discoverPage = 1 + rng.nextInt(MAX_DISCOVER_FETCH_PAGE);
 			try {
+				// Discover takes TMDB's provider filter directly (#270): with a
+				// provider context, everything on this shelf is streamable on the
+				// members' services
 				List<TitleSearchResponse> discovered = fetchPageWithFallback(
 					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
-						SORT_POPULARITY, null, null, p), discoverPage);
+						SORT_POPULARITY, null, null, providerCtx.region(), providerCtx.providerIdList(), p), discoverPage);
 				// No genre diversification (#265): this feed is filtered to topGenres
 				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, recencyWeights, false);
 				if (shelf.size() >= MIN_SHELF_SIZE) {
-					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE));
+					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE, providerCtx.enabled()));
 				}
 			} catch (TmdbApiException e) {
 				log.warn("Discover failed for {} genres {}: {}", type, topGenres, e.getMessage());
@@ -396,24 +416,108 @@ public class SuggestionService {
 		int explorationCount = 0;
 		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
 			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, seen, recencyWeights, rng);
+			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, providerCtx, seen, recencyWeights, rng);
 			if (shelf != null) {
 				shelves.add(shelf);
 				explorationCount++;
 			}
 		}
 
+		// Availability badges (#270): annotate served titles with which of the
+		// members' services carry them, from cached provider data
+		List<SuggestionShelfResponse> badged = attachProviderBadges(shelves, providerCtx);
+
 		// Record everything we're about to serve so tomorrow's compute penalizes it
 		// (#264). Re-served titles are recorded too — safe under a continuous penalty,
 		// they just start sinking again, where the binary window needed re-records
 		// excluded to keep top-ups from being trapped forever (#246).
-		Set<String> shownIds = shelves.stream()
+		Set<String> shownIds = badged.stream()
 			.flatMap(s -> s.titles().stream())
 			.map(TitleSearchResponse::externalId)
 			.collect(Collectors.toSet());
 		suggestionImpressionService.recordShown(memberUserIds, shownIds);
 
-		return shelves;
+		return badged;
+	}
+
+	// The provider context a shelf set answers to (#270): the union of member
+	// services, valid only when every configured member agrees on a region.
+	// Availability is region-scoped, and TMDB's discover filter takes exactly
+	// one watch_region — with members in different regions there is no single
+	// truthful answer, so provider-awareness turns off for that list (documented
+	// shared-list simplification; per-member shelves would be the real fix).
+	private record ProviderContext(String region, Set<Integer> providerIds) {
+		static final ProviderContext DISABLED = new ProviderContext(null, Set.of());
+
+		boolean enabled() {
+			return region != null && !providerIds.isEmpty();
+		}
+
+		// Discover wants a list (ordered, joinable); null when disabled so the
+		// TMDB client skips the filter entirely
+		List<Integer> providerIdList() {
+			return enabled() ? List.copyOf(providerIds) : null;
+		}
+	}
+
+	private ProviderContext providerContext(List<Long> memberUserIds) {
+		List<User> configured = userRepository.findAllById(memberUserIds).stream()
+			.filter(u -> u.getWatchRegion() != null
+				&& u.getWatchProviderIds() != null && !u.getWatchProviderIds().isEmpty())
+			.toList();
+		if (configured.isEmpty()) return ProviderContext.DISABLED;
+
+		Set<String> regions = configured.stream().map(User::getWatchRegion).collect(Collectors.toSet());
+		if (regions.size() > 1) return ProviderContext.DISABLED;
+
+		Set<Integer> union = configured.stream()
+			.flatMap(u -> u.getWatchProviderIds().stream())
+			.collect(Collectors.toSet());
+		return new ProviderContext(regions.iterator().next(), union);
+	}
+
+	// Rewrites served titles with the intersection of their cached flatrate
+	// providers (context region) and the members' services (#270). One batch
+	// cache read for all shelves. Coverage is partial by design — candidates
+	// without a tmdb_title_cache row keep a null providerIds ("unknown"), the
+	// same tradeoff as the keyword/person boosts; the title detail page fills
+	// the gap with live data.
+	private List<SuggestionShelfResponse> attachProviderBadges(List<SuggestionShelfResponse> shelves, ProviderContext ctx) {
+		if (!ctx.enabled() || shelves.isEmpty()) return shelves;
+
+		List<String> ids = shelves.stream()
+			.flatMap(s -> s.titles().stream())
+			.map(TitleSearchResponse::externalId)
+			.distinct()
+			.toList();
+		Map<String, List<Integer>> badgesById = new HashMap<>();
+		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
+			List<Integer> mine = streamableOn(cached, ctx);
+			if (!mine.isEmpty()) badgesById.put(cached.getTmdbId(), mine);
+		}
+		if (badgesById.isEmpty()) return shelves;
+
+		return shelves.stream()
+			.map(s -> new SuggestionShelfResponse(
+				s.reason(),
+				s.titles().stream()
+					.map(t -> badgesById.containsKey(t.externalId())
+						? new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),
+							t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), badgesById.get(t.externalId()))
+						: t)
+					.toList(),
+				s.kind(),
+				s.providerFiltered()))
+			.toList();
+	}
+
+	// The members' services carrying this cached title in the context region;
+	// empty when unknown (no cache row data) or streamable nowhere relevant
+	private List<Integer> streamableOn(TmdbTitleCache cached, ProviderContext ctx) {
+		Map<String, List<Integer>> providers = cached.getWatchProviders();
+		List<Integer> regionIds = providers != null ? providers.get(ctx.region()) : null;
+		if (regionIds == null) return List.of();
+		return regionIds.stream().filter(ctx.providerIds()::contains).toList();
 	}
 
 	// Exploration shelves (#235) trade similarity for discovery: recent releases,
@@ -426,6 +530,7 @@ public class SuggestionService {
 		List<Integer> topGenres,
 		Map<Integer, Double> genreProfile,
 		List<PersonAffinity> personProfile,
+		ProviderContext providerCtx,
 		Set<String> seen,
 		Map<String, Double> recencyWeights,
 		Random rng
@@ -436,6 +541,11 @@ public class SuggestionService {
 		// kind either way, so daily reproducibility (#231/#248) is preserved.
 		List<TitleSearchResponse> candidates;
 		String label;
+		// Discover-backed kinds take TMDB's provider filter (#270); trending and
+		// person feeds don't support it and stay unfiltered
+		boolean providerFiltered = providerCtx.enabled()
+			&& (kind == SuggestionShelfResponse.ShelfKind.NEW_RELEASES
+				|| kind == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
 		try {
 			switch (kind) {
 				case NEW_RELEASES -> {
@@ -444,7 +554,8 @@ public class SuggestionService {
 					LocalDate today = LocalDate.now(clock);
 					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
 						type, topGenres, List.of(), NEW_RELEASE_VOTE_COUNT_GTE,
-						SORT_POPULARITY, today.minusDays(NEW_RELEASE_WINDOW_DAYS), today, p), page);
+						SORT_POPULARITY, today.minusDays(NEW_RELEASE_WINDOW_DAYS), today,
+						providerCtx.region(), providerCtx.providerIdList(), p), page);
 					label = "New in your genres";
 				}
 				case HIDDEN_GEMS -> {
@@ -453,7 +564,8 @@ public class SuggestionService {
 						+ rng.nextInt(HIDDEN_GEM_MAX_FETCH_PAGE - HIDDEN_GEM_MIN_FETCH_PAGE + 1);
 					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
 						type, topGenres, List.of(), HIDDEN_GEM_VOTE_COUNT_GTE,
-						SORT_VOTE_AVERAGE, null, null, p), page);
+						SORT_VOTE_AVERAGE, null, null,
+						providerCtx.region(), providerCtx.providerIdList(), p), page);
 					label = "Hidden gems";
 				}
 				case PERSON -> {
@@ -496,7 +608,7 @@ public class SuggestionService {
 		// same-genre run of their films is the point, not a lack of variety.
 		boolean diversify = kind == SuggestionShelfResponse.ShelfKind.TRENDING;
 		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, diversify);
-		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind) : null;
+		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind, providerFiltered) : null;
 	}
 
 	// Exploration shelves are built once per compute, for the medium the list
@@ -537,8 +649,10 @@ public class SuggestionService {
 	}
 
 	// Fetch candidates from recommendations + similar top-up, then score by genre
-	// affinity plus a boost per shared keyword and per shared person (#269)
-	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, Random rng) {
+	// affinity plus a boost per shared keyword and per shared person (#269).
+	// These endpoints take no provider filter, so streamability enters as a
+	// score boost instead (#270).
+	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx, Random rng) {
 		// One page draw per seed, shared by recommendations and similar, so RNG
 		// consumption doesn't depend on how many results TMDB happens to return
 		int page = 1 + rng.nextInt(MAX_SEED_FETCH_PAGE);
@@ -555,7 +669,7 @@ public class SuggestionService {
 				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
 			}
 		}
-		return rankByTasteProfile(results, genreProfile, keywordProfile, personProfile, rng);
+		return rankByTasteProfile(results, genreProfile, keywordProfile, personProfile, providerCtx, rng);
 	}
 
 	// Dedupe by externalId, then sort by taste-profile score: genre affinity plus
@@ -565,13 +679,13 @@ public class SuggestionService {
 	// of a shelf every single day. Applied even with no genre/keyword signal, where
 	// the floor amplitude degrades the sort to a stable-per-day random order. Also
 	// ranks the pooled catch-all shelf (#266).
-	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, Random rng) {
+	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx, Random rng) {
 		Set<String> seen = new HashSet<>();
 		List<TitleSearchResponse> deduped = results.stream()
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		Map<String, Double> cacheBoosts = cacheSignalBoosts(deduped, keywordProfile, personProfile);
+		Map<String, Double> cacheBoosts = cacheSignalBoosts(deduped, keywordProfile, personProfile, providerCtx);
 		ToDoubleFunction<TitleSearchResponse> baseScore = r ->
 			genreScore(r, genreProfile) + cacheBoosts.getOrDefault(r.externalId(), 0.0);
 		Map<String, Double> jitter = jitterByCandidate(deduped, baseScore, rng);
@@ -622,12 +736,13 @@ public class SuggestionService {
 		return jitter;
 	}
 
-	// TMDB recommendations/similar responses carry no keywords or credits, so both
-	// the keyword and person boosts (#269) come from tmdb_title_cache in one batch
-	// read: candidates without a cache row get neither — a partial signal, but one
-	// DB read instead of a TMDB call per candidate
-	private Map<String, Double> cacheSignalBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile, Set<Integer> personProfile) {
-		if ((keywordProfile.isEmpty() && personProfile.isEmpty()) || candidates.isEmpty()) return Map.of();
+	// TMDB recommendations/similar responses carry no keywords, credits, or
+	// provider data, so the keyword (#232), person (#269), and streamability
+	// (#270) boosts all come from tmdb_title_cache in one batch read: candidates
+	// without a cache row get none — a partial signal, but one DB read instead
+	// of a TMDB call per candidate
+	private Map<String, Double> cacheSignalBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx) {
+		if ((keywordProfile.isEmpty() && personProfile.isEmpty() && !providerCtx.enabled()) || candidates.isEmpty()) return Map.of();
 		List<String> ids = candidates.stream().map(TitleSearchResponse::externalId).toList();
 		Map<String, Double> boosts = new HashMap<>();
 		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
@@ -640,6 +755,11 @@ public class SuggestionService {
 			// title is one shared person, not two
 			boost += PERSON_MATCH_WEIGHT
 				* cachedPersonIds(cached).stream().filter(personProfile::contains).count();
+			// Flat, not per-service (#270): being on two of the user's services
+			// doesn't make a title more watchable than being on one
+			if (providerCtx.enabled() && !streamableOn(cached, providerCtx).isEmpty()) {
+				boost += STREAMABLE_BOOST;
+			}
 			if (boost > 0) boosts.put(cached.getTmdbId(), boost);
 		}
 		return boosts;

@@ -123,6 +123,46 @@ class UserServiceTest {
 	}
 
 	@Test
+	void updateStreamingSettingsAppliesProvidedFieldsOnly() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.EPOCH, Instant.EPOCH);
+		existing.setWatchProviderIds(java.util.List.of(8));
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		// Region only: provider ids stay as they were (#270)
+		User updated = service.updateStreamingSettings(1L, "US", null);
+
+		assertThat(updated.getWatchRegion()).isEqualTo("US");
+		assertThat(updated.getWatchProviderIds()).containsExactly(8);
+		verify(repository).save(existing);
+	}
+
+	@Test
+	void updateStreamingSettingsClearsProvidersWithAnEmptyList() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.EPOCH, Instant.EPOCH);
+		existing.setWatchRegion("US");
+		existing.setWatchProviderIds(java.util.List.of(8, 9));
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		// Empty list = explicit clear — turns provider-aware behavior off (#270)
+		User updated = service.updateStreamingSettings(1L, null, java.util.List.of());
+
+		assertThat(updated.getWatchRegion()).isEqualTo("US");
+		assertThat(updated.getWatchProviderIds()).isEmpty();
+	}
+
+	@Test
 	void updateRejectsMissingUser() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);

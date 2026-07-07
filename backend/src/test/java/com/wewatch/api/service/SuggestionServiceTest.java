@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.intThat;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -45,9 +46,11 @@ import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
+import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.repository.UserRepository;
 import com.wewatch.api.repository.WatchlistEntryRepository;
 import com.wewatch.api.repository.WatchlistMemberRepository;
 import com.wewatch.api.tmdb.TmdbClient;
@@ -57,6 +60,7 @@ class SuggestionServiceTest {
 
 	@Mock private WatchlistEntryRepository watchlistEntryRepository;
 	@Mock private WatchlistMemberRepository watchlistMemberRepository;
+	@Mock private UserRepository userRepository;
 	@Mock private TitleService titleService;
 	@Mock private TmdbClient tmdbClient;
 	@Mock private TmdbTitleCacheRepository tmdbTitleCacheRepository;
@@ -71,7 +75,7 @@ class SuggestionServiceTest {
 
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
-			watchlistEntryRepository, watchlistMemberRepository, titleService, tmdbClient,
+			watchlistEntryRepository, watchlistMemberRepository, userRepository, titleService, tmdbClient,
 			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
 			Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
 	}
@@ -690,7 +694,7 @@ class SuggestionServiceTest {
 		// Only the new-release discover variant yields candidates, so whatever
 		// order the day's rotation tries the exploration kinds, this shelf fills.
 		// lenient: other discover variants hit this method with non-matching args
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(20), eq("popularity.desc"), notNull(), notNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(20), eq("popularity.desc"), notNull(), notNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("nr-" + i)).toList());
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
@@ -701,7 +705,7 @@ class SuggestionServiceTest {
 		});
 		// The window is the 60 days ending "today" on the fixed clock
 		verify(tmdbClient, atLeastOnce()).discover(eq(TitleType.TV), eq(List.of(99)), eq(List.of()), eq(20),
-			eq("popularity.desc"), eq(LocalDate.of(2026, 5, 4)), eq(LocalDate.of(2026, 7, 3)), anyInt());
+			eq("popularity.desc"), eq(LocalDate.of(2026, 5, 4)), eq(LocalDate.of(2026, 7, 3)), isNull(), isNull(), anyInt());
 	}
 
 	@Test
@@ -710,7 +714,7 @@ class SuggestionServiceTest {
 		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
 			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
 		// lenient: other discover variants hit this method with non-matching args
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
@@ -749,7 +753,7 @@ class SuggestionServiceTest {
 		// Every exploration source is rich: whichever two kinds the day's
 		// rotation tries first fill, and the third is never fetched
 		AtomicInteger batch = new AtomicInteger();
-		when(tmdbClient.discover(any(), any(), any(), anyInt(), anyString(), any(), any(), anyInt()))
+		when(tmdbClient.discover(any(), any(), any(), anyInt(), anyString(), any(), any(), any(), any(), anyInt()))
 			.thenAnswer(inv -> {
 				int b = batch.incrementAndGet();
 				return IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("d" + b + "-" + i)).toList();
@@ -778,7 +782,7 @@ class SuggestionServiceTest {
 		// Genre-profile discover is the vote-floor-100 popularity.desc variant with no
 		// release window (#249: deepened from a 3-page to a 6-page draw range)
 		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
 
 		for (int d = 0; d < 40; d++) {
@@ -787,7 +791,7 @@ class SuggestionServiceTest {
 
 		ArgumentCaptor<Integer> page = ArgumentCaptor.forClass(Integer.class);
 		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(100), eq("popularity.desc"),
-			isNull(), isNull(), page.capture());
+			isNull(), isNull(), isNull(), isNull(), page.capture());
 		assertThat(page.getAllValues()).allSatisfy(p -> assertThat(p).isBetween(1, 6));
 		// Across days the draw reaches past the old 3-page ceiling
 		assertThat(page.getAllValues()).anyMatch(p -> p > 3);
@@ -798,7 +802,7 @@ class SuggestionServiceTest {
 		// Only the hidden-gems discover variant fills, so the exploration rotation
 		// always reaches it and exercises its page draw every day (#249)
 		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
 
 		for (int d = 0; d < 40; d++) {
@@ -807,7 +811,7 @@ class SuggestionServiceTest {
 
 		ArgumentCaptor<Integer> page = ArgumentCaptor.forClass(Integer.class);
 		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
-			isNull(), isNull(), page.capture());
+			isNull(), isNull(), isNull(), isNull(), page.capture());
 		// Every draw lands in the mid-deep band [4, 18] — never the static top-rated
 		// head (pages 1–3) that is identical for everyone with the same genre profile
 		assertThat(page.getAllValues()).allSatisfy(p -> assertThat(p).isBetween(4, 18));
@@ -822,7 +826,7 @@ class SuggestionServiceTest {
 		// so a full page shares one genre; exempt from the cluster cap (#265), the
 		// shelf fills to MAX_SHELF_SIZE instead of being chopped to ~4
 		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("gp-" + i, List.of(99))).toList());
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
@@ -837,7 +841,7 @@ class SuggestionServiceTest {
 		// Hidden gems is discover-backed (genre-filtered → exempt, #265) while
 		// trending carries a real genre mix and stays diversified
 		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), anyInt()))
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("gem-" + i, List.of(99))).toList());
 		lenient().when(tmdbClient.getTrending(any(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("t-" + i, List.of(99))).toList());
@@ -1090,6 +1094,152 @@ class SuggestionServiceTest {
 		when(titleService.findByIds(any())).thenReturn(titles);
 		stubCacheRows(IntStream.rangeClosed(1, 5).boxed()
 			.collect(Collectors.toMap(i -> "ext" + i, i -> cacheRow("ext" + i, List.of(99), null))));
+	}
+
+	// ── Watch-provider awareness (#270) ───────────────────────
+
+	@Test
+	void discoverShelvesAreProviderFilteredWhenMembersShareARegion() {
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		// Two members, same region, overlapping services — the filter carries
+		// the union of provider ids
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, "US", List.of(8, 9)),
+			providerUser(8L, "US", List.of(8, 337))));
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+				isNull(), isNull(), eq("US"), any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.GENRE_PROFILE);
+			assertThat(shelf.providerFiltered()).isTrue();
+		});
+		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+			isNull(), isNull(), eq("US"),
+			argThat((List<Integer> ids) -> ids != null && new HashSet<>(ids).equals(Set.of(8, 9, 337))),
+			anyInt());
+	}
+
+	@Test
+	void conflictingMemberRegionsDisableProviderAwareness() {
+		// Availability is region-scoped and discover takes one watch_region:
+		// members in different regions have no single truthful answer, so the
+		// list falls back to provider-blind behavior (#270)
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, "US", List.of(8)),
+			providerUser(8L, "GB", List.of(8))));
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+				isNull(), isNull(), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.GENRE_PROFILE);
+			assertThat(shelf.providerFiltered()).isFalse();
+		});
+		verify(tmdbClient, never()).discover(any(), any(), any(), anyInt(), anyString(),
+			any(), any(), notNull(), notNull(), anyInt());
+	}
+
+	@Test
+	void streamableCandidateOutranksAnOtherwiseEqualOne() {
+		// Recommendations take no provider filter, so streamability enters as a
+		// score boost (#270): 2.5 clears the jitter floor (±0.25 signal-less,
+		// ±0.375 for the boosted candidate) on every day
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(List.of(7L));
+		when(userRepository.findAllById(List.of(7L)))
+			.thenReturn(List.of(providerUser(7L, "US", List.of(8))));
+		stubCacheRows(Map.of("rec-stream", providerRow("rec-stream", Map.of("US", List.of(8)))));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(candidate("rec-plain"));
+		candidates.add(candidate("rec-stream"));
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PER_SEED);
+			assertThat(shelf.titles().get(0).externalId()).isEqualTo("rec-stream");
+		});
+	}
+
+	@Test
+	void servedTitlesCarryProviderBadgesIntersectedWithMemberServices() {
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(List.of(7L));
+		when(userRepository.findAllById(List.of(7L)))
+			.thenReturn(List.of(providerUser(7L, "US", List.of(8))));
+		// Streamable on service 8 (the user's) and 99 (not theirs); the badge
+		// carries only the intersection (#270)
+		stubCacheRows(Map.of("rec-stream", providerRow("rec-stream", Map.of("US", List.of(8, 99)))));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(candidate("rec-stream"));
+		IntStream.rangeClosed(1, 11).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		TitleSearchResponse streamable = shelves.stream()
+			.flatMap(s -> s.titles().stream())
+			.filter(t -> t.externalId().equals("rec-stream"))
+			.findFirst().orElseThrow();
+		assertThat(streamable.providerIds()).containsExactly(8);
+		// Titles without cached provider data keep a null ("unknown") badge
+		TitleSearchResponse plain = shelves.stream()
+			.flatMap(s -> s.titles().stream())
+			.filter(t -> t.externalId().startsWith("rec-filler"))
+			.findFirst().orElseThrow();
+		assertThat(plain.providerIds()).isNull();
+	}
+
+	@Test
+	void membersWithoutProviderSettingsLeaveShelvesUnchanged() {
+		// Acceptance criterion (#270): nothing configured → identical behavior,
+		// no provider filter, no badges
+		stubPopulatedWatchlist();
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, null, null),
+			providerUser(8L, "US", List.of())));
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).isNotEmpty();
+		assertThat(shelves).allSatisfy(shelf -> {
+			assertThat(shelf.providerFiltered()).isFalse();
+			assertThat(shelf.titles()).allSatisfy(t -> assertThat(t.providerIds()).isNull());
+		});
+	}
+
+	private User providerUser(long id, String watchRegion, List<Integer> watchProviderIds) {
+		User u = new User();
+		u.setId(id);
+		u.setWatchRegion(watchRegion);
+		u.setWatchProviderIds(watchProviderIds);
+		return u;
+	}
+
+	private TmdbTitleCache providerRow(String tmdbId, Map<String, List<Integer>> watchProviders) {
+		TmdbTitleCache c = cacheRow(tmdbId, null, null);
+		c.setWatchProviders(watchProviders);
+		return c;
 	}
 
 	private WatchlistEntry entry(long id, String externalId) {

@@ -1,8 +1,10 @@
 package com.wewatch.api.model;
 
 import java.time.Instant;
+import java.util.List;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -54,6 +56,17 @@ public class User {
 
 	@Column(name = "password_hash", length = 255)
 	private String passwordHash;
+
+	// Watch-provider settings (#270): the TMDB watch region (ISO 3166-1 alpha-2)
+	// and the TMDB provider ids of the streaming services this user subscribes
+	// to. Both null/empty until the user configures them — provider-aware
+	// behavior is entirely opt-in.
+	@Column(name = "watch_region", length = 2)
+	private String watchRegion;
+
+	@Convert(converter = IntegerListConverter.class)
+	@Column(name = "watch_provider_ids", length = 500)
+	private List<Integer> watchProviderIds;
 
 	public User() {
 	}
@@ -138,5 +151,21 @@ public class User {
 
 	public void setPasswordHash(String passwordHash) {
 		this.passwordHash = passwordHash;
+	}
+
+	public String getWatchRegion() {
+		return watchRegion;
+	}
+
+	public void setWatchRegion(String watchRegion) {
+		this.watchRegion = watchRegion;
+	}
+
+	public List<Integer> getWatchProviderIds() {
+		return watchProviderIds;
+	}
+
+	public void setWatchProviderIds(List<Integer> watchProviderIds) {
+		this.watchProviderIds = watchProviderIds;
 	}
 }

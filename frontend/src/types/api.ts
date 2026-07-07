@@ -11,6 +11,23 @@ export interface TitleSearchResponse {
   overview: string | null
   releaseDate: string | null
   posterUrl: string | null
+  // Which of the viewer's streaming services carry this title (#270); only
+  // populated on suggestion shelves, null/undefined elsewhere (= unknown)
+  providerIds?: number[] | null
+}
+
+// ── Watch providers (#270) ─────────────────────────────────
+
+export interface WatchProvider {
+  id: number
+  name: string
+  logoUrl: string | null
+  displayPriority: number
+}
+
+export interface WatchRegion {
+  code: string
+  name: string
 }
 
 export interface TitleResponse {
@@ -113,6 +130,9 @@ export interface TitleDetailResponse {
   voteCount: number | null
   seasonCount: number | null
   seasons: SeasonSummary[] | null
+  // Where the title streams (flatrate) in the caller's watch region (#270)
+  watchRegion: string | null
+  watchProviders: WatchProvider[] | null
 }
 
 export type ShelfKind =
@@ -129,6 +149,9 @@ export interface SuggestionShelf {
   reason: string
   titles: TitleSearchResponse[]
   kind: ShelfKind
+  // true when the shelf's feed was restricted to the viewer's streaming
+  // services (#270) — every title on it is streamable
+  providerFiltered: boolean
 }
 
 export interface EpisodeProgress {

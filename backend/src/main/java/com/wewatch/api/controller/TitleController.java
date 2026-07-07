@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,22 +22,27 @@ import com.wewatch.api.dto.TitleDetailResponse;
 import com.wewatch.api.dto.TitleResolveRequest;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.dto.WatchProviderResponse;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.User;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
+import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvSeason;
+import com.wewatch.api.tmdb.TmdbWatchProviders;
 
 @RestController
 @RequestMapping("/api/titles")
 public class TitleController {
 
 	private static final String TMDB_SOURCE = "TMDB";
+	private static final String DEFAULT_WATCH_REGION = "US";
 
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
@@ -63,8 +69,14 @@ public class TitleController {
 	public TitleDetailResponse getTitleDetail(
 		@RequestParam String externalId,
 		@RequestParam String externalSource,
-		@RequestParam TitleType type
+		@RequestParam TitleType type,
+		@AuthenticationPrincipal User caller
 	) {
+		// Providers ride the same TMDB detail call (#270), resolved for the
+		// caller's watch region (US default — availability is region-scoped and
+		// the page needs some region before the user configures one)
+		String watchRegion = caller.getWatchRegion() != null ? caller.getWatchRegion() : DEFAULT_WATCH_REGION;
+
 		if (type == TitleType.MOVIE) {
 			TmdbMovieDetail detail = tmdbClient.getMovieDetail(externalId);
 			return new TitleDetailResponse(
@@ -80,7 +92,9 @@ public class TitleController {
 				detail.voteAverage(),
 				detail.voteCount(),
 				null,
-				null
+				null,
+				watchRegion,
+				flatrateProviders(detail.watchProviders(), watchRegion)
 			);
 		}
 
@@ -109,12 +123,30 @@ public class TitleController {
 			detail.voteAverage(),
 			detail.voteCount(),
 			seasons.size(),
-			seasons
+			seasons,
+			watchRegion,
+			flatrateProviders(detail.watchProviders(), watchRegion)
 		);
 	}
 
 	private List<String> genreNames(List<TmdbGenre> genres) {
 		return genres != null ? genres.stream().map(TmdbGenre::name).toList() : List.of();
+	}
+
+	// Flatrate (subscription) offers only, matching the suggestion pipeline's
+	// definition of "streamable" (#270)
+	private List<WatchProviderResponse> flatrateProviders(TmdbWatchProviders providers, String region) {
+		TmdbRegionWatchProviders offers = providers != null && providers.results() != null
+			? providers.results().get(region)
+			: null;
+		if (offers == null || offers.flatrate() == null) return List.of();
+		return offers.flatrate().stream()
+			.map(p -> new WatchProviderResponse(
+				p.providerId(),
+				p.providerName(),
+				TmdbClient.providerLogoUrl(p.logoPath()),
+				p.displayPriority() != null ? p.displayPriority() : Integer.MAX_VALUE))
+			.toList();
 	}
 
 	@PostMapping("/resolve")

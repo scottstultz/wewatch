@@ -46,9 +46,12 @@ import com.wewatch.api.service.UserService;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
+import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
+import com.wewatch.api.tmdb.TmdbWatchProvider;
+import com.wewatch.api.tmdb.TmdbWatchProviders;
 
 @WebMvcTest(TitleController.class)
 @Import(SecurityConfig.class)
@@ -146,7 +149,7 @@ class TitleControllerTest {
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action")),
-			8.2, 25000, null
+			8.2, 25000, null, null
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -189,7 +192,7 @@ class TitleControllerTest {
 			List.of(),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
-			8.4, 21000, null
+			8.4, 21000, null, null
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -630,7 +633,7 @@ class TitleControllerTest {
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
-			8.2, 25000, null
+			8.2, 25000, null, null
 		));
 
 		mockMvc.perform(get("/api/titles/detail")
@@ -658,6 +661,58 @@ class TitleControllerTest {
 	}
 
 	@Test
+	void getTitleDetailIncludesWatchProvidersForTheDefaultRegion() throws Exception {
+		// The caller has no watch region configured — providers resolve for US (#270)
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", null, null, "Released", "1999-03-31",
+			List.of(), 8.2, 25000, null,
+			new TmdbWatchProviders(java.util.Map.of(
+				"US", new TmdbRegionWatchProviders(List.of(
+					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
+				"GB", new TmdbRegionWatchProviders(List.of(
+					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
+		));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.watchRegion").value("US"))
+			.andExpect(jsonPath("$.watchProviders.length()").value(1))
+			.andExpect(jsonPath("$.watchProviders[0].id").value(8))
+			.andExpect(jsonPath("$.watchProviders[0].name").value("Netflix"))
+			.andExpect(jsonPath("$.watchProviders[0].logoUrl").value("https://image.tmdb.org/t/p/w92/n.jpg"));
+	}
+
+	@Test
+	void getTitleDetailUsesTheCallersWatchRegion() throws Exception {
+		User gbUser = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH, "google", "sub-123");
+		gbUser.setWatchRegion("GB");
+		when(userService.findById(1L)).thenReturn(gbUser);
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", null, null, "Released", "1999-03-31",
+			List.of(), 8.2, 25000, null,
+			new TmdbWatchProviders(java.util.Map.of(
+				"US", new TmdbRegionWatchProviders(List.of(
+					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
+				"GB", new TmdbRegionWatchProviders(List.of(
+					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
+		));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.watchRegion").value("GB"))
+			.andExpect(jsonPath("$.watchProviders.length()").value(1))
+			.andExpect(jsonPath("$.watchProviders[0].name").value("Prime Video"));
+	}
+
+	@Test
 	void getTitleDetailReturnsTvDetailExcludingSpecials() throws Exception {
 		when(tmdbClient.getTvDetail("1399")).thenReturn(new TmdbTvDetail(
 			1399, 2, "Ended", "2011-04-17",
@@ -668,7 +723,7 @@ class TitleControllerTest {
 			),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
-			8.4, 21000, null
+			8.4, 21000, null, null
 		));
 
 		mockMvc.perform(get("/api/titles/detail")
