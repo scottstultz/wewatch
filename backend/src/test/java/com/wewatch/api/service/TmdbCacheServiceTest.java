@@ -23,13 +23,17 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbCredits;
+import com.wewatch.api.tmdb.TmdbCrewMember;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
@@ -64,7 +68,7 @@ class TmdbCacheServiceTest {
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
 			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
-			"Game of Thrones", null, null, List.of(), null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -82,7 +86,7 @@ class TmdbCacheServiceTest {
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
 		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
-		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null);
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);
@@ -128,7 +132,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of(), null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -147,6 +151,63 @@ class TmdbCacheServiceTest {
 		assertThat(result).hasSize(1);
 		assertThat(result.get(0).seasonNumber()).isEqualTo(1);
 		verifyNoInteractions(tmdbClient);
+	}
+
+	// ── credits caching (#269) ───────────────────────────────
+
+	@Test
+	void upsertStoresTopBilledCastAndDirectorsFromCredits() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		TmdbCredits credits = new TmdbCredits(
+			List.of(
+				new TmdbCastMember(6L, "Sixth Billed", 5),
+				new TmdbCastMember(1L, "Lead", 0),
+				new TmdbCastMember(2L, "Second", 1),
+				new TmdbCastMember(3L, "Third", 2),
+				new TmdbCastMember(4L, "Fourth", 3),
+				new TmdbCastMember(5L, "Fifth", 4)),
+			List.of(
+				new TmdbCrewMember(100L, "The Director", "Director"),
+				new TmdbCrewMember(101L, "The Producer", "Producer"),
+				new TmdbCrewMember(100L, "The Director", "Director")));
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
+			"Game of Thrones", null, null, List.of(), null, null, credits);
+		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
+
+		service.getSeasons(TMDB_ID);
+
+		ArgumentCaptor<TmdbTitleCache> captor = ArgumentCaptor.forClass(TmdbTitleCache.class);
+		verify(titleCacheRepository).save(captor.capture());
+		// Top five by billing order — out-of-order input is sorted, the sixth dropped
+		assertThat(captor.getValue().getTopCast()).containsExactly(
+			new CachedPerson(1, "Lead"), new CachedPerson(2, "Second"),
+			new CachedPerson(3, "Third"), new CachedPerson(4, "Fourth"),
+			new CachedPerson(5, "Fifth"));
+		// Director job only, duplicate directing credits collapsed to one person
+		assertThat(captor.getValue().getDirectors())
+			.containsExactly(new CachedPerson(100, "The Director"));
+	}
+
+	@Test
+	void nullCreditsBlockKeepsPreviouslyCachedPeople() {
+		TmdbTitleCache existing = new TmdbTitleCache();
+		existing.setTmdbId(TMDB_ID);
+		existing.setTopCast(List.of(new CachedPerson(1, "Lead")));
+		existing.setDirectors(List.of(new CachedPerson(100, "The Director")));
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
+			"Game of Thrones", null, null, List.of(), null, null, null);
+		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
+
+		service.getSeasons(TMDB_ID);
+
+		ArgumentCaptor<TmdbTitleCache> captor = ArgumentCaptor.forClass(TmdbTitleCache.class);
+		verify(titleCacheRepository).save(captor.capture());
+		// A TMDB response without the appended credits leaves the people signal alone
+		assertThat(captor.getValue().getTopCast()).containsExactly(new CachedPerson(1, "Lead"));
+		assertThat(captor.getValue().getDirectors()).containsExactly(new CachedPerson(100, "The Director"));
 	}
 
 	// ── getSeasonDetail ──────────────────────────────────────
@@ -209,7 +270,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1 (updated)", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of(), null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);

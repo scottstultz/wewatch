@@ -146,7 +146,7 @@ class TitleControllerTest {
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action")),
-			8.2, 25000
+			8.2, 25000, null
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -189,7 +189,7 @@ class TitleControllerTest {
 			List.of(),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
-			8.4, 21000
+			8.4, 21000, null
 		));
 		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
@@ -630,7 +630,7 @@ class TitleControllerTest {
 			603, "The Matrix", "A computer hacker learns the truth.", "/matrix.jpg",
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
-			8.2, 25000
+			8.2, 25000, null
 		));
 
 		mockMvc.perform(get("/api/titles/detail")
@@ -668,7 +668,7 @@ class TitleControllerTest {
 			),
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
-			8.4, 21000
+			8.4, 21000, null
 		));
 
 		mockMvc.perform(get("/api/titles/detail")

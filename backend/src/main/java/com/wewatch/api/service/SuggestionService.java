@@ -32,6 +32,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
+import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -100,6 +101,18 @@ public class SuggestionService {
 	// A shared keyword is a much stronger similarity signal than a shared genre,
 	// which only ever contributes profileWeight (1–2) per genre
 	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
+	// People-affinity signal (#269). A shared top-billed actor or director is the
+	// sharpest per-title signal in the profile — sharper than a keyword (2.0) and
+	// any single genre weight — but proportional jitter (#267) scales with it, so
+	// it biases rather than pins the ranking.
+	private static final double PERSON_MATCH_WEIGHT = 3.0;
+	private static final int MAX_PEOPLE = 5;
+	// One appearance is just a cast list; recurring across the user's titles is
+	// the "you keep watching this person" signal the shelf label claims
+	private static final int PERSON_MIN_TITLE_COUNT = 2;
+	// A filmography includes shorts and bit parts; a modest floor keeps the
+	// person shelf to titles a general audience has actually seen
+	private static final int PERSON_SHELF_VOTE_COUNT_GTE = 50;
 	// Day-seeded ± offset added to each candidate's score so ranking rotates daily
 	// beyond exact ties (#248). Proportional to the candidate's base score (#267):
 	// rotation reorders near-peers while a clearly dominant score (2× the runner-up)
@@ -196,6 +209,12 @@ public class SuggestionService {
 
 		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId);
 		Set<Integer> keywordProfile = buildKeywordProfile(cacheByTmdbId.values());
+		// Recurring cast/directors across the list (#269): ids boost candidate
+		// scores, names label the person-seeded exploration shelf
+		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values());
+		Set<Integer> personIdProfile = personProfile.stream()
+			.map(PersonAffinity::id)
+			.collect(Collectors.toSet());
 
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
@@ -256,7 +275,7 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
@@ -289,7 +308,7 @@ public class SuggestionService {
 			Title title = titlesById.get(seed.getTitleId());
 			if (title == null || title.getExternalId() == null) continue;
 
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
+			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
 			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
@@ -309,7 +328,7 @@ public class SuggestionService {
 		// pool — a handful of full shelves plus one aggregate instead of a row of
 		// 3–4 tile stubs
 		if (!pooledLeftovers.isEmpty()) {
-			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, rng);
+			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, personIdProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(pooled, seen, recencyWeights, true);
 			if (shelf.size() >= MIN_SHELF_SIZE) {
 				shelves.add(new SuggestionShelfResponse("More picks for you", shelf, SuggestionShelfResponse.ShelfKind.MORE_PICKS));
@@ -370,13 +389,14 @@ public class SuggestionService {
 		List<SuggestionShelfResponse.ShelfKind> explorationOrder = new ArrayList<>(List.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
 			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
-			SuggestionShelfResponse.ShelfKind.TRENDING));
+			SuggestionShelfResponse.ShelfKind.TRENDING,
+			SuggestionShelfResponse.ShelfKind.PERSON));
 		Collections.shuffle(explorationOrder, rng);
 
 		int explorationCount = 0;
 		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
 			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, seen, recencyWeights, rng);
+			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, seen, recencyWeights, rng);
 			if (shelf != null) {
 				shelves.add(shelf);
 				explorationCount++;
@@ -405,13 +425,15 @@ public class SuggestionService {
 		TitleType type,
 		List<Integer> topGenres,
 		Map<Integer, Double> genreProfile,
+		List<PersonAffinity> personProfile,
 		Set<String> seen,
 		Map<String, Double> recencyWeights,
 		Random rng
 	) {
 		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
-		// draws from a mid-deep band, trending stays shallow. Exactly one rng.nextInt
-		// per kind either way, so daily reproducibility (#231/#248) is preserved.
+		// draws from a mid-deep band, trending stays shallow, and PERSON spends its
+		// draw picking the person instead of a page. Exactly one rng.nextInt per
+		// kind either way, so daily reproducibility (#231/#248) is preserved.
 		List<TitleSearchResponse> candidates;
 		String label;
 		try {
@@ -433,6 +455,17 @@ public class SuggestionService {
 						type, topGenres, List.of(), HIDDEN_GEM_VOTE_COUNT_GTE,
 						SORT_VOTE_AVERAGE, null, null, p), page);
 					label = "Hidden gems";
+				}
+				case PERSON -> {
+					// Movie-only (TMDB's TV discover has no people filter) and always
+					// page 1 — a filmography is shallow; the daily rotation comes from
+					// which recurring person the rng draws, not from page depth (#269)
+					if (personProfile.isEmpty()) return null;
+					PersonAffinity person = personProfile.get(rng.nextInt(personProfile.size()));
+					candidates = tmdbClient.discoverByPerson(person.id(), PERSON_SHELF_VOTE_COUNT_GTE, 1);
+					label = person.director()
+						? "Directed by " + person.name()
+						: "More with " + person.name();
 				}
 				case TRENDING -> {
 					int page = 1 + rng.nextInt(MAX_TRENDING_FETCH_PAGE);
@@ -458,7 +491,9 @@ public class SuggestionService {
 		}
 
 		// Only trending carries a real genre mix worth diversifying; the discover-backed
-		// kinds are genre-filtered by construction and are exempt from the cap (#265)
+		// kinds are genre-filtered by construction and are exempt from the cap (#265).
+		// PERSON is exempt too: the person is the shelf's coherence axis, and a
+		// same-genre run of their films is the point, not a lack of variety.
 		boolean diversify = kind == SuggestionShelfResponse.ShelfKind.TRENDING;
 		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, diversify);
 		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind) : null;
@@ -502,8 +537,8 @@ public class SuggestionService {
 	}
 
 	// Fetch candidates from recommendations + similar top-up, then score by genre
-	// affinity plus a boost per shared keyword
-	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
+	// affinity plus a boost per shared keyword and per shared person (#269)
+	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, Random rng) {
 		// One page draw per seed, shared by recommendations and similar, so RNG
 		// consumption doesn't depend on how many results TMDB happens to return
 		int page = 1 + rng.nextInt(MAX_SEED_FETCH_PAGE);
@@ -520,7 +555,7 @@ public class SuggestionService {
 				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
 			}
 		}
-		return rankByTasteProfile(results, genreProfile, keywordProfile, rng);
+		return rankByTasteProfile(results, genreProfile, keywordProfile, personProfile, rng);
 	}
 
 	// Dedupe by externalId, then sort by taste-profile score: genre affinity plus
@@ -530,15 +565,15 @@ public class SuggestionService {
 	// of a shelf every single day. Applied even with no genre/keyword signal, where
 	// the floor amplitude degrades the sort to a stable-per-day random order. Also
 	// ranks the pooled catch-all shelf (#266).
-	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
+	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, Random rng) {
 		Set<String> seen = new HashSet<>();
 		List<TitleSearchResponse> deduped = results.stream()
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		Map<String, Double> keywordBoosts = keywordBoosts(deduped, keywordProfile);
+		Map<String, Double> cacheBoosts = cacheSignalBoosts(deduped, keywordProfile, personProfile);
 		ToDoubleFunction<TitleSearchResponse> baseScore = r ->
-			genreScore(r, genreProfile) + keywordBoosts.getOrDefault(r.externalId(), 0.0);
+			genreScore(r, genreProfile) + cacheBoosts.getOrDefault(r.externalId(), 0.0);
 		Map<String, Double> jitter = jitterByCandidate(deduped, baseScore, rng);
 
 		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
@@ -587,19 +622,34 @@ public class SuggestionService {
 		return jitter;
 	}
 
-	// TMDB recommendations/similar responses carry no keywords, so candidate keywords
-	// come from tmdb_title_cache: candidates without a cache row get no boost —
-	// a partial signal, but one batch DB read instead of a TMDB call per candidate
-	private Map<String, Double> keywordBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile) {
-		if (keywordProfile.isEmpty() || candidates.isEmpty()) return Map.of();
+	// TMDB recommendations/similar responses carry no keywords or credits, so both
+	// the keyword and person boosts (#269) come from tmdb_title_cache in one batch
+	// read: candidates without a cache row get neither — a partial signal, but one
+	// DB read instead of a TMDB call per candidate
+	private Map<String, Double> cacheSignalBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile, Set<Integer> personProfile) {
+		if ((keywordProfile.isEmpty() && personProfile.isEmpty()) || candidates.isEmpty()) return Map.of();
 		List<String> ids = candidates.stream().map(TitleSearchResponse::externalId).toList();
 		Map<String, Double> boosts = new HashMap<>();
 		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
-			if (cached.getKeywordIds() == null) continue;
-			long matches = cached.getKeywordIds().stream().filter(keywordProfile::contains).count();
-			if (matches > 0) boosts.put(cached.getTmdbId(), KEYWORD_MATCH_WEIGHT * matches);
+			double boost = 0.0;
+			if (cached.getKeywordIds() != null) {
+				boost += KEYWORD_MATCH_WEIGHT
+					* cached.getKeywordIds().stream().filter(keywordProfile::contains).count();
+			}
+			// Set-union of cast and director ids: acting in and directing the same
+			// title is one shared person, not two
+			boost += PERSON_MATCH_WEIGHT
+				* cachedPersonIds(cached).stream().filter(personProfile::contains).count();
+			if (boost > 0) boosts.put(cached.getTmdbId(), boost);
 		}
 		return boosts;
+	}
+
+	private Set<Integer> cachedPersonIds(TmdbTitleCache cached) {
+		Set<Integer> ids = new HashSet<>();
+		if (cached.getTopCast() != null) cached.getTopCast().forEach(p -> ids.add(p.id()));
+		if (cached.getDirectors() != null) cached.getDirectors().forEach(p -> ids.add(p.id()));
+		return ids;
 	}
 
 	// Deeper pages can be empty (few recommendations, thin discover results) — fall
@@ -667,6 +717,47 @@ public class SuggestionService {
 			}
 		}
 		return profile;
+	}
+
+	// A recurring person across the user's titles (#269). director flags which
+	// label the shelf gets ("Directed by" vs "More with") when the same person
+	// does both; titleCount drives the top-N cut like keyword frequency does.
+	private record PersonAffinity(int id, String name, int titleCount, boolean director) {}
+
+	// Frequency-weighted like the keyword profile, but floored at
+	// PERSON_MIN_TITLE_COUNT: keywords are meaningful once, a person only through
+	// recurrence. Ties break by id so the profile is stable across recomputes —
+	// the daily rng never touches profile construction (#231).
+	private List<PersonAffinity> buildPersonProfile(Collection<TmdbTitleCache> caches) {
+		Map<Integer, String> names = new HashMap<>();
+		Map<Integer, Integer> castCounts = new HashMap<>();
+		Map<Integer, Integer> directorCounts = new HashMap<>();
+		for (TmdbTitleCache c : caches) {
+			if (c.getTopCast() != null) {
+				for (CachedPerson p : c.getTopCast()) {
+					castCounts.merge(p.id(), 1, Integer::sum);
+					names.putIfAbsent(p.id(), p.name());
+				}
+			}
+			if (c.getDirectors() != null) {
+				for (CachedPerson p : c.getDirectors()) {
+					directorCounts.merge(p.id(), 1, Integer::sum);
+					names.putIfAbsent(p.id(), p.name());
+				}
+			}
+		}
+		return names.keySet().stream()
+			.map(id -> {
+				int cast = castCounts.getOrDefault(id, 0);
+				int directed = directorCounts.getOrDefault(id, 0);
+				return new PersonAffinity(id, names.get(id), cast + directed,
+					directed > 0 && directed >= cast);
+			})
+			.filter(p -> p.titleCount() >= PERSON_MIN_TITLE_COUNT)
+			.sorted(Comparator.comparingInt(PersonAffinity::titleCount).reversed()
+				.thenComparing(PersonAffinity::id))
+			.limit(MAX_PEOPLE)
+			.toList();
 	}
 
 	private Set<Integer> buildKeywordProfile(Collection<TmdbTitleCache> caches) {

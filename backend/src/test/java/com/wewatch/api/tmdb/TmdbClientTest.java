@@ -234,6 +234,23 @@ class TmdbClientTest {
 	}
 
 	@Test
+	void discoverByPersonQueriesMovieDiscoverWithPeople() {
+		// Person shelves are movie-only (#269): TMDB's TV discover has no people filter
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("with_people=6384"),
+			containsString("vote_count.gte=50"),
+			containsString("page=1"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discoverByPerson(6384, 50, 1);
+
+		assertThat(results).hasSize(1);
+		assertThat(results.get(0).type()).isEqualTo(TitleType.MOVIE);
+		assertThat(results.get(0).name()).isEqualTo("Inception");
+	}
+
+	@Test
 	void trendingFetchesTheRequestedPage() {
 		server.expect(requestTo(allOf(
 			containsString("/3/trending/tv/week"),
@@ -268,7 +285,17 @@ class TmdbClientTest {
 		      "poster_path": "/season1.jpg",
 		      "air_date": "2011-04-17"
 		    }
-		  ]
+		  ],
+		  "credits": {
+		    "cast": [
+		      { "id": 1223786, "name": "Emilia Clarke", "order": 0 },
+		      { "id": 12795, "name": "Kit Harington", "order": 1 }
+		    ],
+		    "crew": [
+		      { "id": 44797, "name": "Miguel Sapochnik", "job": "Director" },
+		      { "id": 9813, "name": "David Benioff", "job": "Executive Producer" }
+		    ]
+		  }
 		}
 		""";
 
@@ -287,6 +314,52 @@ class TmdbClientTest {
 		assertThat(seasons.get(1).name()).isEqualTo("Season 1");
 		assertThat(seasons.get(1).episodeCount()).isEqualTo(10);
 		assertThat(seasons.get(1).posterPath()).isEqualTo("/season1.jpg");
+	}
+
+	@Test
+	void getTvDetailRequestsAndParsesAppendedCredits() {
+		// Credits ride the detail call via append_to_response (#269) — no extra request
+		server.expect(requestTo(allOf(
+			containsString("/3/tv/1399"),
+			containsString("append_to_response=credits"))))
+			.andRespond(withSuccess(TV_DETAIL_JSON, MediaType.APPLICATION_JSON));
+
+		TmdbCredits credits = tmdbClient.getTvDetail("1399").credits();
+
+		assertThat(credits.cast())
+			.containsExactly(
+				new TmdbCastMember(1223786L, "Emilia Clarke", 0),
+				new TmdbCastMember(12795L, "Kit Harington", 1));
+		assertThat(credits.crew())
+			.containsExactly(
+				new TmdbCrewMember(44797L, "Miguel Sapochnik", "Director"),
+				new TmdbCrewMember(9813L, "David Benioff", "Executive Producer"));
+	}
+
+	@Test
+	void getMovieDetailRequestsAndParsesAppendedCredits() {
+		server.expect(requestTo(allOf(
+			containsString("/3/movie/27205"),
+			containsString("append_to_response=credits"))))
+			.andRespond(withSuccess("""
+				{
+				  "id": 27205,
+				  "title": "Inception",
+				  "credits": {
+				    "cast": [
+				      { "id": 6193, "name": "Leonardo DiCaprio", "order": 0 }
+				    ],
+				    "crew": [
+				      { "id": 525, "name": "Christopher Nolan", "job": "Director" }
+				    ]
+				  }
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		TmdbCredits credits = tmdbClient.getMovieDetail("27205").credits();
+
+		assertThat(credits.cast()).containsExactly(new TmdbCastMember(6193L, "Leonardo DiCaprio", 0));
+		assertThat(credits.crew()).containsExactly(new TmdbCrewMember(525L, "Christopher Nolan", "Director"));
 	}
 
 	// ─── getSeasonDetail ─────────────────────────────────────────────────────

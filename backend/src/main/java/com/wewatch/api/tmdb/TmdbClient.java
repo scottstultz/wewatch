@@ -52,11 +52,12 @@ public class TmdbClient {
 
 	public TmdbTvDetail getTvDetail(String tmdbId) {
 		try {
+			// Credits ride along for free (#269) — one call still, bigger payload
 			TmdbTvDetail detail = restClient.get()
-				.uri("/3/tv/{id}?language=en-US", tmdbId)
+				.uri("/3/tv/{id}?language=en-US&append_to_response=credits", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null);
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
@@ -107,11 +108,12 @@ public class TmdbClient {
 
 	public TmdbMovieDetail getMovieDetail(String tmdbId) {
 		try {
+			// Credits ride along for free (#269) — one call still, bigger payload
 			TmdbMovieDetail detail = restClient.get()
-				.uri("/3/movie/{id}?language=en-US", tmdbId)
+				.uri("/3/movie/{id}?language=en-US&append_to_response=credits", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}
@@ -160,6 +162,23 @@ public class TmdbClient {
 			return items.stream().map(item -> toResponse(item, type)).toList();
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB discover failed: " + e.getMessage(), e);
+		}
+	}
+
+	// Person-seeded shelves are movie-only (#269): TMDB's /discover/tv has no
+	// people filter. with_people matches cast and crew alike, so one parameter
+	// covers both "More with <actor>" and "Directed by <director>" shelves.
+	public List<TitleSearchResponse> discoverByPerson(int personId, int voteCountGte, int pageNumber) {
+		try {
+			TmdbSearchPage page = restClient.get()
+				.uri("/3/discover/movie?with_people={personId}&sort_by=popularity.desc&vote_count.gte={voteCount}&language=en-US&page={page}",
+					personId, voteCountGte, pageNumber)
+				.retrieve()
+				.body(TmdbSearchPage.class);
+			List<TmdbItem> items = page != null && page.results() != null ? page.results() : List.of();
+			return items.stream().map(item -> toResponse(item, TitleType.MOVIE)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB person discover failed: " + e.getMessage(), e);
 		}
 	}
 
