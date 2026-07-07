@@ -19,14 +19,16 @@ function cardKey(title: TitleSearchResponse) {
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
 
-// Similarity shelves first, exploration shelves after (#235); ties keep backend order
+// Similarity shelves first, the pooled catch-all after them (#266), exploration
+// shelves last (#235); ties keep backend order
 const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
   GENRE_PROFILE: 0,
   PER_SEED: 1,
   FINISHED_SEED: 2,
-  NEW_RELEASES: 3,
-  HIDDEN_GEMS: 3,
-  TRENDING: 3,
+  MORE_PICKS: 3,
+  NEW_RELEASES: 4,
+  HIDDEN_GEMS: 4,
+  TRENDING: 4,
 }
 
 interface TitleCardProps {
@@ -474,7 +476,7 @@ function DiscoverPage() {
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
             {!suggestionsLoading && (() => {
               const sorted = [...suggestions].sort(
-                (a, b) => (SHELF_KIND_ORDER[a.kind] ?? 4) - (SHELF_KIND_ORDER[b.kind] ?? 4)
+                (a, b) => (SHELF_KIND_ORDER[a.kind] ?? 5) - (SHELF_KIND_ORDER[b.kind] ?? 5)
               )
               const shownKeys = new Set<string>()
               return sorted.map(shelf => {

@@ -47,6 +47,9 @@ public class TmdbTitleCache {
 	@Column(name = "keyword_ids", length = 500)
 	private List<Integer> keywordIds;
 
+	@Column(name = "vote_count")
+	private Integer voteCount;
+
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
 
@@ -82,6 +85,9 @@ public class TmdbTitleCache {
 
 	public List<Integer> getKeywordIds() { return keywordIds; }
 	public void setKeywordIds(List<Integer> keywordIds) { this.keywordIds = keywordIds; }
+
+	public Integer getVoteCount() { return voteCount; }
+	public void setVoteCount(Integer voteCount) { this.voteCount = voteCount; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }

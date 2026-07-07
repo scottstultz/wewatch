@@ -339,7 +339,9 @@ class SuggestionServiceTest {
 	void thinPoolsFillPastTheOldSuppressionFloor() {
 		// One seed with five candidates, three of them recently shown: under binary
 		// suppression this shelf pinned at MIN_SHELF_SIZE; under the soft penalty
-		// (#264) it serves the whole pool, fresh candidates first
+		// (#264) the whole pool is served, fresh candidates first. With only two
+		// fresh titles the pool also misses the standalone fresh floor (#266), so
+		// it surfaces via the catch-all shelf rather than its own.
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
@@ -354,6 +356,7 @@ class SuggestionServiceTest {
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
 		List<String> shelfIds = shelves.get(0).titles().stream()
 			.map(TitleSearchResponse::externalId).toList();
 		assertThat(shelfIds).hasSize(5);
@@ -635,7 +638,9 @@ class SuggestionServiceTest {
 	@Test
 	void recommendationShelvesStillCapSameGenreRuns() {
 		// Mixed recommendation feeds keep diversification (#265): a run of 20
-		// candidates sharing their only genre is capped at MAX_PER_GENRE_CLUSTER
+		// candidates sharing their only genre is capped at MAX_PER_GENRE_CLUSTER.
+		// A cap-chopped shelf reads as a stub too, so it misses the fresh floor
+		// (#266) and its pool surfaces via the equally capped catch-all instead.
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
@@ -648,7 +653,7 @@ class SuggestionServiceTest {
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		assertThat(shelves).hasSize(1);
-		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PER_SEED);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
 		assertThat(shelves.get(0).titles()).hasSize(4);
 	}
 
@@ -656,7 +661,9 @@ class SuggestionServiceTest {
 	void anUnderCapSecondaryGenreAdmitsACandidatePastThePrimaryGenreCap() {
 		// The cap keys on the candidate's full genre set, not TMDB's arbitrary first
 		// genre id (#265): once genres 10/11/50 saturate on the high-affinity pure
-		// candidates, the low-affinity dual still enters through its fresh genre 60
+		// candidates, the low-affinity dual still enters through its fresh genre 60.
+		// (At five titles the shelf misses the fresh floor and serves via the
+		// catch-all (#266); the cap behaves identically there.)
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
@@ -697,6 +704,158 @@ class SuggestionServiceTest {
 		verify(tmdbClient, never()).getTrending(any(), intThat(p -> p < 1 || p > 3));
 	}
 
+	@Test
+	void thinSeedFeedFoldsIntoTheCatchAllShelf() {
+		// A seed whose whole feed is five titles can't reach the standalone fresh
+		// floor (#266): it produces no PER_SEED shelf, but its candidates still
+		// surface via the pooled catch-all
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 5).mapToObj(i -> candidate("rec-" + i)).toList());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
+		assertThat(shelves.get(0).reason()).isEqualTo("More picks for you");
+		assertThat(shelves.get(0).titles().stream().map(TitleSearchResponse::externalId))
+			.containsExactlyInAnyOrder("rec-1", "rec-2", "rec-3", "rec-4", "rec-5");
+	}
+
+	@Test
+	void multipleThinSeedShelvesPoolIntoOneCatchAll() {
+		// Three seeds with four-title feeds each: instead of three stub shelves,
+		// one aggregated MORE_PICKS shelf carries all twelve candidates (#266)
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 4)
+				.mapToObj(i -> candidate("rec-" + inv.getArgument(1) + "-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
+		assertThat(shelves.get(0).titles()).hasSize(12);
+	}
+
+	@Test
+	void aFullButMostlyReServedShelfFoldsIntoTheCatchAll() {
+		// The floor counts fresh titles only (#266): a shelf that fills to twelve
+		// but carries just five titles the user hasn't seen this window is a
+		// repeat-heavy stub and folds into the catch-all
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		when(tmdbTitleCacheRepository.findAllById(any())).thenReturn(List.of());
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("rec-" + i)).toList());
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(IntStream.rangeClosed(1, 7).boxed()
+				.collect(Collectors.toMap(i -> "rec-" + i, i -> 1.0)));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
+		List<String> ids = shelves.get(0).titles().stream()
+			.map(TitleSearchResponse::externalId).toList();
+		// The catch-all still serves the whole pool, fresh titles first
+		assertThat(ids).hasSize(12);
+		assertThat(ids.subList(0, 5))
+			.containsExactlyInAnyOrder("rec-8", "rec-9", "rec-10", "rec-11", "rec-12");
+	}
+
+	@Test
+	void catchAllRanksPooledCandidatesByTasteProfile() {
+		// The pooled shelf reuses the taste-profile scoring: the owned title's
+		// cached genres 10–13 (weight 2 each) give the hit affinity 8, clear of
+		// the ±1.0 jitter, so it ranks first among the pooled leftovers (#266)
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1")));
+		stubCacheRows(Map.of("ext1", cacheRow("ext1", List.of(10, 11, 12, 13), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		IntStream.rangeClosed(1, 4).forEach(i -> candidates.add(candidate("filler-" + i)));
+		candidates.add(scored("hit", List.of(10, 11, 12, 13)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.MORE_PICKS);
+		assertThat(shelves.get(0).titles().get(0).externalId()).isEqualTo("hit");
+	}
+
+	@Test
+	void richSeedsArePreferredOverThinSeeds() {
+		// ext1–ext3 carry cached vote counts above the rich floor; ext4/ext5 have
+		// no cache row. With exactly MAX_SEEDS rich seeds, every daily draw must
+		// pick the rich ones (#266) — vote count proxies feed depth.
+		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> entry(i, "ext" + i))
+			.toList();
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		stubCacheRows(IntStream.rangeClosed(1, 3).boxed()
+			.collect(Collectors.toMap(i -> "ext" + i, i -> cacheRow("ext" + i, null, null, 1000))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		for (int d = 0; d < 10; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, atLeastOnce()).getRecommendations(any(), eq("ext1"), anyInt());
+		verify(tmdbClient, atLeastOnce()).getRecommendations(any(), eq("ext2"), anyInt());
+		verify(tmdbClient, atLeastOnce()).getRecommendations(any(), eq("ext3"), anyInt());
+		verify(tmdbClient, never()).getRecommendations(any(), eq("ext4"), anyInt());
+		verify(tmdbClient, never()).getRecommendations(any(), eq("ext5"), anyInt());
+	}
+
+	@Test
+	void richSeedsRotateAcrossDaysRatherThanPinning() {
+		// Six seeds all above the rich floor: the daily shuffle within the rich
+		// tier must reach more than MAX_SEEDS distinct seeds across days (#266) —
+		// richness preference must not pin the same top few
+		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 6)
+			.mapToObj(i -> entry(i, "ext" + i))
+			.toList();
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 6)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		stubCacheRows(IntStream.rangeClosed(1, 6).boxed()
+			.collect(Collectors.toMap(i -> "ext" + i, i -> cacheRow("ext" + i, null, null, 500 + i))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		for (int d = 0; d < 15; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<String> seedIds = ArgumentCaptor.forClass(String.class);
+		verify(tmdbClient, atLeastOnce()).getRecommendations(any(), seedIds.capture(), anyInt());
+		assertThat(new HashSet<>(seedIds.getAllValues())).hasSizeGreaterThan(3);
+	}
+
 	// Like stubPopulatedWatchlist, but every owned title carries cached genre 99,
 	// enabling genre-profile and exploration shelves
 	private void stubPopulatedWatchlistWithGenres() {
@@ -731,10 +890,15 @@ class SuggestionServiceTest {
 	}
 
 	private TmdbTitleCache cacheRow(String tmdbId, List<Integer> genreIds, List<Integer> keywordIds) {
+		return cacheRow(tmdbId, genreIds, keywordIds, null);
+	}
+
+	private TmdbTitleCache cacheRow(String tmdbId, List<Integer> genreIds, List<Integer> keywordIds, Integer voteCount) {
 		TmdbTitleCache c = new TmdbTitleCache();
 		c.setTmdbId(tmdbId);
 		c.setGenreIds(genreIds);
 		c.setKeywordIds(keywordIds);
+		c.setVoteCount(voteCount);
 		return c;
 	}
 

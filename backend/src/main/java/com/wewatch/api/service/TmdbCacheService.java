@@ -152,6 +152,7 @@ public class TmdbCacheService {
 		if (detail.genres() != null) {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
 		}
+		row.setVoteCount(detail.voteCount());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 		upsertSeasonCache(tmdbId, detail.seasons());
@@ -205,6 +206,7 @@ public class TmdbCacheService {
 		if (detail.genres() != null) {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
 		}
+		row.setVoteCount(detail.voteCount());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 	}

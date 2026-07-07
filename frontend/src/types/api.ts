@@ -118,6 +118,7 @@ export interface TitleDetailResponse {
 export type ShelfKind =
   | 'PER_SEED'
   | 'FINISHED_SEED'
+  | 'MORE_PICKS'
   | 'GENRE_PROFILE'
   | 'NEW_RELEASES'
   | 'HIDDEN_GEMS'

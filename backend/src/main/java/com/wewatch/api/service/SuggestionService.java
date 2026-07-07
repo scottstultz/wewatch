@@ -51,6 +51,16 @@ public class SuggestionService {
 	private static final int MAX_KEYWORDS = 5;
 	private static final int MIN_SHELF_SIZE = 3;
 	private static final int MAX_SHELF_SIZE = 12;
+	// A standalone seed shelf must carry this many fresh (not recency-penalized)
+	// titles (#266) — anything thinner reads as a stub next to full shelves and
+	// exhausts within one penalty window. Shelves under the floor fold their
+	// candidates into the catch-all MORE_PICKS shelf instead.
+	private static final int SEED_SHELF_MIN_FRESH = 6;
+	// Vote-count floor for the rich seed tier (#266): a cheap proxy for whether
+	// TMDB can sustain a full recommendations/similar shelf for the seed. Niche
+	// titles (small docs, festival releases) sit well below it; anything with a
+	// mainstream audience sits well above.
+	private static final int RICH_SEED_VOTE_COUNT_GTE = 300;
 	// Same-genre run cap for feeds with a real genre mix (recommendations/similar/
 	// trending). Discover-backed feeds are exempt (#265): they are filtered to the
 	// user's top genres by construction, so nearly every candidate shares a genre
@@ -196,9 +206,27 @@ public class SuggestionService {
 			.filter(e -> e.getStatus() == WatchStatus.WATCHING || e.getStatus() == WatchStatus.WANT_TO_WATCH)
 			.filter(e -> titlesById.containsKey(e.getTitleId()))
 			.sorted(Comparator.comparing(WatchlistEntry::getId))
-			.collect(Collectors.toCollection(ArrayList::new));
-		Collections.shuffle(eligibleSeeds, rng);
-		List<WatchlistEntry> seeds = eligibleSeeds.subList(0, Math.min(MAX_SEEDS, eligibleSeeds.size()));
+			.toList();
+
+		// Rich-first seed selection (#266): cached vote count proxies how deep a
+		// title's recommendations/similar feeds run — niche seeds yield permanently
+		// thin shelves. Each tier is shuffled with the day-seeded rng, so rich seeds
+		// rotate among themselves rather than pinning to the top-popularity few, and
+		// thin seeds only fill slots the rich tier can't.
+		List<WatchlistEntry> richSeeds = new ArrayList<>();
+		List<WatchlistEntry> thinSeeds = new ArrayList<>();
+		for (WatchlistEntry e : eligibleSeeds) {
+			(isRichSeed(e, titlesById, cacheByTmdbId) ? richSeeds : thinSeeds).add(e);
+		}
+		Collections.shuffle(richSeeds, rng);
+		Collections.shuffle(thinSeeds, rng);
+		List<WatchlistEntry> seeds = new ArrayList<>(richSeeds);
+		seeds.addAll(thinSeeds);
+		seeds = seeds.subList(0, Math.min(MAX_SEEDS, seeds.size()));
+
+		// Candidates from seed shelves that miss the fresh floor pool here for the
+		// catch-all MORE_PICKS shelf (#266)
+		List<TitleSearchResponse> pooledLeftovers = new ArrayList<>();
 
 		for (WatchlistEntry seed : seeds) {
 			Title title = titlesById.get(seed.getTitleId());
@@ -207,11 +235,16 @@ public class SuggestionService {
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
-			if (shelf.size() >= MIN_SHELF_SIZE) {
+			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
 				String label = title.getName() != null
 					? "Because you added " + title.getName()
 					: "Because of your list";
 				shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.PER_SEED));
+			} else {
+				// Too thin to stand alone (#266): release the slots this shelf
+				// claimed so its candidates can compete in the catch-all instead
+				shelf.forEach(r -> seen.remove(r.externalId()));
+				pooledLeftovers.addAll(candidates);
 			}
 		}
 
@@ -235,11 +268,27 @@ public class SuggestionService {
 			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, rng);
 			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
 
-			if (shelf.size() >= MIN_SHELF_SIZE) {
+			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
 				String label = title.getName() != null
 					? "Because you finished " + title.getName()
 					: "Because you finished a title";
 				shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.FINISHED_SEED));
+			} else {
+				shelf.forEach(r -> seen.remove(r.externalId()));
+				pooledLeftovers.addAll(candidates);
+			}
+		}
+
+		// ── Catch-all shelf (#266) ────────────────────────────────
+		// Seed feeds too thin for a standalone shelf pool their candidates into one
+		// "More picks for you" shelf, re-ranked as a single taste-profile-scored
+		// pool — a handful of full shelves plus one aggregate instead of a row of
+		// 3–4 tile stubs
+		if (!pooledLeftovers.isEmpty()) {
+			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, rng);
+			List<TitleSearchResponse> shelf = fillShelf(pooled, seen, recencyWeights, true);
+			if (shelf.size() >= MIN_SHELF_SIZE) {
+				shelves.add(new SuggestionShelfResponse("More picks for you", shelf, SuggestionShelfResponse.ShelfKind.MORE_PICKS));
 			}
 		}
 
@@ -446,16 +495,21 @@ public class SuggestionService {
 				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
 			}
 		}
-		// Deduplicate within this fetch before scoring
+		return rankByTasteProfile(results, genreProfile, keywordProfile, rng);
+	}
+
+	// Dedupe by externalId, then sort by taste-profile score: genre affinity plus
+	// keyword boost plus day-seeded score jitter (#248) — a small ± offset per
+	// candidate that rotates the ranking daily beyond exact ties, so stable
+	// high-affinity candidates don't float to the top of a shelf every single day.
+	// Applied even with no genre/keyword signal, where the sort degrades to a
+	// stable-per-day random order. Also ranks the pooled catch-all shelf (#266).
+	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Random rng) {
 		Set<String> seen = new HashSet<>();
 		List<TitleSearchResponse> deduped = results.stream()
 			.filter(r -> seen.add(r.externalId()))
 			.collect(Collectors.toCollection(ArrayList::new));
 
-		// Day-seeded score jitter (#248): a small ± offset per candidate rotates the
-		// ranking daily beyond exact ties, so stable high-affinity candidates don't
-		// float to the top of a shelf every single day. Applied even with no genre/
-		// keyword signal, where the sort degrades to a stable-per-day random order.
 		Map<String, Double> jitter = jitterByCandidate(deduped, rng);
 		Map<String, Double> keywordBoosts = keywordBoosts(deduped, keywordProfile);
 
@@ -464,6 +518,25 @@ public class SuggestionService {
 			+ keywordBoosts.getOrDefault(r.externalId(), 0.0)
 			+ jitter.getOrDefault(r.externalId(), 0.0)).reversed());
 		return deduped;
+	}
+
+	// Fresh = not recency-penalized: the shelf titles the user hasn't been shown
+	// within the penalty window. The standalone floor counts only these (#266),
+	// so a shelf padded out with re-served titles still folds into the catch-all.
+	private long freshCount(List<TitleSearchResponse> shelf, Map<String, Double> recencyWeights) {
+		return shelf.stream()
+			.filter(r -> recencyWeights.getOrDefault(r.externalId(), 0.0) == 0.0)
+			.count();
+	}
+
+	// Uncached seeds (no tmdb_title_cache row yet, or a pre-#266 row without a
+	// vote count) rank as thin until the cache refreshes — a conservative default
+	private boolean isRichSeed(WatchlistEntry entry, Map<Long, Title> titlesById, Map<String, TmdbTitleCache> cacheByTmdbId) {
+		Title title = titlesById.get(entry.getTitleId());
+		if (title == null || title.getExternalId() == null) return false;
+		TmdbTitleCache cached = cacheByTmdbId.get(title.getExternalId());
+		return cached != null && cached.getVoteCount() != null
+			&& cached.getVoteCount() >= RICH_SEED_VOTE_COUNT_GTE;
 	}
 
 	// Day-seeded per-candidate score offset (#248). Draws from the shared day-seeded
