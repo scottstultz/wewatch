@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +36,8 @@ import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
+import com.wewatch.api.tmdb.TmdbWatchProvider;
+import com.wewatch.api.tmdb.TmdbWatchProviders;
 
 @Service
 public class TmdbCacheService {
@@ -163,6 +166,7 @@ public class TmdbCacheService {
 		}
 		row.setVoteCount(detail.voteCount());
 		applyCredits(row, detail.credits());
+		applyWatchProviders(row, detail.watchProviders());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 		upsertSeasonCache(tmdbId, detail.seasons());
@@ -218,6 +222,7 @@ public class TmdbCacheService {
 		}
 		row.setVoteCount(detail.voteCount());
 		applyCredits(row, detail.credits());
+		applyWatchProviders(row, detail.watchProviders());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 	}
@@ -243,6 +248,22 @@ public class TmdbCacheService {
 				.forEach(c -> directors.putIfAbsent((int) c.id(), new CachedPerson((int) c.id(), c.name())));
 			row.setDirectors(List.copyOf(directors.values()));
 		}
+	}
+
+	// Watch providers arrive on the same detail call via append_to_response
+	// (#270). Only flatrate offers are kept — per region, as a compact id list.
+	// A null block (TMDB omission) keeps whatever the row already has, matching
+	// credits above; a present block with no flatrate offers anywhere stores an
+	// empty map ("fetched, streamable nowhere").
+	private void applyWatchProviders(TmdbTitleCache row, TmdbWatchProviders providers) {
+		if (providers == null || providers.results() == null) return;
+		Map<String, List<Integer>> byRegion = new HashMap<>();
+		providers.results().forEach((region, offers) -> {
+			if (offers != null && offers.flatrate() != null && !offers.flatrate().isEmpty()) {
+				byRegion.put(region, offers.flatrate().stream().map(TmdbWatchProvider::providerId).toList());
+			}
+		});
+		row.setWatchProviders(byRegion);
 	}
 
 	private void upsertEpisodeCache(String tmdbId, int seasonNumber, TmdbTvSeason season) {

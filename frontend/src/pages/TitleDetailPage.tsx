@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
+import JustWatchAttribution from '../components/JustWatchAttribution'
 import type { TitleDetailResponse, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
 type AddState = 'idle' | 'loading' | 'error'
@@ -239,6 +240,21 @@ function TitleDetailPage() {
         <section className="panel">
           <h3>Overview</h3>
           <p>{detail.overview}</p>
+        </section>
+      )}
+
+      {detail?.watchProviders && detail.watchProviders.length > 0 && (
+        <section className="panel">
+          <h3>Where to watch</h3>
+          <div className="watch-provider-list">
+            {detail.watchProviders.map(p => (
+              <span key={p.id} className="watch-provider-item">
+                {p.logoUrl && <img className="provider-badge-logo" src={p.logoUrl} alt="" loading="lazy" />}
+                <span>{p.name}</span>
+              </span>
+            ))}
+          </div>
+          <JustWatchAttribution />
         </section>
       )}
 

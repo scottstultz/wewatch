@@ -3,6 +3,7 @@ package com.wewatch.api.model;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -58,6 +59,13 @@ public class TmdbTitleCache {
 	@Column(name = "directors", columnDefinition = "TEXT")
 	private List<CachedPerson> directors;
 
+	// Flatrate (subscription) provider ids per watch region (#270). null means
+	// "not fetched yet" (pre-#270 row); an empty map means "fetched, streamable
+	// nowhere". TTL refresh keeps it current as availability shifts.
+	@Convert(converter = RegionProviderIdsConverter.class)
+	@Column(name = "watch_providers", columnDefinition = "TEXT")
+	private Map<String, List<Integer>> watchProviders;
+
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
 
@@ -102,6 +110,9 @@ public class TmdbTitleCache {
 
 	public List<CachedPerson> getDirectors() { return directors; }
 	public void setDirectors(List<CachedPerson> directors) { this.directors = directors; }
+
+	public Map<String, List<Integer>> getWatchProviders() { return watchProviders; }
+	public void setWatchProviders(Map<String, List<Integer>> watchProviders) { this.watchProviders = watchProviders; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }

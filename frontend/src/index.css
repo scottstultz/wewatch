@@ -2379,3 +2379,169 @@ a {
   margin-top: 6px;
   max-width: 240px;
 }
+
+/* ── Watch providers (#270) ───────────────────────────────── */
+
+/* Availability badges over the poster on suggestion tiles; the dismiss button
+   (#268) owns the top-right corner, badges take the top-left */
+.title-card .provider-badge-row {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  display: flex;
+  gap: 4px;
+}
+
+.provider-badge-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  object-fit: cover;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* "On your services" chip next to a provider-filtered shelf heading */
+.shelf-provider-chip {
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: none;
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  vertical-align: middle;
+}
+
+/* Where-to-watch list on the title detail page */
+.watch-provider-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.watch-provider-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px 5px 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+}
+
+.justwatch-attribution {
+  font-size: 0.6875rem;
+  color: #475569;
+  margin: 10px 0 0;
+}
+
+.justwatch-attribution a {
+  color: #64748b;
+  text-decoration: underline;
+}
+
+/* Streaming-service settings on the Profile page */
+.settings-field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.provider-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.provider-chip:hover {
+  border-color: rgba(125, 211, 252, 0.5);
+}
+
+.provider-chip-selected {
+  border-color: rgba(52, 211, 153, 0.6);
+  background: rgba(52, 211, 153, 0.12);
+  color: #f8fafc;
+}
+
+.provider-chip-logo {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.provider-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-show-all-btn {
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.provider-show-all-btn:hover {
+  color: #e2e8f0;
+}
+
+.settings-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.settings-save-btn {
+  padding: 8px 22px;
+  border: none;
+  border-radius: 10px;
+  background: rgba(125, 211, 252, 0.9);
+  color: #0f172a;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.settings-save-btn:hover {
+  background: #7dd3fc;
+}
+
+.settings-save-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settings-save-note {
+  font-size: 0.8125rem;
+  color: #34d399;
+}

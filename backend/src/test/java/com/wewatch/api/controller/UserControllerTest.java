@@ -30,6 +30,7 @@ import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
 
 @WebMvcTest(UserController.class)
@@ -45,6 +46,9 @@ class UserControllerTest {
 
 	@MockBean
 	private AllowedEmailRepository allowedEmailRepository;
+
+	@MockBean
+	private SuggestionService suggestionService;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;
@@ -240,6 +244,73 @@ class UserControllerTest {
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(409))
 			.andExpect(jsonPath("$.message").value("User email already exists: other@example.com"));
+	}
+
+	@Test
+	void updateUserSavesStreamingSettingsAndEvictsSuggestions() throws Exception {
+		User updatedUser = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH);
+		updatedUser.setWatchRegion("US");
+		updatedUser.setWatchProviderIds(java.util.List.of(8, 9));
+		when(userService.update(1L, null, null)).thenReturn(TEST_USER);
+		when(userService.updateStreamingSettings(1L, "US", java.util.List.of(8, 9))).thenReturn(updatedUser);
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "watchRegion": "US",
+					  "watchProviderIds": [8, 9]
+					}
+					""")
+		)
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.watchRegion").value("US"))
+			.andExpect(jsonPath("$.watchProviderIds[0]").value(8))
+			.andExpect(jsonPath("$.watchProviderIds[1]").value(9));
+
+		verify(userService).updateStreamingSettings(1L, "US", java.util.List.of(8, 9));
+		// New provider settings change what the user's lists may suggest (#270)
+		verify(suggestionService).evictForUser(1L);
+	}
+
+	@Test
+	void updateUserWithoutStreamingFieldsDoesNotEvictSuggestions() throws Exception {
+		when(userService.update(1L, null, "Scott Stultz"))
+			.thenReturn(new User(1L, "test@example.com", "Scott Stultz", Instant.EPOCH, Instant.EPOCH));
+
+		mockMvc.perform(
+			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "displayName": "Scott Stultz"
+					}
+					""")
+		)
+			.andExpect(status().isOk());
+
+		verify(userService, never()).updateStreamingSettings(any(), any(), any());
+		verify(suggestionService, never()).evictForUser(any());
+	}
+
+	@Test
+	void updateUserRejectsMalformedWatchRegion() throws Exception {
+		mockMvc.perform(
+			patch("/api/users/1")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "watchRegion": "usa"
+					}
+					""")
+		)
+			.andExpect(status().isBadRequest());
+
+		verify(userService, never()).updateStreamingSettings(any(), any(), any());
 	}
 
 	@Test

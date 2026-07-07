@@ -8,6 +8,8 @@ import type {
   TitleResponse,
   TitleSearchResponse,
   TitleType,
+  WatchProvider,
+  WatchRegion,
   WatchlistEntryResponse,
   WatchlistMemberResponse,
   WatchlistResponse,
@@ -29,6 +31,9 @@ export interface BackendUser {
   id: number
   email: string
   displayName: string
+  // Streaming-service settings (#270)
+  watchRegion: string | null
+  watchProviderIds: number[] | null
 }
 
 async function apiFetch(url: string, token: string, init?: RequestInit): Promise<Response> {
@@ -144,6 +149,40 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       const response = await authedFetch(`${BASE_URL}/titles/detail?${params}`)
       if (!response.ok) throw new Error(`Failed to fetch title detail: ${response.status}`)
       return response.json() as Promise<TitleDetailResponse>
+    },
+
+    // ── User settings & watch providers (#270) ───────────────
+
+    async getMe(): Promise<BackendUser> {
+      const response = await authedFetch(`${BASE_URL}/users/me`)
+      if (!response.ok) throw new Error(`Failed to fetch current user: ${response.status}`)
+      return response.json() as Promise<BackendUser>
+    },
+
+    async updateStreamingSettings(
+      userId: number,
+      watchRegion: string,
+      watchProviderIds: number[],
+    ): Promise<BackendUser> {
+      const response = await authedFetch(`${BASE_URL}/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watchRegion, watchProviderIds }),
+      })
+      if (!response.ok) throw new Error(`Failed to update streaming settings: ${response.status}`)
+      return response.json() as Promise<BackendUser>
+    },
+
+    async getWatchProviders(region: string): Promise<WatchProvider[]> {
+      const response = await authedFetch(`${BASE_URL}/watch-providers?region=${encodeURIComponent(region)}`)
+      if (!response.ok) throw new Error(`Failed to fetch watch providers: ${response.status}`)
+      return response.json() as Promise<WatchProvider[]>
+    },
+
+    async getWatchRegions(): Promise<WatchRegion[]> {
+      const response = await authedFetch(`${BASE_URL}/watch-providers/regions`)
+      if (!response.ok) throw new Error(`Failed to fetch watch regions: ${response.status}`)
+      return response.json() as Promise<WatchRegion[]>
     },
 
     // ── Watchlist CRUD ───────────────────────────────────────

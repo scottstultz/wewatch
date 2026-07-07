@@ -98,6 +98,24 @@ public class UserService {
 		return userRepository.save(existingUser);
 	}
 
+	// Streaming-service settings (#270). Separate from update(): profile-identity
+	// and provider-settings writes have different callers and validation, and
+	// null-means-unchanged semantics stay unambiguous per field.
+	public User updateStreamingSettings(Long id, String watchRegion, List<Integer> watchProviderIds) {
+		User existingUser = findById(id);
+
+		if (watchRegion != null) {
+			existingUser.setWatchRegion(watchRegion);
+		}
+		if (watchProviderIds != null) {
+			existingUser.setWatchProviderIds(watchProviderIds);
+		}
+		existingUser.setUpdatedAt(Instant.now());
+
+		validate(existingUser);
+		return userRepository.save(existingUser);
+	}
+
 	@Transactional
 	public User findOrCreateByProviderIdentity(String provider, String providerId, String email, String displayName) {
 		return userRepository.findByProviderAndProviderId(provider, providerId)

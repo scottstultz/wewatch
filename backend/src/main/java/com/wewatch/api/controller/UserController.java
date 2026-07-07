@@ -16,6 +16,7 @@ import com.wewatch.api.exception.ForbiddenException;
 import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
+import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
 
 @RestController
@@ -24,10 +25,13 @@ public class UserController {
 
 	private final UserService userService;
 	private final AllowedEmailRepository allowedEmailRepository;
+	private final SuggestionService suggestionService;
 
-	public UserController(UserService userService, AllowedEmailRepository allowedEmailRepository) {
+	public UserController(UserService userService, AllowedEmailRepository allowedEmailRepository,
+			SuggestionService suggestionService) {
 		this.userService = userService;
 		this.allowedEmailRepository = allowedEmailRepository;
+		this.suggestionService = suggestionService;
 	}
 
 	@GetMapping("/me")
@@ -57,7 +61,15 @@ public class UserController {
 				&& !allowedEmailRepository.existsByEmailIgnoreCase(request.email())) {
 			throw new RegistrationNotAllowedException();
 		}
-		return toResponse(userService.update(userId, request.email(), request.displayName()));
+		User updated = userService.update(userId, request.email(), request.displayName());
+		// Streaming-service settings (#270) change what every list the user
+		// belongs to may suggest — evict those cached shelves so the next read
+		// recomputes with the new provider context (same pattern as dismissals).
+		if (request.watchRegion() != null || request.watchProviderIds() != null) {
+			updated = userService.updateStreamingSettings(userId, request.watchRegion(), request.watchProviderIds());
+			suggestionService.evictForUser(userId);
+		}
+		return toResponse(updated);
 	}
 
 	private UserResponse toResponse(User user) {
@@ -66,7 +78,9 @@ public class UserController {
 			user.getEmail(),
 			user.getDisplayName(),
 			user.getCreatedAt(),
-			user.getUpdatedAt()
+			user.getUpdatedAt(),
+			user.getWatchRegion(),
+			user.getWatchProviderIds()
 		);
 	}
 }

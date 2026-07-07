@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -34,9 +35,12 @@ import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
 import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbCrewMember;
+import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
+import com.wewatch.api.tmdb.TmdbWatchProvider;
+import com.wewatch.api.tmdb.TmdbWatchProviders;
 
 @ExtendWith(MockitoExtension.class)
 class TmdbCacheServiceTest {
@@ -68,7 +72,7 @@ class TmdbCacheServiceTest {
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
 			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
-			"Game of Thrones", null, null, List.of(), null, null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -86,7 +90,7 @@ class TmdbCacheServiceTest {
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
 		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
-		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null, null);
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);
@@ -132,7 +136,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of(), null, null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -172,7 +176,7 @@ class TmdbCacheServiceTest {
 				new TmdbCrewMember(101L, "The Producer", "Producer"),
 				new TmdbCrewMember(100L, "The Director", "Director")));
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
-			"Game of Thrones", null, null, List.of(), null, null, credits);
+			"Game of Thrones", null, null, List.of(), null, null, credits, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);
@@ -198,7 +202,7 @@ class TmdbCacheServiceTest {
 		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
-			"Game of Thrones", null, null, List.of(), null, null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);
@@ -208,6 +212,48 @@ class TmdbCacheServiceTest {
 		// A TMDB response without the appended credits leaves the people signal alone
 		assertThat(captor.getValue().getTopCast()).containsExactly(new CachedPerson(1, "Lead"));
 		assertThat(captor.getValue().getDirectors()).containsExactly(new CachedPerson(100, "The Director"));
+	}
+
+	@Test
+	void watchProvidersAreCachedPerRegionFlatrateOnly() {
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		TmdbWatchProviders providers = new TmdbWatchProviders(Map.of(
+			"US", new TmdbRegionWatchProviders(List.of(
+				new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0),
+				new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1))),
+			// Rent/buy-only region: no flatrate offers → not stored (#270)
+			"GB", new TmdbRegionWatchProviders(null)));
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
+			"Game of Thrones", null, null, List.of(), null, null, null, providers);
+		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
+
+		service.getSeasons(TMDB_ID);
+
+		ArgumentCaptor<TmdbTitleCache> captor = ArgumentCaptor.forClass(TmdbTitleCache.class);
+		verify(titleCacheRepository).save(captor.capture());
+		assertThat(captor.getValue().getWatchProviders())
+			.containsOnlyKeys("US")
+			.containsEntry("US", List.of(8, 9));
+	}
+
+	@Test
+	void nullWatchProvidersBlockKeepsPreviouslyCachedOnes() {
+		TmdbTitleCache existing = new TmdbTitleCache();
+		existing.setTmdbId(TMDB_ID);
+		existing.setWatchProviders(Map.of("US", List.of(8)));
+		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
+			"Game of Thrones", null, null, List.of(), null, null, null, null);
+		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
+
+		service.getSeasons(TMDB_ID);
+
+		ArgumentCaptor<TmdbTitleCache> captor = ArgumentCaptor.forClass(TmdbTitleCache.class);
+		verify(titleCacheRepository).save(captor.capture());
+		// A TMDB response without the appended block leaves availability alone
+		assertThat(captor.getValue().getWatchProviders()).containsEntry("US", List.of(8));
 	}
 
 	// ── getSeasonDetail ──────────────────────────────────────
@@ -270,7 +316,7 @@ class TmdbCacheServiceTest {
 				new TmdbTvSeason(3625L, 1, "Season 1 (updated)", null, null, 10, "2011-04-17", null),
 				new TmdbTvSeason(3626L, 2, "Season 2", null, null, 10, "2012-04-01", null)
 			),
-			"Game of Thrones", null, null, List.of(), null, null, null);
+			"Game of Thrones", null, null, List.of(), null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
 		service.getSeasons(TMDB_ID);

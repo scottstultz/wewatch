@@ -214,7 +214,7 @@ class TmdbClientTest {
 			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
 
 		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.MOVIE, List.of(28), List.of(), 200,
-			"vote_average.desc", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 7, 3), 1);
+			"vote_average.desc", LocalDate.of(2026, 5, 4), LocalDate.of(2026, 7, 3), null, null, 1);
 
 		assertThat(results).hasSize(1);
 		assertThat(results.get(0).name()).isEqualTo("Inception");
@@ -228,7 +228,7 @@ class TmdbClientTest {
 			.andRespond(withSuccess(TV_JSON, MediaType.APPLICATION_JSON));
 
 		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.TV, List.of(18), List.of(), 20,
-			"popularity.desc", LocalDate.of(2026, 5, 4), null, 1);
+			"popularity.desc", LocalDate.of(2026, 5, 4), null, null, null, 1);
 
 		assertThat(results).hasSize(1);
 	}
@@ -360,6 +360,97 @@ class TmdbClientTest {
 
 		assertThat(credits.cast()).containsExactly(new TmdbCastMember(6193L, "Leonardo DiCaprio", 0));
 		assertThat(credits.crew()).containsExactly(new TmdbCrewMember(525L, "Christopher Nolan", "Director"));
+	}
+
+	// ─── watch providers (#270) ──────────────────────────────────────────────
+
+	@Test
+	void discoverAppliesWatchProviderFilterWithRegionAndFlatrate() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("watch_region=US"),
+			containsString("with_watch_providers=8"),
+			containsString("with_watch_monetization_types=flatrate"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.MOVIE, List.of(28), List.of(), 200,
+			"popularity.desc", null, null, "US", List.of(8), 1);
+
+		assertThat(results).hasSize(1);
+	}
+
+	@Test
+	void discoverSkipsProviderFilterWithoutARegion() {
+		server.expect(requestTo(org.hamcrest.Matchers.not(containsString("watch_region"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		List<TitleSearchResponse> results = tmdbClient.discover(TitleType.MOVIE, List.of(28), List.of(), 200,
+			"popularity.desc", null, null, null, null, 1);
+
+		assertThat(results).hasSize(1);
+	}
+
+	@Test
+	void getMovieDetailRequestsAndParsesAppendedWatchProviders() {
+		server.expect(requestTo(allOf(
+			containsString("/3/movie/27205"),
+			containsString("append_to_response=credits,watch/providers"))))
+			.andRespond(withSuccess("""
+				{
+				  "id": 27205,
+				  "title": "Inception",
+				  "watch/providers": {
+				    "results": {
+				      "US": {
+				        "flatrate": [
+				          { "provider_id": 8, "provider_name": "Netflix", "logo_path": "/n.jpg", "display_priority": 0 }
+				        ]
+				      }
+				    }
+				  }
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		TmdbWatchProviders providers = tmdbClient.getMovieDetail("27205").watchProviders();
+
+		assertThat(providers.results().get("US").flatrate())
+			.containsExactly(new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0));
+	}
+
+	@Test
+	void getWatchProvidersListsRegionCatalog() {
+		server.expect(requestTo(allOf(
+			containsString("/3/watch/providers/tv"),
+			containsString("watch_region=US"))))
+			.andRespond(withSuccess("""
+				{
+				  "results": [
+				    { "provider_id": 8, "provider_name": "Netflix", "logo_path": "/n.jpg", "display_priority": 0 },
+				    { "provider_id": 9, "provider_name": "Prime Video", "logo_path": "/p.jpg", "display_priority": 1 }
+				  ]
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		List<TmdbWatchProvider> providers = tmdbClient.getWatchProviders(TitleType.TV, "US");
+
+		assertThat(providers).hasSize(2);
+		assertThat(providers.get(0).providerName()).isEqualTo("Netflix");
+	}
+
+	@Test
+	void getWatchRegionsListsRegions() {
+		server.expect(requestTo(containsString("/3/watch/providers/regions")))
+			.andRespond(withSuccess("""
+				{
+				  "results": [
+				    { "iso_3166_1": "US", "english_name": "United States", "native_name": "United States" }
+				  ]
+				}
+				""", MediaType.APPLICATION_JSON));
+
+		List<TmdbWatchRegion> regions = tmdbClient.getWatchRegions();
+
+		assertThat(regions).containsExactly(new TmdbWatchRegion("US", "United States"));
 	}
 
 	// ─── getSeasonDetail ─────────────────────────────────────────────────────
