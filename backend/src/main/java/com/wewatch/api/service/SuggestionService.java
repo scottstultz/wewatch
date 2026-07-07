@@ -277,7 +277,7 @@ public class SuggestionService {
 		// capped by MAX_EXPLORATION_SHELVES or gated by MIN_SHELF_SIZE — even a
 		// single remaining sequel outranks a full shelf of generic candidates.
 		SuggestionShelfResponse franchiseShelf =
-			buildFranchiseShelf(allEntries, titlesById, cacheByTmdbId, seen, recencyWeights, rng);
+			buildFranchiseShelf(allEntries, titlesById, cacheByTmdbId, seen, rng);
 		if (franchiseShelf != null) {
 			shelves.add(franchiseShelf);
 		}
@@ -983,12 +983,16 @@ public class SuggestionService {
 	// no taste-profile re-ranking, just chronology. Owned parts fall out via the
 	// shared seen-dedup set in fillShelf; no MIN_SHELF_SIZE floor, since a
 	// single remaining sequel is still the single best suggestion available.
+	// Exempt from the recency penalty (the issue's "a sequel staying visible is
+	// a feature, not staleness"): the demotion could only reorder this shelf,
+	// never shrink it, and a part shown recently on some other shelf sinking
+	// below a later one would break the release-order contract — so fillShelf
+	// gets an empty weight map. Impressions are still recorded on serve.
 	private SuggestionShelfResponse buildFranchiseShelf(
 		List<WatchlistEntry> allEntries,
 		Map<Long, Title> titlesById,
 		Map<String, TmdbTitleCache> cacheByTmdbId,
 		Set<String> seen,
-		Map<String, Double> recencyWeights,
 		Random rng
 	) {
 		List<FranchiseCandidate> candidates = buildFranchiseCandidates(allEntries, titlesById, cacheByTmdbId);
@@ -1003,11 +1007,17 @@ public class SuggestionService {
 			return null;
 		}
 
-		List<TitleSearchResponse> ordered = parts.stream()
-			.sorted(Comparator.comparing(TitleSearchResponse::releaseDate,
-				Comparator.nullsLast(Comparator.naturalOrder())))
+		// Unreleased parts are excluded rather than badged (#272 scope choice):
+		// an announced sequel the user can't press play on isn't a suggestion.
+		// A null release date on a collection part means unannounced/undated —
+		// unwatchable either way, so it counts as unreleased (unlike #239's
+		// null-means-aired episode rule, where blocking would strand progress).
+		LocalDate today = LocalDate.now(clock);
+		List<TitleSearchResponse> released = parts.stream()
+			.filter(p -> p.releaseDate() != null && !p.releaseDate().isAfter(today))
+			.sorted(Comparator.comparing(TitleSearchResponse::releaseDate))
 			.toList();
-		List<TitleSearchResponse> shelf = fillShelf(ordered, seen, recencyWeights, false);
+		List<TitleSearchResponse> shelf = fillShelf(released, seen, Map.of(), false);
 		if (shelf.isEmpty()) return null;
 
 		String name = franchise.collectionName() != null ? franchise.collectionName() : "this series";

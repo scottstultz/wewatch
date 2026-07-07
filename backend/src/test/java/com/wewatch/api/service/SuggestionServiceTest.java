@@ -738,6 +738,45 @@ class SuggestionServiceTest {
 		assertThat(new HashSet<>(collectionId.getAllValues())).hasSizeGreaterThan(1);
 	}
 
+	@Test
+	void franchiseShelfKeepsReleaseOrderDespiteRecencyPenalties() {
+		// The earlier part was shown recently on some other shelf (full weight);
+		// under fillShelf's demotion it would sink below the later part, breaking
+		// chronology. The franchise shelf is exempt (#272) — release order is its
+		// whole ordering contract, and staying visible is the feature.
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(
+			moviePart("part-earlier", "2021-10-22"),
+			moviePart("part-later", "2024-11-01")));
+		when(suggestionImpressionService.recencyWeights(MEMBER_IDS))
+			.thenReturn(Map.of("part-earlier", 1.0));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).titles()).extracting(TitleSearchResponse::externalId)
+			.containsExactly("part-earlier", "part-later");
+	}
+
+	@Test
+	void unreleasedPartsAreExcludedFromTheFranchiseShelf() {
+		// A future-dated part can't be watched yet, and a date-less part is
+		// unannounced — neither is a suggestion the user can act on (#272).
+		// DAY_1 is 2026-07-03, so the 2027 part is unreleased.
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(
+			moviePart("part-released", "2024-11-01"),
+			moviePart("part-future", "2027-06-01"),
+			new TitleSearchResponse("part-undated", "TMDB", TitleType.MOVIE, "Part part-undated",
+				null, null, null, List.of())));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).titles()).extracting(TitleSearchResponse::externalId)
+			.containsExactly("part-released");
+	}
+
 	// One WATCHED movie with a cached collection id/name: no genres, no people,
 	// empty seed feeds — only the franchise shelf can fill
 	private void stubWatchedMovieWithCollection(String externalId, int collectionId, String collectionName) {
