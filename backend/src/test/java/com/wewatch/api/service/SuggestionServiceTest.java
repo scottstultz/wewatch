@@ -154,12 +154,13 @@ class SuggestionServiceTest {
 	}
 
 	@Test
-	void rankingRotatesAcrossDaysWhenCandidateScoresAreUnequal() {
+	void aDominantScoreCandidateRanksFirstEveryDay() {
 		// One WATCHING seed (ext1, genre 10 → weight 2) and one WANT_TO_WATCH title
-		// (ext2, genre 11 → weight 1) build a graded genre profile. The seed's
-		// candidates carry distinct affinities (0/1/2/3) whose gaps fall within the
-		// ±1.0 score jitter (#248) band, so day-to-day ordering must change even
-		// though the underlying scores are unequal — not just among tied candidates.
+		// (ext2, genre 11 → weight 1) build a sparse graded profile with candidate
+		// affinities 0/1/2/3. The proportional jitter (#267) gives the score-3 duals
+		// ±0.45 and the score-2 singles ±0.3, so the strongest match tops the shelf
+		// every single day — under the old flat ±1.0 band (#248) the daily noise
+		// rivaled the whole signal and a weaker candidate could take first place.
 		List<WatchlistEntry> entries = List.of(
 			entry(1, "ext1", WatchStatus.WATCHING),
 			entry(2, "ext2", WatchStatus.WANT_TO_WATCH));
@@ -181,11 +182,60 @@ class SuggestionServiceTest {
 		}
 		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
 
-		List<String> day1 = seededShelfOrder(serviceAt(DAY_1).topPicks(WATCHLIST_ID));
-		List<String> day2 = seededShelfOrder(serviceAt(DAY_2).topPicks(WATCHLIST_ID));
+		for (int d = 0; d < 30; d++) {
+			List<String> order = seededShelfOrder(
+				serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID));
+			assertThat(order).isNotEmpty();
+			assertThat(order.get(0)).startsWith("hit-both-");
+		}
+	}
 
-		assertThat(day1).isNotEmpty();
-		assertThat(day2).isNotEqualTo(day1);
+	@Test
+	void nearScoreCandidatesReorderAcrossDaysOnAHeavyProfile() {
+		// Genre 10 carries weight 8 (one WATCHING seed plus three WATCHED titles)
+		// and genre 11 weight 1 (WANT_TO_WATCH). The strong candidate scores 9
+		// (jitter ±1.35) against the close one's 8 (±1.2): a gap of one inside the
+		// proportional band (#267), so the pair must swap order on some day — the
+		// daily rotation still reorders near-peers, not just exact ties.
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED),
+			entry(3, "ext3", WatchStatus.WATCHED),
+			entry(4, "ext4", WatchStatus.WATCHED),
+			entry(5, "ext5", WatchStatus.WANT_TO_WATCH));
+		Map<Long, Title> titles = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> title(i, "ext" + i))
+			.collect(Collectors.toMap(Title::getId, Function.identity()));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(titles);
+		stubCacheRows(Map.of(
+			"ext1", cacheRow("ext1", List.of(10), null),
+			"ext2", cacheRow("ext2", List.of(10), null),
+			"ext3", cacheRow("ext3", List.of(10), null),
+			"ext4", cacheRow("ext4", List.of(10), null),
+			"ext5", cacheRow("ext5", List.of(11), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(scored("strong", List.of(10, 11))); // score 9
+		candidates.add(scored("close", List.of(10)));      // score 8
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		boolean strongFirst = false;
+		boolean closeFirst = false;
+		for (int d = 0; d < 30 && !(strongFirst && closeFirst); d++) {
+			List<String> order = seededShelfOrder(
+				serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID));
+			assertThat(order).isNotEmpty();
+			if (order.indexOf("strong") < order.indexOf("close")) {
+				strongFirst = true;
+			} else {
+				closeFirst = true;
+			}
+		}
+		assertThat(strongFirst).isTrue();
+		assertThat(closeFirst).isTrue();
 	}
 
 	@Test
@@ -204,8 +254,9 @@ class SuggestionServiceTest {
 	void watchedTitlesContributeToGenreProfileScoring() {
 		// One WATCHING seed with no cached metadata, one WATCHED entry whose cached
 		// genres (97/98/99) are the only source for the taste profile. The gap is
-		// several genres wide so it clears the ±1.0 score jitter (#248) and the hit
-		// still ranks first deterministically.
+		// several genres wide so it clears the proportional score jitter (#248/#267,
+		// ±0.9 at score 6 vs the fillers' ±0.25 floor) and the hit still ranks
+		// first deterministically.
 		List<WatchlistEntry> entries = List.of(
 			entry(1, "ext1", WatchStatus.WATCHING),
 			entry(2, "ext2", WatchStatus.WATCHED));
@@ -367,7 +418,7 @@ class SuggestionServiceTest {
 	@Test
 	void recencyPenaltyDecaysFromYesterdayToTheWindowEdge() {
 		// A graded profile (genres 10–13, weight 2 each) pins the base ranking beyond
-		// the ±1.0 jitter: shown-yesterday (affinity 8) ranks first, shown-week-ago
+		// the proportional jitter: shown-yesterday (affinity 8) ranks first, shown-week-ago
 		// (affinity 4) second, zero-affinity fillers after. The penalty then sinks
 		// yesterday's title below every fresh candidate despite its top affinity,
 		// while the window-edge title only slips a couple of positions (#264).
@@ -671,7 +722,7 @@ class SuggestionServiceTest {
 		stubCacheRows(Map.of("ext1", cacheRow("ext1", List.of(10, 11), null)));
 
 		// Pures score 4 (genres 10+11, weight 2 each), the dual scores 0 — a gap
-		// beyond the ±1.0 jitter, so exactly four pures rank ahead of the dual
+		// beyond the proportional jitter, so exactly four pures rank ahead of the dual
 		List<TitleSearchResponse> candidates = new ArrayList<>();
 		IntStream.rangeClosed(1, 8).forEach(i -> candidates.add(scored("pure-" + i, List.of(10, 11, 50))));
 		candidates.add(scored("dual", List.of(50, 60)));
@@ -776,7 +827,7 @@ class SuggestionServiceTest {
 	void catchAllRanksPooledCandidatesByTasteProfile() {
 		// The pooled shelf reuses the taste-profile scoring: the owned title's
 		// cached genres 10–13 (weight 2 each) give the hit affinity 8, clear of
-		// the ±1.0 jitter, so it ranks first among the pooled leftovers (#266)
+		// the proportional jitter, so it ranks first among the pooled leftovers (#266)
 		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHING));
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
