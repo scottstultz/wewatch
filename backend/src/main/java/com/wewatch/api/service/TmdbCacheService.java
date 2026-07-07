@@ -3,6 +3,8 @@ package com.wewatch.api.service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +25,10 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TmdbEpisodeCacheRepository;
 import com.wewatch.api.repository.TmdbSeasonCacheRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
+import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
@@ -35,6 +40,10 @@ import com.wewatch.api.tmdb.TmdbTvSeason;
 public class TmdbCacheService {
 
 	private static final Logger log = LoggerFactory.getLogger(TmdbCacheService.class);
+
+	// Top-billed cast kept per title (#269): enough to catch the leads a user
+	// follows without turning every ensemble piece into a people-graph hub
+	private static final int TOP_CAST_LIMIT = 5;
 
 	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository titleCacheRepository;
@@ -153,6 +162,7 @@ public class TmdbCacheService {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
 		}
 		row.setVoteCount(detail.voteCount());
+		applyCredits(row, detail.credits());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
 		upsertSeasonCache(tmdbId, detail.seasons());
@@ -207,8 +217,32 @@ public class TmdbCacheService {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
 		}
 		row.setVoteCount(detail.voteCount());
+		applyCredits(row, detail.credits());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
+	}
+
+	// Credits arrive on the same detail call via append_to_response (#269). A null
+	// credits block (TMDB omission) keeps whatever the row already has, matching
+	// how null genres are treated above.
+	private void applyCredits(TmdbTitleCache row, TmdbCredits credits) {
+		if (credits == null) return;
+		if (credits.cast() != null) {
+			row.setTopCast(credits.cast().stream()
+				.sorted(Comparator.comparing(TmdbCastMember::order,
+					Comparator.nullsLast(Comparator.naturalOrder())))
+				.limit(TOP_CAST_LIMIT)
+				.map(c -> new CachedPerson((int) c.id(), c.name()))
+				.toList());
+		}
+		if (credits.crew() != null) {
+			// Distinct by id: multi-part directing credits repeat the same person
+			Map<Integer, CachedPerson> directors = new LinkedHashMap<>();
+			credits.crew().stream()
+				.filter(c -> "Director".equals(c.job()))
+				.forEach(c -> directors.putIfAbsent((int) c.id(), new CachedPerson((int) c.id(), c.name())));
+			row.setDirectors(List.copyOf(directors.values()));
+		}
 	}
 
 	private void upsertEpisodeCache(String tmdbId, int seasonNumber, TmdbTvSeason season) {

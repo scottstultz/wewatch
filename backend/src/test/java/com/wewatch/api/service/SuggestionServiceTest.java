@@ -41,6 +41,7 @@ import org.springframework.data.domain.Pageable;
 
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -363,6 +364,119 @@ class SuggestionServiceTest {
 	}
 
 	@Test
+	void sharedTopPersonOutranksAnOtherwiseEqualCandidate() {
+		// Person 500 recurs across two owned titles — at the recurrence floor, so
+		// they enter the person profile (#269). The candidate whose cache row shares
+		// them gets the 3.0 person boost, which clears the jitter floor (±0.25 for
+		// the signal-less peers, ±0.45 for the boosted one) on every day.
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WANT_TO_WATCH));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of(
+			"ext1", personRow("ext1", List.of(new CachedPerson(500, "Ana de Armas")), null),
+			"ext2", personRow("ext2", List.of(new CachedPerson(500, "Ana de Armas")), null),
+			"rec-person", personRow("rec-person", List.of(new CachedPerson(500, "Ana de Armas")), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(candidate("rec-plain"));
+		candidates.add(candidate("rec-person"));
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PER_SEED);
+			assertThat(shelf.titles().get(0).externalId()).isEqualTo("rec-person");
+		});
+	}
+
+	@Test
+	void aSingleAppearancePersonBuildsNoProfileOrShelf() {
+		// Every person appears in exactly one owned title: below the recurrence
+		// floor, so no person shelf is attempted no matter which exploration kinds
+		// the daily rotation tries (#269)
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WANT_TO_WATCH));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of(
+			"ext1", personRow("ext1", List.of(new CachedPerson(500, "Ana de Armas")), null),
+			"ext2", personRow("ext2", List.of(new CachedPerson(501, "Oscar Isaac")), null)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		for (int d = 0; d < 10; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, never()).discoverByPerson(anyInt(), anyInt(), anyInt());
+	}
+
+	@Test
+	void personShelfIsLabeledWithTheRecurringActor() {
+		// The recurring actor is the only signal that can fill a shelf: no genres,
+		// empty recommendation feeds, empty trending — the PERSON kind gets its
+		// exploration slot and the label carries the person's name (#269)
+		stubWatchlistWithRecurringPerson(
+			List.of(new CachedPerson(500, "Ana de Armas")), null);
+		when(tmdbClient.discoverByPerson(eq(500), anyInt(), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("p-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PERSON);
+		assertThat(shelves.get(0).reason()).isEqualTo("More with Ana de Armas");
+		assertThat(shelves.get(0).titles()).hasSize(12);
+		// Movie-only discover, modest vote floor, always page 1 (#269)
+		verify(tmdbClient).discoverByPerson(500, 50, 1);
+	}
+
+	@Test
+	void personShelfSaysDirectedByForARecurringDirector() {
+		stubWatchlistWithRecurringPerson(
+			null, List.of(new CachedPerson(525, "Denis Villeneuve")));
+		when(tmdbClient.discoverByPerson(eq(525), anyInt(), anyInt()))
+			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("p-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.PERSON);
+		assertThat(shelves.get(0).reason()).isEqualTo("Directed by Denis Villeneuve");
+	}
+
+	// Two owned titles sharing the given cast/directors (clearing the recurrence
+	// floor) and nothing else: no genres, no keywords, empty seed feeds — only the
+	// PERSON exploration kind can produce a shelf
+	private void stubWatchlistWithRecurringPerson(List<CachedPerson> topCast, List<CachedPerson> directors) {
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WANT_TO_WATCH));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of(
+			"ext1", personRow("ext1", topCast, directors),
+			"ext2", personRow("ext2", topCast, directors)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+	}
+
+	private TmdbTitleCache personRow(String tmdbId, List<CachedPerson> topCast, List<CachedPerson> directors) {
+		TmdbTitleCache c = new TmdbTitleCache();
+		c.setTmdbId(tmdbId);
+		c.setTopCast(topCast);
+		c.setDirectors(directors);
+		return c;
+	}
+
+	@Test
 	void dismissedTitlesAreExcludedFromEveryShelf() {
 		stubPopulatedWatchlist();
 		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
@@ -648,7 +762,8 @@ class SuggestionServiceTest {
 		Set<SuggestionShelfResponse.ShelfKind> exploration = Set.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
 			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
-			SuggestionShelfResponse.ShelfKind.TRENDING);
+			SuggestionShelfResponse.ShelfKind.TRENDING,
+			SuggestionShelfResponse.ShelfKind.PERSON);
 		assertThat(shelves.stream().filter(s -> exploration.contains(s.kind()))).hasSize(2);
 		// Exploration shelves sit at the end, after every similarity shelf
 		int firstExploration = IntStream.range(0, shelves.size())

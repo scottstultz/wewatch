@@ -15,5 +15,6 @@ public record TmdbMovieDetail(
 	@JsonProperty("release_date") String releaseDate,
 	List<TmdbGenre> genres,
 	@JsonProperty("vote_average") Double voteAverage,
-	@JsonProperty("vote_count") Integer voteCount
+	@JsonProperty("vote_count") Integer voteCount,
+	TmdbCredits credits
 ) {}

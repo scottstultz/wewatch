@@ -123,6 +123,7 @@ export type ShelfKind =
   | 'NEW_RELEASES'
   | 'HIDDEN_GEMS'
   | 'TRENDING'
+  | 'PERSON'
 
 export interface SuggestionShelf {
   reason: string

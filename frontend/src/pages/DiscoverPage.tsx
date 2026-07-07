@@ -30,6 +30,7 @@ const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
   NEW_RELEASES: 4,
   HIDDEN_GEMS: 4,
   TRENDING: 4,
+  PERSON: 4,
 }
 
 interface TitleCardProps {

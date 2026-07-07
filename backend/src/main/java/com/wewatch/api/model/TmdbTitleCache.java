@@ -50,6 +50,14 @@ public class TmdbTitleCache {
 	@Column(name = "vote_count")
 	private Integer voteCount;
 
+	@Convert(converter = CachedPersonListConverter.class)
+	@Column(name = "top_cast", columnDefinition = "TEXT")
+	private List<CachedPerson> topCast;
+
+	@Convert(converter = CachedPersonListConverter.class)
+	@Column(name = "directors", columnDefinition = "TEXT")
+	private List<CachedPerson> directors;
+
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
 
@@ -88,6 +96,12 @@ public class TmdbTitleCache {
 
 	public Integer getVoteCount() { return voteCount; }
 	public void setVoteCount(Integer voteCount) { this.voteCount = voteCount; }
+
+	public List<CachedPerson> getTopCast() { return topCast; }
+	public void setTopCast(List<CachedPerson> topCast) { this.topCast = topCast; }
+
+	public List<CachedPerson> getDirectors() { return directors; }
+	public void setDirectors(List<CachedPerson> directors) { this.directors = directors; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }
