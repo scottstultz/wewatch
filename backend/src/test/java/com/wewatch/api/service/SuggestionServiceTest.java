@@ -608,6 +608,161 @@ class SuggestionServiceTest {
 		return c;
 	}
 
+	// ── franchise-continuation shelf (#272) ────────────────────
+
+	@Test
+	void franchiseShelfIsLabeledWithTheCollectionNameAndOrderedByReleaseDate() {
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(
+			moviePart("part-later", "2024-11-01"),
+			moviePart("part-earlier", "2021-10-22")));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.FRANCHISE);
+		assertThat(shelves.get(0).reason()).isEqualTo("Next in the Dune Collection");
+		assertThat(shelves.get(0).titles()).extracting(TitleSearchResponse::externalId)
+			.containsExactly("part-earlier", "part-later");
+	}
+
+	@Test
+	void ownedPartsAreExcludedFromTheFranchiseShelf() {
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		// The seed movie itself comes back as one of the collection's parts —
+		// already in the watchlist, so it must not double up on the shelf
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(
+			moviePart("ext1", "2021-10-22"),
+			moviePart("part-later", "2024-11-01")));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).titles()).extracting(TitleSearchResponse::externalId)
+			.containsExactly("part-later");
+	}
+
+	@Test
+	void aSingleRemainingPartStillBuildsAFranchiseShelf() {
+		// Acceptance criteria (#272): a lone remaining sequel is still the single
+		// best suggestion available — no MIN_SHELF_SIZE floor like other shelves
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(moviePart("part-later", "2024-11-01")));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		assertThat(shelves.get(0).titles()).hasSize(1);
+	}
+
+	@Test
+	void franchiseShelfDisappearsOnceTheCollectionIsComplete() {
+		stubWatchedMovieWithCollection("ext1", 10, "Dune Collection");
+		// Every part TMDB knows about is already owned
+		when(tmdbClient.getCollectionParts(10)).thenReturn(List.of(moviePart("ext1", "2021-10-22")));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).noneMatch(s -> s.kind() == SuggestionShelfResponse.ShelfKind.FRANCHISE);
+	}
+
+	@Test
+	void noCachedCollectionBuildsNoFranchiseShelf() {
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		Title movie = title(1, "ext1");
+		movie.setType(TitleType.MOVIE);
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie));
+		stubCacheRows(Map.of("ext1", cacheRow("ext1", null, null)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		verify(tmdbClient, never()).getCollectionParts(anyInt());
+	}
+
+	@Test
+	void wantToWatchEntriesDoNotSeedAFranchiseShelf() {
+		// Franchise continuation is a completed-interest signal (#272), not a
+		// taste-profile one — only WATCHED/WATCHING entries qualify
+		List<WatchlistEntry> entries = List.of(entry(1, "ext1", WatchStatus.WANT_TO_WATCH));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		Title movie = title(1, "ext1");
+		movie.setType(TitleType.MOVIE);
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie));
+		stubCacheRows(Map.of("ext1", collectionRow("ext1", 10, "Dune Collection")));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+
+		serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		verify(tmdbClient, never()).getCollectionParts(anyInt());
+	}
+
+	@Test
+	void franchiseShelfRotatesAcrossDaysButIsStableWithinADay() {
+		// Three owned movies from different collections, tied at one appearance
+		// each: the day-seeded draw must reach more than one across days, while
+		// two computes on the same day pick the same collection (#231/#272)
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHED),
+			entry(2, "ext2", WatchStatus.WATCHED),
+			entry(3, "ext3", WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		Title movie1 = title(1, "ext1");
+		movie1.setType(TitleType.MOVIE);
+		Title movie2 = title(2, "ext2");
+		movie2.setType(TitleType.MOVIE);
+		Title movie3 = title(3, "ext3");
+		movie3.setType(TitleType.MOVIE);
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie1, 2L, movie2, 3L, movie3));
+		stubCacheRows(Map.of(
+			"ext1", collectionRow("ext1", 10, "Dune Collection"),
+			"ext2", collectionRow("ext2", 20, "John Wick Collection"),
+			"ext3", collectionRow("ext3", 30, "The Matrix Collection")));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.getCollectionParts(anyInt())).thenAnswer(inv ->
+			List.of(moviePart("part-" + inv.getArgument(0), "2024-01-01")));
+
+		assertThat(serviceAt(DAY_1).topPicks(WATCHLIST_ID))
+			.isEqualTo(serviceAt(DAY_1).topPicks(WATCHLIST_ID));
+
+		for (int d = 0; d < 15; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<Integer> collectionId = ArgumentCaptor.forClass(Integer.class);
+		verify(tmdbClient, atLeastOnce()).getCollectionParts(collectionId.capture());
+		assertThat(new HashSet<>(collectionId.getAllValues())).hasSizeGreaterThan(1);
+	}
+
+	// One WATCHED movie with a cached collection id/name: no genres, no people,
+	// empty seed feeds — only the franchise shelf can fill
+	private void stubWatchedMovieWithCollection(String externalId, int collectionId, String collectionName) {
+		List<WatchlistEntry> entries = List.of(entry(1, externalId, WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		Title movie = title(1, externalId);
+		movie.setType(TitleType.MOVIE);
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie));
+		stubCacheRows(Map.of(externalId, collectionRow(externalId, collectionId, collectionName)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+	}
+
+	private TmdbTitleCache collectionRow(String tmdbId, int collectionId, String collectionName) {
+		TmdbTitleCache c = cacheRow(tmdbId, null, null);
+		c.setCollectionId(collectionId);
+		c.setCollectionName(collectionName);
+		return c;
+	}
+
+	private TitleSearchResponse moviePart(String externalId, String releaseDate) {
+		return new TitleSearchResponse(externalId, "TMDB", TitleType.MOVIE, "Part " + externalId,
+			null, LocalDate.parse(releaseDate), null, List.of());
+	}
+
 	@Test
 	void dismissedTitlesAreExcludedFromEveryShelf() {
 		stubPopulatedWatchlist();

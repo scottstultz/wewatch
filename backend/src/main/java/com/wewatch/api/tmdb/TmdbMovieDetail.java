@@ -17,5 +17,6 @@ public record TmdbMovieDetail(
 	@JsonProperty("vote_average") Double voteAverage,
 	@JsonProperty("vote_count") Integer voteCount,
 	TmdbCredits credits,
-	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders
+	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders,
+	@JsonProperty("belongs_to_collection") TmdbCollectionRef belongsToCollection
 ) {}

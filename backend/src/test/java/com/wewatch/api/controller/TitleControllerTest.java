@@ -150,7 +150,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action")),
 			8.2, 25000, null, null
-		));
+		, null));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
 			candidate.setId(1L);
@@ -634,7 +634,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
 			8.2, 25000, null, null
-		));
+		, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -671,7 +671,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		));
+		, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -699,7 +699,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		));
+		, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")

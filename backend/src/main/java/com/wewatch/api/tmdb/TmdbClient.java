@@ -116,7 +116,7 @@ public class TmdbClient {
 				.uri("/3/movie/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}
@@ -263,6 +263,23 @@ public class TmdbClient {
 				: response.results() != null ? response.results() : List.of();
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB keywords failed: " + e.getMessage(), e);
+		}
+	}
+
+	// Franchise-continuation shelf (#272): one call per compute, cacheable by
+	// TMDB's own CDN. Parts share TmdbItem's shape (movie search-result fields),
+	// so the same toResponse conversion applies; the seed movie itself is
+	// filtered out downstream by the suggestion pipeline's "owned" dedup set.
+	public List<TitleSearchResponse> getCollectionParts(int collectionId) {
+		try {
+			TmdbCollectionDetail detail = restClient.get()
+				.uri("/3/collection/{id}?language=en-US", collectionId)
+				.retrieve()
+				.body(TmdbCollectionDetail.class);
+			List<TmdbItem> parts = detail != null && detail.parts() != null ? detail.parts() : List.of();
+			return parts.stream().map(item -> toResponse(item, TitleType.MOVIE)).toList();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB get collection failed: " + e.getMessage(), e);
 		}
 	}
 

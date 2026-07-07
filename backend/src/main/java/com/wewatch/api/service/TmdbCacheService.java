@@ -30,6 +30,7 @@ import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbCollectionRef;
 import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
@@ -228,8 +229,20 @@ public class TmdbCacheService {
 		row.setVoteCount(detail.voteCount());
 		applyCredits(row, detail.credits());
 		applyWatchProviders(row, detail.watchProviders());
+		applyCollection(row, detail.belongsToCollection());
 		row.setFetchedAt(Instant.now());
 		titleCacheRepository.save(row);
+	}
+
+	// Franchise-continuation shelf (#272): belongs_to_collection rides the same
+	// movie detail call, no extra request. TV has no collections, so this is
+	// only called from upsertMovieCache. A null block (not part of a franchise,
+	// or TMDB omission) keeps whatever the row already has, matching credits
+	// and watch providers above.
+	private void applyCollection(TmdbTitleCache row, TmdbCollectionRef collection) {
+		if (collection == null) return;
+		row.setCollectionId(collection.id());
+		row.setCollectionName(collection.name());
 	}
 
 	// Credits arrive on the same detail call via append_to_response (#269). A null
