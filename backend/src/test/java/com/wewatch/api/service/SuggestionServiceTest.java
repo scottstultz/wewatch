@@ -60,6 +60,7 @@ class SuggestionServiceTest {
 	@Mock private TmdbClient tmdbClient;
 	@Mock private TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	@Mock private SuggestionImpressionService suggestionImpressionService;
+	@Mock private SuggestionDismissalService suggestionDismissalService;
 
 	private static final long WATCHLIST_ID = 42L;
 	// The watchlist's members — suppression is scoped to these users, not the list (#247)
@@ -70,7 +71,7 @@ class SuggestionServiceTest {
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
 			watchlistEntryRepository, watchlistMemberRepository, titleService, tmdbClient,
-			tmdbTitleCacheRepository, suggestionImpressionService,
+			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
 			Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
 	}
 
@@ -359,6 +360,58 @@ class SuggestionServiceTest {
 		List<TitleSearchResponse> shelf = shelves.get(0).titles();
 		assertThat(shelf.get(0).externalId()).isEqualTo("rec-keyword");
 		assertThat(shelf.get(1).externalId()).isEqualTo("rec-genre");
+	}
+
+	@Test
+	void dismissedTitlesAreExcludedFromEveryShelf() {
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		// One dismissed candidate per potential seed: unlike the recency penalty,
+		// a dismissal is a hard exclusion (#268) — the title never enters a shelf,
+		// no matter how thin the pool
+		Set<String> dismissed = IntStream.rangeClosed(1, 5)
+			.mapToObj(i -> "rec-ext" + i + "-1")
+			.collect(Collectors.toSet());
+		when(suggestionDismissalService.dismissedTmdbIds(MEMBER_IDS)).thenReturn(dismissed);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).isNotEmpty();
+		assertThat(shelves).allSatisfy(shelf -> {
+			// The shelf still fills from the remaining pool, minus the dismissed title
+			assertThat(shelf.titles()).hasSize(11);
+			assertThat(shelf.titles().stream().map(TitleSearchResponse::externalId))
+				.noneMatch(dismissed::contains);
+		});
+	}
+
+	@Test
+	void aDismissalFromOneMemberExcludesTheTitleForTheSharedList() {
+		// compute asks for the union over MEMBER_IDS (#247's scoping rule), so a
+		// title only one member dismissed is in the returned set and never served
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		verify(suggestionDismissalService).dismissedTmdbIds(MEMBER_IDS);
+	}
+
+	@Test
+	void evictForUserDropsCachedShelvesForEveryListTheUserBelongsTo() {
+		stubEmptyWatchlist();
+		when(watchlistMemberRepository.findWatchlistIdsByUserId(7L)).thenReturn(List.of(WATCHLIST_ID));
+		SuggestionService service = serviceAt(DAY_1);
+
+		service.topPicks(WATCHLIST_ID);
+		service.evictForUser(7L);
+		service.topPicks(WATCHLIST_ID);
+
+		// The second read recomputes instead of serving the pre-dismissal cache
+		verify(watchlistEntryRepository, times(2))
+			.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class));
 	}
 
 	@Test

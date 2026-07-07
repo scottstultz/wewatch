@@ -26,6 +26,9 @@ public interface WatchlistMemberRepository extends JpaRepository<WatchlistMember
 	@Query("SELECT m.id.userId FROM WatchlistMember m WHERE m.id.watchlistId = :watchlistId")
 	List<Long> findUserIdsByWatchlistId(@Param("watchlistId") Long watchlistId);
 
+	@Query("SELECT m.id.watchlistId FROM WatchlistMember m WHERE m.id.userId = :userId")
+	List<Long> findWatchlistIdsByUserId(@Param("userId") Long userId);
+
 	@Modifying
 	@Query("UPDATE WatchlistMember m SET m.isDefault = false WHERE m.id.userId = :userId AND m.isDefault = true")
 	void clearDefault(@Param("userId") Long userId);

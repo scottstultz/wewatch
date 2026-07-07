@@ -1,9 +1,14 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -17,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -29,6 +35,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.SuggestionDismissalService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.service.WatchlistService;
@@ -43,6 +50,9 @@ class SuggestionControllerTest {
 
 	@MockBean
 	private SuggestionService suggestionService;
+
+	@MockBean
+	private SuggestionDismissalService suggestionDismissalService;
 
 	@MockBean
 	private WatchlistService watchlistService;
@@ -112,6 +122,53 @@ class SuggestionControllerTest {
 	@Test
 	void getSuggestionsRequiresAuthentication() throws Exception {
 		mockMvc.perform(get("/api/suggestions?watchlistId=42"))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void dismissRecordsForTheCallerAndEvictsTheirCachedShelves() throws Exception {
+		mockMvc.perform(post("/api/suggestions/dismissals")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"tmdbId\": \"1234\"}"))
+			.andExpect(status().isNoContent());
+
+		verify(suggestionDismissalService).dismiss(1L, "1234");
+		verify(suggestionService).evictForUser(1L);
+	}
+
+	@Test
+	void dismissRejectsABlankTmdbId() throws Exception {
+		mockMvc.perform(post("/api/suggestions/dismissals")
+				.header("Authorization", "Bearer test-token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"tmdbId\": \"\"}"))
+			.andExpect(status().isBadRequest());
+
+		verify(suggestionDismissalService, never()).dismiss(any(), anyString());
+	}
+
+	@Test
+	void dismissRequiresAuthentication() throws Exception {
+		mockMvc.perform(post("/api/suggestions/dismissals")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"tmdbId\": \"1234\"}"))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void undoDismissalDeletesForTheCallerAndEvictsTheirCachedShelves() throws Exception {
+		mockMvc.perform(delete("/api/suggestions/dismissals/1234")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isNoContent());
+
+		verify(suggestionDismissalService).undismiss(1L, "1234");
+		verify(suggestionService).evictForUser(1L);
+	}
+
+	@Test
+	void undoDismissalRequiresAuthentication() throws Exception {
+		mockMvc.perform(delete("/api/suggestions/dismissals/1234"))
 			.andExpect(status().isUnauthorized());
 	}
 }
