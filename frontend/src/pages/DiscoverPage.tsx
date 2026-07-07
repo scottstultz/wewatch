@@ -21,9 +21,11 @@ function cardKey(title: TitleSearchResponse) {
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
 
-// Similarity shelves first, the pooled catch-all after them (#266), exploration
-// shelves last (#235); ties keep backend order
+// Franchise continuation first — the highest-precision suggestion class (#272)
+// outranks everything else. Similarity shelves next, the pooled catch-all
+// after them (#266), exploration shelves last (#235); ties keep backend order
 const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
+  FRANCHISE: -1,
   GENRE_PROFILE: 0,
   PER_SEED: 1,
   FINISHED_SEED: 2,

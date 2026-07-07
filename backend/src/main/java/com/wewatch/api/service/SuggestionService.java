@@ -268,6 +268,20 @@ public class SuggestionService {
 		// within a day and rotate at midnight for free (#231)
 		Random rng = new Random(Objects.hash(watchlistId, LocalDate.now(clock).toEpochDay()));
 
+		// ── Franchise-continuation shelf (#272) ───────────────────
+		// Franchise continuation is the highest-precision suggestion class
+		// available: a remaining part of a series the user already started.
+		// Built first so it gets first pick of the seen-dedup set, ahead of
+		// generic per-seed/genre/exploration candidates. Rotates across
+		// qualifying collections daily like the exploration kinds, but isn't
+		// capped by MAX_EXPLORATION_SHELVES or gated by MIN_SHELF_SIZE — even a
+		// single remaining sequel outranks a full shelf of generic candidates.
+		SuggestionShelfResponse franchiseShelf =
+			buildFranchiseShelf(allEntries, titlesById, cacheByTmdbId, seen, recencyWeights, rng);
+		if (franchiseShelf != null) {
+			shelves.add(franchiseShelf);
+		}
+
 		// ── Per-seed shelves ───────────────────────────────────────
 		// Sort by id before shuffling: repository ordering isn't guaranteed, and the
 		// shuffle must see the same input order to be reproducible within a day
@@ -933,6 +947,71 @@ public class SuggestionService {
 			.limit(MAX_KEYWORDS)
 			.map(e -> new KeywordAffinity(e.getKey(), names.get(e.getKey())))
 			.toList();
+	}
+
+	// A TMDB collection the user has started (#272): id feeds the /collection/{id}
+	// call, name labels the shelf.
+	private record FranchiseCandidate(int collectionId, String collectionName) {}
+
+	// WATCHED/WATCHING movie entries with a cached collection id (#272).
+	// WANT_TO_WATCH is excluded — franchise continuation is a completed-interest
+	// signal, not a taste-profile one. Ties break by id so the daily rng never
+	// touches candidate construction (#231), matching the person/keyword profiles.
+	private List<FranchiseCandidate> buildFranchiseCandidates(
+		List<WatchlistEntry> entries,
+		Map<Long, Title> titlesById,
+		Map<String, TmdbTitleCache> cacheByTmdbId
+	) {
+		Map<Integer, String> collections = new HashMap<>();
+		for (WatchlistEntry e : entries) {
+			if (e.getStatus() != WatchStatus.WATCHED && e.getStatus() != WatchStatus.WATCHING) continue;
+			Title t = titlesById.get(e.getTitleId());
+			if (t == null || t.getType() != TitleType.MOVIE || t.getExternalId() == null) continue;
+			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
+			if (cached == null || cached.getCollectionId() == null) continue;
+			collections.putIfAbsent(cached.getCollectionId(), cached.getCollectionName());
+		}
+		return collections.entrySet().stream()
+			.map(en -> new FranchiseCandidate(en.getKey(), en.getValue()))
+			.sorted(Comparator.comparingInt(FranchiseCandidate::collectionId))
+			.toList();
+	}
+
+	// One TMDB call when a qualifying collection exists, none otherwise (#272's
+	// call-budget requirement). Parts are ordered by release date — the
+	// franchise itself is the coherence axis, so no genre diversification and
+	// no taste-profile re-ranking, just chronology. Owned parts fall out via the
+	// shared seen-dedup set in fillShelf; no MIN_SHELF_SIZE floor, since a
+	// single remaining sequel is still the single best suggestion available.
+	private SuggestionShelfResponse buildFranchiseShelf(
+		List<WatchlistEntry> allEntries,
+		Map<Long, Title> titlesById,
+		Map<String, TmdbTitleCache> cacheByTmdbId,
+		Set<String> seen,
+		Map<String, Double> recencyWeights,
+		Random rng
+	) {
+		List<FranchiseCandidate> candidates = buildFranchiseCandidates(allEntries, titlesById, cacheByTmdbId);
+		if (candidates.isEmpty()) return null;
+
+		FranchiseCandidate franchise = candidates.get(rng.nextInt(candidates.size()));
+		List<TitleSearchResponse> parts;
+		try {
+			parts = tmdbClient.getCollectionParts(franchise.collectionId());
+		} catch (TmdbApiException e) {
+			log.warn("Franchise shelf failed for collection {}: {}", franchise.collectionId(), e.getMessage());
+			return null;
+		}
+
+		List<TitleSearchResponse> ordered = parts.stream()
+			.sorted(Comparator.comparing(TitleSearchResponse::releaseDate,
+				Comparator.nullsLast(Comparator.naturalOrder())))
+			.toList();
+		List<TitleSearchResponse> shelf = fillShelf(ordered, seen, recencyWeights, false);
+		if (shelf.isEmpty()) return null;
+
+		String name = franchise.collectionName() != null ? franchise.collectionName() : "this series";
+		return new SuggestionShelfResponse("Next in the " + name, shelf, SuggestionShelfResponse.ShelfKind.FRANCHISE);
 	}
 
 	// "space race" → "Space race stories" / "heist" → "Heist movies": TMDB keyword

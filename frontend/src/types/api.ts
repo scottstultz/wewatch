@@ -145,6 +145,7 @@ export type ShelfKind =
   | 'TRENDING'
   | 'PERSON'
   | 'KEYWORD'
+  | 'FRANCHISE'
 
 export interface SuggestionShelf {
   reason: string

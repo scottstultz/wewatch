@@ -73,6 +73,14 @@ public class TmdbTitleCache {
 	@Column(name = "watch_providers", columnDefinition = "TEXT")
 	private Map<String, List<Integer>> watchProviders;
 
+	// TMDB collection a movie belongs to (#272), for the "Next in the series"
+	// shelf. Movies only; TV rows leave both null.
+	@Column(name = "collection_id")
+	private Integer collectionId;
+
+	@Column(name = "collection_name", length = 255)
+	private String collectionName;
+
 	@Column(name = "fetched_at", nullable = false)
 	private Instant fetchedAt;
 
@@ -123,6 +131,12 @@ public class TmdbTitleCache {
 
 	public Map<String, List<Integer>> getWatchProviders() { return watchProviders; }
 	public void setWatchProviders(Map<String, List<Integer>> watchProviders) { this.watchProviders = watchProviders; }
+
+	public Integer getCollectionId() { return collectionId; }
+	public void setCollectionId(Integer collectionId) { this.collectionId = collectionId; }
+
+	public String getCollectionName() { return collectionName; }
+	public void setCollectionName(String collectionName) { this.collectionName = collectionName; }
 
 	public Instant getFetchedAt() { return fetchedAt; }
 	public void setFetchedAt(Instant fetchedAt) { this.fetchedAt = fetchedAt; }
