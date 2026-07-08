@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
+import com.wewatch.api.config.SuggestionTuningProperties;
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
@@ -106,20 +107,6 @@ public class SuggestionService {
 	private static final int HIDDEN_GEM_VOTE_COUNT_GTE = 200;
 	private static final String SORT_POPULARITY = "popularity.desc";
 	private static final String SORT_VOTE_AVERAGE = "vote_average.desc";
-	// A shared keyword is a much stronger similarity signal than a shared genre,
-	// which only ever contributes profileWeight (1–2) per genre
-	private static final double KEYWORD_MATCH_WEIGHT = 2.0;
-	// People-affinity signal (#269). A shared top-billed actor or director is the
-	// sharpest per-title signal in the profile — sharper than a keyword (2.0) and
-	// any single genre weight — but proportional jitter (#267) scales with it, so
-	// it biases rather than pins the ranking.
-	private static final double PERSON_MATCH_WEIGHT = 3.0;
-	// Streamability boost (#270) for candidates on feeds that can't take TMDB's
-	// provider filter (recommendations/similar/pooled). Below the person weight
-	// (availability is orthogonal to taste and shouldn't outrank the strongest
-	// taste signal) but above a keyword: a suggestion the user can actually
-	// press play on beats a marginally better-matched one they can't.
-	private static final double STREAMABLE_BOOST = 2.5;
 	private static final int MAX_PEOPLE = 5;
 	// One appearance is just a cast list; recurring across the user's titles is
 	// the "you keep watching this person" signal the shelf label claims
@@ -127,39 +114,6 @@ public class SuggestionService {
 	// A filmography includes shorts and bit parts; a modest floor keeps the
 	// person shelf to titles a general audience has actually seen
 	private static final int PERSON_SHELF_VOTE_COUNT_GTE = 50;
-	// Day-seeded ± offset added to each candidate's score so ranking rotates daily
-	// beyond exact ties (#248). Proportional to the candidate's base score (#267):
-	// rotation reorders near-peers while a clearly dominant score (2× the runner-up)
-	// stays on top every day, and the amplitude tracks the score scale by itself —
-	// profile weights are unnormalized sums, so scores grow with the watchlist and
-	// a flat amplitude was noise-dominant on sparse profiles and negligible on rich
-	// ones. The floor keeps zero/low-score candidates rotating among themselves
-	// without ever lifting them over a real (≥1) genre match.
-	private static final double SCORE_JITTER_FRACTION = 0.15;
-	private static final double SCORE_JITTER_FLOOR = 0.25;
-	// Thumbs ratings (#273): the taste profile's explicit half. A rated-up title
-	// outweighs any inferred status signal (WATCHED = 2), and a rated-down title
-	// contributes negative genre weight — the profile can finally steer *away*
-	// from territory the user has explicitly rejected, where before a finished-
-	// but-hated show strengthened its genres. Calibrated against proportional
-	// jitter (#267): the amplitude scales with the score, so a bigger positive
-	// weight biases rather than pins, and negative affinity survives the floor.
-	private static final double RATED_UP_PROFILE_WEIGHT = 4.0;
-	private static final double RATED_DOWN_PROFILE_WEIGHT = -2.0;
-	// Keyword/person profiles count one per title, not per status weight, so
-	// ratings enter them as a separate multiplier: a loved title counts double
-	// toward pushing its keywords/people into the top-N profile, a disliked one
-	// counts against them, and unrated titles keep the current 1-per-title rule.
-	private static final double RATED_UP_SIGNAL_WEIGHT = 2.0;
-	private static final double RATED_DOWN_SIGNAL_WEIGHT = -1.0;
-	private static final double UNRATED_SIGNAL_WEIGHT = 1.0;
-	// Soft recency penalty (#264), replacing #233's binary suppression. Applied in
-	// fillShelf — the one point both score-ranked seed feeds and order-only discover
-	// feeds flow through — as a positional demotion: a title shown yesterday sinks
-	// this many positions (past a full shelf, so it resurfaces only when the pool is
-	// thin), decaying linearly to ~2 positions at the window edge.
-	private static final double RECENCY_DEMOTION = 16.0;
-
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
 	private final UserRepository userRepository;
@@ -170,11 +124,12 @@ public class SuggestionService {
 	private final SuggestionDismissalService suggestionDismissalService;
 	private final TitleRatingService titleRatingService;
 	private final Clock clock;
-	// Recency decay for the taste profile (#274): an entry's contribution halves
-	// every half-life from its last touch, floored so history never zeroes out.
-	// Config-driven tunables alongside the other suggestion properties.
-	private final double profileHalfLifeDays;
-	private final double profileDecayFloor;
+	// The hand-tuned taste-profile constants (#288): profile weights, signal
+	// boosts, jitter shape, recency decay, and the positional recency demotion.
+	// Extracted to a @ConfigurationProperties class so the offline tuning
+	// harness (and production config) can inject a different set; defaults are
+	// the historical constant values, so unset properties change nothing.
+	private final SuggestionTuningProperties tuning;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
 	// horizontally, each node caches (and invalidates) independently, so recompute
@@ -192,10 +147,9 @@ public class SuggestionService {
 		SuggestionDismissalService suggestionDismissalService,
 		TitleRatingService titleRatingService,
 		Clock clock,
+		SuggestionTuningProperties tuning,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
-		@Value("${suggestions.cache.max-size}") long cacheMaxSize,
-		@Value("${suggestions.profile.half-life-days}") double profileHalfLifeDays,
-		@Value("${suggestions.profile.decay-floor}") double profileDecayFloor
+		@Value("${suggestions.cache.max-size}") long cacheMaxSize
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.watchlistMemberRepository = watchlistMemberRepository;
@@ -207,8 +161,7 @@ public class SuggestionService {
 		this.suggestionDismissalService = suggestionDismissalService;
 		this.titleRatingService = titleRatingService;
 		this.clock = clock;
-		this.profileHalfLifeDays = profileHalfLifeDays;
-		this.profileDecayFloor = profileDecayFloor;
+		this.tuning = tuning;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
 			.maximumSize(cacheMaxSize)
@@ -832,7 +785,8 @@ public class SuggestionService {
 		Map<String, Double> jitter = new HashMap<>();
 		for (TitleSearchResponse c : candidates) {
 			jitter.computeIfAbsent(c.externalId(), id -> {
-				double amplitude = Math.max(SCORE_JITTER_FLOOR, SCORE_JITTER_FRACTION * baseScore.applyAsDouble(c));
+				double amplitude = Math.max(tuning.getScoreJitterFloor(),
+					tuning.getScoreJitterFraction() * baseScore.applyAsDouble(c));
 				return (rng.nextDouble() * 2 - 1) * amplitude;
 			});
 		}
@@ -851,17 +805,17 @@ public class SuggestionService {
 		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
 			double boost = 0.0;
 			if (cached.getKeywordIds() != null) {
-				boost += KEYWORD_MATCH_WEIGHT
+				boost += tuning.getKeywordMatchWeight()
 					* cached.getKeywordIds().stream().filter(keywordProfile::contains).count();
 			}
 			// Set-union of cast and director ids: acting in and directing the same
 			// title is one shared person, not two
-			boost += PERSON_MATCH_WEIGHT
+			boost += tuning.getPersonMatchWeight()
 				* cachedPersonIds(cached).stream().filter(personProfile::contains).count();
 			// Flat, not per-service (#270): being on two of the user's services
 			// doesn't make a title more watchable than being on one
 			if (providerCtx.enabled() && !streamableOn(cached, providerCtx).isEmpty()) {
-				boost += STREAMABLE_BOOST;
+				boost += tuning.getStreamableBoost();
 			}
 			if (boost > 0) boosts.put(cached.getTmdbId(), boost);
 		}
@@ -895,7 +849,7 @@ public class SuggestionService {
 	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Map<String, Double> recencyWeights, boolean diversify) {
 		List<TitleSearchResponse> ranked = IntStream.range(0, candidates.size()).boxed()
 			.sorted(Comparator.comparingDouble((Integer i) ->
-				i + RECENCY_DEMOTION * recencyWeights.getOrDefault(candidates.get(i).externalId(), 0.0)))
+				i + tuning.getRecencyDemotion() * recencyWeights.getOrDefault(candidates.get(i).externalId(), 0.0)))
 			.map(candidates::get)
 			.toList();
 		Map<Integer, Integer> genreCount = new HashMap<>();
@@ -1138,11 +1092,11 @@ public class SuggestionService {
 	// up elevates above any status weight, down goes negative regardless of
 	// status (finishing a show you hated is not an endorsement of its genres).
 	private double profileWeight(WatchStatus status, Rating rating) {
-		if (rating == Rating.UP) return RATED_UP_PROFILE_WEIGHT;
-		if (rating == Rating.DOWN) return RATED_DOWN_PROFILE_WEIGHT;
+		if (rating == Rating.UP) return tuning.getRatedUpProfileWeight();
+		if (rating == Rating.DOWN) return tuning.getRatedDownProfileWeight();
 		return switch (status) {
-			case WATCHING, WATCHED -> 2;
-			case WANT_TO_WATCH -> 1;
+			case WATCHING, WATCHED -> tuning.getWatchedProfileWeight();
+			case WANT_TO_WATCH -> tuning.getWantToWatchProfileWeight();
 		};
 	}
 
@@ -1158,15 +1112,15 @@ public class SuggestionService {
 		if (touched == null) return 1.0;
 		long ageDays = Math.max(0,
 			today.toEpochDay() - LocalDate.ofInstant(touched, clock.getZone()).toEpochDay());
-		return Math.max(profileDecayFloor, Math.pow(0.5, ageDays / profileHalfLifeDays));
+		return Math.max(tuning.getDecayFloor(), Math.pow(0.5, ageDays / tuning.getHalfLifeDays()));
 	}
 
 	// Per-title multiplier for the frequency-counted profiles (keyword, person,
 	// top-genre cut), where the unrated baseline is 1 per title regardless of
 	// status — unrated behavior stays exactly as before (#273)
 	private double signalWeight(Rating rating) {
-		if (rating == Rating.UP) return RATED_UP_SIGNAL_WEIGHT;
-		if (rating == Rating.DOWN) return RATED_DOWN_SIGNAL_WEIGHT;
-		return UNRATED_SIGNAL_WEIGHT;
+		if (rating == Rating.UP) return tuning.getRatedUpSignalWeight();
+		if (rating == Rating.DOWN) return tuning.getRatedDownSignalWeight();
+		return tuning.getUnratedSignalWeight();
 	}
 }

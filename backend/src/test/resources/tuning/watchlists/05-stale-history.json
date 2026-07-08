@@ -1,0 +1,53 @@
+{
+  "name": "stale-history",
+  "description": "Two fresh animation titles against four heavily-decayed crime titles from years past — the recency-decay half-life decides whether current or historical taste wins. A prime target for a half-life sweep.",
+  "watchlistId": 1005,
+  "members": [
+    { "userId": 5, "region": null, "providerIds": null }
+  ],
+  "entries": [
+    {
+      "titleId": 10501, "tmdbId": "w5-t1", "type": "TV", "name": "Radiant Machine",
+      "status": "WATCHING", "ageDays": 5, "rating": null,
+      "genreIds": [16, 14], "keywordIds": [117, 138],
+      "castIds": [960, 961, 962], "directorIds": [930],
+      "voteCount": 700, "providerIds": null, "releaseDate": "2025-05-20"
+    },
+    {
+      "titleId": 10502, "tmdbId": "w5-t2", "type": "TV", "name": "Frozen Orchard",
+      "status": "WANT_TO_WATCH", "ageDays": 11, "rating": null,
+      "genreIds": [16, 14], "keywordIds": [117],
+      "castIds": [960, 963, 964], "directorIds": [931],
+      "voteCount": 520, "providerIds": null, "releaseDate": "2025-03-02"
+    },
+    {
+      "titleId": 10503, "tmdbId": "w5-t3", "type": "TV", "name": "Lost Covenant",
+      "status": "WATCHED", "ageDays": 120, "rating": null,
+      "genreIds": [80, 53], "keywordIds": [100, 135],
+      "castIds": [965, 966, 967], "directorIds": [932],
+      "voteCount": 1500, "providerIds": null, "releaseDate": "2020-02-01"
+    },
+    {
+      "titleId": 10504, "tmdbId": "w5-t4", "type": "TV", "name": "Burning Empire",
+      "status": "WATCHED", "ageDays": 160, "rating": null,
+      "genreIds": [80, 53], "keywordIds": [135, 130],
+      "castIds": [965, 968, 969], "directorIds": [933],
+      "voteCount": 1300, "providerIds": null, "releaseDate": "2019-08-14"
+    },
+    {
+      "titleId": 10505, "tmdbId": "w5-t5", "type": "TV", "name": "Shattered Border",
+      "status": "WATCHED", "ageDays": 210, "rating": null,
+      "genreIds": [80], "keywordIds": [102, 108],
+      "castIds": [965, 970, 971], "directorIds": [934],
+      "voteCount": 1100, "providerIds": null, "releaseDate": "2018-05-30"
+    },
+    {
+      "titleId": 10506, "tmdbId": "w5-t6", "type": "TV", "name": "Wild Verdict",
+      "status": "WATCHED", "ageDays": 260, "rating": null,
+      "genreIds": [80], "keywordIds": [114, 130],
+      "castIds": [972, 973, 974], "directorIds": [935],
+      "voteCount": 980, "providerIds": null, "releaseDate": "2017-11-22"
+    }
+  ],
+  "dismissed": []
+}

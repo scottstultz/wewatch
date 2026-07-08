@@ -1,0 +1,25 @@
+{
+  "name": "sparse-profile",
+  "description": "Two titles, one genre, no ratings — the cold-start regime where jitter floor and thin-seed pooling dominate.",
+  "watchlistId": 1001,
+  "members": [
+    { "userId": 1, "region": null, "providerIds": null }
+  ],
+  "entries": [
+    {
+      "titleId": 10101, "tmdbId": "w1-t1", "type": "TV", "name": "Sparse Signal",
+      "status": "WATCHING", "ageDays": 4, "rating": null,
+      "genreIds": [878], "keywordIds": [103, 131],
+      "castIds": [900, 901, 902], "directorIds": [903],
+      "voteCount": 120, "providerIds": null, "releaseDate": "2025-02-10"
+    },
+    {
+      "titleId": 10102, "tmdbId": "w1-t2", "type": "TV", "name": "Distant Horizon",
+      "status": "WANT_TO_WATCH", "ageDays": 12, "rating": null,
+      "genreIds": [878], "keywordIds": [103],
+      "castIds": [900, 904], "directorIds": [905],
+      "voteCount": 90, "providerIds": null, "releaseDate": "2024-11-01"
+    }
+  ],
+  "dismissed": []
+}

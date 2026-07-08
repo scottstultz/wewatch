@@ -1,0 +1,69 @@
+{
+  "name": "genre-mixed",
+  "description": "Eight titles across drama/comedy/thriller/scifi/action/adventure, a configured streaming region, and an owned franchise — exercises diversification, provider filtering/badges, dual genre-profile shelves, and the franchise shelf.",
+  "watchlistId": 1003,
+  "members": [
+    { "userId": 3, "region": "US", "providerIds": [8, 9, 337] }
+  ],
+  "entries": [
+    {
+      "titleId": 10301, "tmdbId": "w3-t1", "type": "TV", "name": "Feral Garden",
+      "status": "WATCHING", "ageDays": 6, "rating": null,
+      "genreIds": [18, 128], "keywordIds": [128, 106],
+      "castIds": [901, 902, 903], "directorIds": [931],
+      "voteCount": 800, "providerIds": [8], "releaseDate": "2024-04-18"
+    },
+    {
+      "titleId": 10302, "tmdbId": "w3-t2", "type": "TV", "name": "Neon Static",
+      "status": "WATCHING", "ageDays": 9, "rating": null,
+      "genreIds": [35, 109], "keywordIds": [109],
+      "castIds": [906, 907, 908], "directorIds": [932],
+      "voteCount": 610, "providerIds": [9], "releaseDate": "2023-10-02"
+    },
+    {
+      "titleId": 10303, "tmdbId": "w3-t3", "type": "TV", "name": "Grand Compass",
+      "status": "WANT_TO_WATCH", "ageDays": 14, "rating": null,
+      "genreIds": [53, 121], "keywordIds": [121, 130],
+      "castIds": [909, 910, 911], "directorIds": [933],
+      "voteCount": 540, "providerIds": [337], "releaseDate": "2022-08-22"
+    },
+    {
+      "titleId": 10304, "tmdbId": "w3-m1", "type": "MOVIE", "name": "Electric Frontier",
+      "status": "WATCHING", "ageDays": 7, "rating": null,
+      "genreIds": [878, 126], "keywordIds": [126, 136],
+      "castIds": [940, 912, 913], "directorIds": [934],
+      "voteCount": 2200, "providerIds": [8, 9], "releaseDate": "2024-02-14"
+    },
+    {
+      "titleId": 10305, "tmdbId": "w3-m2", "type": "MOVIE", "name": "Savage Meridian",
+      "status": "WATCHED", "ageDays": 22, "rating": null,
+      "genreIds": [28, 132], "keywordIds": [132, 135],
+      "castIds": [940, 914, 915], "directorIds": [935],
+      "voteCount": 1800, "providerIds": [337], "releaseDate": "2021-06-30"
+    },
+    {
+      "titleId": 10306, "tmdbId": "w3-m3", "type": "MOVIE", "name": "Wild Atlas",
+      "status": "WANT_TO_WATCH", "ageDays": 18, "rating": null,
+      "genreIds": [12, 133], "keywordIds": [133, 116],
+      "castIds": [916, 917, 918], "directorIds": [936],
+      "voteCount": 700, "providerIds": [8], "releaseDate": "2023-12-09"
+    },
+    {
+      "titleId": 10307, "tmdbId": "w3-m4", "type": "MOVIE", "name": "Meridian",
+      "status": "WATCHED", "ageDays": 40, "rating": null,
+      "genreIds": [878, 12], "keywordIds": [131, 139],
+      "castIds": [919, 920, 921], "directorIds": [937],
+      "voteCount": 3100, "providerIds": [9], "releaseDate": "2019-05-24",
+      "collectionId": 5000, "collectionName": "Meridian Collection"
+    },
+    {
+      "titleId": 10308, "tmdbId": "w3-m5", "type": "MOVIE", "name": "Meridian: Ascent",
+      "status": "WATCHED", "ageDays": 30, "rating": null,
+      "genreIds": [878, 12], "keywordIds": [131, 139],
+      "castIds": [919, 922, 923], "directorIds": [937],
+      "voteCount": 2600, "providerIds": [9], "releaseDate": "2022-05-20",
+      "collectionId": 5000, "collectionName": "Meridian Collection"
+    }
+  ],
+  "dismissed": ["syn-140"]
+}

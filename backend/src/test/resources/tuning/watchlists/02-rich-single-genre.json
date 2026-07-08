@@ -1,0 +1,53 @@
+{
+  "name": "rich-single-genre",
+  "description": "Six well-known crime titles (single genre 80), a recurring lead and a recurring keyword — exercises person/keyword shelves and genre diversification on a coherent profile.",
+  "watchlistId": 1002,
+  "members": [
+    { "userId": 2, "region": null, "providerIds": null }
+  ],
+  "entries": [
+    {
+      "titleId": 10201, "tmdbId": "w2-t1", "type": "TV", "name": "Crimson Cartel",
+      "status": "WATCHING", "ageDays": 3, "rating": null,
+      "genreIds": [80], "keywordIds": [100, 108],
+      "castIds": [910, 911, 912], "directorIds": [930],
+      "voteCount": 1400, "providerIds": null, "releaseDate": "2024-09-12"
+    },
+    {
+      "titleId": 10202, "tmdbId": "w2-t2", "type": "TV", "name": "Silent Verdict",
+      "status": "WATCHING", "ageDays": 8, "rating": null,
+      "genreIds": [80], "keywordIds": [102, 108],
+      "castIds": [910, 913, 914], "directorIds": [931],
+      "voteCount": 920, "providerIds": null, "releaseDate": "2023-05-20"
+    },
+    {
+      "titleId": 10203, "tmdbId": "w2-t3", "type": "TV", "name": "Broken Protocol",
+      "status": "WANT_TO_WATCH", "ageDays": 15, "rating": null,
+      "genreIds": [80], "keywordIds": [108, 118],
+      "castIds": [910, 915, 916], "directorIds": [932],
+      "voteCount": 650, "providerIds": null, "releaseDate": "2022-01-08"
+    },
+    {
+      "titleId": 10204, "tmdbId": "w2-t4", "type": "TV", "name": "Iron Divide",
+      "status": "WATCHED", "ageDays": 20, "rating": null,
+      "genreIds": [80], "keywordIds": [100, 119],
+      "castIds": [920, 921, 911], "directorIds": [933],
+      "voteCount": 1100, "providerIds": null, "releaseDate": "2021-11-30"
+    },
+    {
+      "titleId": 10205, "tmdbId": "w2-t5", "type": "TV", "name": "Pale Reckoning",
+      "status": "WATCHED", "ageDays": 26, "rating": null,
+      "genreIds": [80], "keywordIds": [108, 130],
+      "castIds": [922, 923, 912], "directorIds": [934],
+      "voteCount": 780, "providerIds": null, "releaseDate": "2020-07-15"
+    },
+    {
+      "titleId": 10206, "tmdbId": "w2-t6", "type": "TV", "name": "Hollow Crown",
+      "status": "WATCHED", "ageDays": 33, "rating": null,
+      "genreIds": [80], "keywordIds": [102, 118],
+      "castIds": [924, 925, 913], "directorIds": [935],
+      "voteCount": 540, "providerIds": null, "releaseDate": "2019-03-02"
+    }
+  ],
+  "dismissed": []
+}
