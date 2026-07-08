@@ -40,6 +40,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 
+import com.wewatch.api.config.SuggestionTuningProperties;
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.CachedKeyword;
@@ -76,14 +77,15 @@ class SuggestionServiceTest {
 	private static final Instant DAY_1 = Instant.parse("2026-07-03T12:00:00Z");
 	private static final Instant DAY_2 = Instant.parse("2026-07-04T12:00:00Z");
 
-	// 90-day half-life / 0.2 floor mirror the application.properties defaults;
-	// test entries are touched within days of DAY_1, so their decay stays ~1
-	// and the pre-#274 score calibrations in these tests still hold
+	// Default tuning (#288) carries every weight at its historical constant value
+	// (90-day half-life / 0.2 floor included); test entries are touched within
+	// days of DAY_1, so their decay stays ~1 and the pre-#274 score calibrations
+	// in these tests still hold
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
 			watchlistEntryRepository, watchlistMemberRepository, userRepository, titleService, tmdbClient,
 			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
-			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L, 90.0, 0.2);
+			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), new SuggestionTuningProperties(), 30L, 1000L);
 	}
 
 	private void stubEmptyWatchlist() {

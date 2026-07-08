@@ -1,0 +1,53 @@
+{
+  "name": "heavily-rated",
+  "description": "Explicit thumbs up on drama, thumbs down on comedy — the profile should lean hard into liked genres and drop a genre carried only by disliked titles. Exercises profile/signal rating weights.",
+  "watchlistId": 1004,
+  "members": [
+    { "userId": 4, "region": null, "providerIds": null }
+  ],
+  "entries": [
+    {
+      "titleId": 10401, "tmdbId": "w4-t1", "type": "TV", "name": "Golden Requiem",
+      "status": "WATCHED", "ageDays": 12, "rating": "UP",
+      "genreIds": [18, 128], "keywordIds": [128, 137],
+      "castIds": [950, 951, 952], "directorIds": [930],
+      "voteCount": 900, "providerIds": null, "releaseDate": "2023-02-11"
+    },
+    {
+      "titleId": 10402, "tmdbId": "w4-t2", "type": "TV", "name": "Velvet Tide",
+      "status": "WATCHED", "ageDays": 18, "rating": "UP",
+      "genreIds": [18, 110], "keywordIds": [110, 117],
+      "castIds": [950, 953, 954], "directorIds": [931],
+      "voteCount": 760, "providerIds": null, "releaseDate": "2022-09-05"
+    },
+    {
+      "titleId": 10403, "tmdbId": "w4-t3", "type": "TV", "name": "Restless Lantern",
+      "status": "WATCHING", "ageDays": 5, "rating": "UP",
+      "genreIds": [18, 53], "keywordIds": [121],
+      "castIds": [950, 955, 956], "directorIds": [932],
+      "voteCount": 1200, "providerIds": null, "releaseDate": "2024-06-01"
+    },
+    {
+      "titleId": 10404, "tmdbId": "w4-t4", "type": "TV", "name": "Bitter Static",
+      "status": "WATCHED", "ageDays": 25, "rating": "DOWN",
+      "genreIds": [35, 109], "keywordIds": [109],
+      "castIds": [957, 958, 959], "directorIds": [933],
+      "voteCount": 420, "providerIds": null, "releaseDate": "2021-01-19"
+    },
+    {
+      "titleId": 10405, "tmdbId": "w4-t5", "type": "TV", "name": "Quiet Static",
+      "status": "WATCHED", "ageDays": 28, "rating": "DOWN",
+      "genreIds": [35, 109], "keywordIds": [109, 106],
+      "castIds": [957, 940, 941], "directorIds": [934],
+      "voteCount": 380, "providerIds": null, "releaseDate": "2020-11-11"
+    },
+    {
+      "titleId": 10406, "tmdbId": "w4-t6", "type": "TV", "name": "Midnight Orchard",
+      "status": "WATCHING", "ageDays": 9, "rating": null,
+      "genreIds": [80], "keywordIds": [100, 135],
+      "castIds": [942, 943, 944], "directorIds": [935],
+      "voteCount": 640, "providerIds": null, "releaseDate": "2023-07-30"
+    }
+  ],
+  "dismissed": []
+}
