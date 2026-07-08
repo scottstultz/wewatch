@@ -2,6 +2,9 @@
 
 WeWatch is a full-stack app for discovering, tracking, and organizing movies and TV shows. Users sign in with Google or email+password, search for titles via the TMDB API, and manage personal or shared watchlists with episode-level tracking, personalized suggestion shelves, and a "Roll the dice" random picker.
 
+See [`docs/architecture.md`](docs/architecture.md) for the design and rationale behind auth,
+TMDB caching, and the suggestion pipeline.
+
 ---
 
 ## Features
