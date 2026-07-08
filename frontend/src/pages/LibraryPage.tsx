@@ -6,7 +6,8 @@ import WatchlistDropdown from '../components/WatchlistDropdown'
 import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal, { MIN_PICKS } from '../components/RollTheDiceModal'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
-import type { WatchlistEntryResponse, WatchStatus } from '../types/api'
+import ThumbsRating from '../components/ThumbsRating'
+import type { TitleRating, WatchlistEntryResponse, WatchStatus } from '../types/api'
 
 const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'All' },
@@ -134,6 +135,19 @@ function LibraryPage() {
     setPickingEntry(null)
     if (newStatus !== entry.status) {
       handleUpdateStatus(entry, newStatus)
+    }
+  }
+
+  // Ratings are personal and optimistic (#273): flip the thumb immediately,
+  // revert on failure. No role gating — viewers can rate too.
+  async function handleRate(entry: WatchlistEntryResponse, rating: TitleRating | null) {
+    const previousRating = entry.myRating
+    setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, myRating: rating } : e))
+    try {
+      if (rating) await api.rateTitle(entry.titleId, rating)
+      else await api.clearTitleRating(entry.titleId)
+    } catch {
+      setEntries(prev => prev.map(e => e.id === entry.id ? { ...e, myRating: previousRating } : e))
     }
   }
 
@@ -378,6 +392,10 @@ function LibraryPage() {
                       </button>
                     )}
                     <div className="title-action-row">
+                      <ThumbsRating
+                        rating={entry.myRating}
+                        onRate={r => handleRate(entry, r)}
+                      />
                       <button
                         className="title-action-btn title-action-btn-danger"
                         disabled={!!action}

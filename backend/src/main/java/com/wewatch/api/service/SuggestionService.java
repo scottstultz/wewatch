@@ -33,6 +33,7 @@ import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -135,6 +136,22 @@ public class SuggestionService {
 	// without ever lifting them over a real (≥1) genre match.
 	private static final double SCORE_JITTER_FRACTION = 0.15;
 	private static final double SCORE_JITTER_FLOOR = 0.25;
+	// Thumbs ratings (#273): the taste profile's explicit half. A rated-up title
+	// outweighs any inferred status signal (WATCHED = 2), and a rated-down title
+	// contributes negative genre weight — the profile can finally steer *away*
+	// from territory the user has explicitly rejected, where before a finished-
+	// but-hated show strengthened its genres. Calibrated against proportional
+	// jitter (#267): the amplitude scales with the score, so a bigger positive
+	// weight biases rather than pins, and negative affinity survives the floor.
+	private static final double RATED_UP_PROFILE_WEIGHT = 4.0;
+	private static final double RATED_DOWN_PROFILE_WEIGHT = -2.0;
+	// Keyword/person profiles count one per title, not per status weight, so
+	// ratings enter them as a separate multiplier: a loved title counts double
+	// toward pushing its keywords/people into the top-N profile, a disliked one
+	// counts against them, and unrated titles keep the current 1-per-title rule.
+	private static final double RATED_UP_SIGNAL_WEIGHT = 2.0;
+	private static final double RATED_DOWN_SIGNAL_WEIGHT = -1.0;
+	private static final double UNRATED_SIGNAL_WEIGHT = 1.0;
 	// Soft recency penalty (#264), replacing #233's binary suppression. Applied in
 	// fillShelf — the one point both score-ranked seed feeds and order-only discover
 	// feeds flow through — as a positional demotion: a title shown yesterday sinks
@@ -150,6 +167,7 @@ public class SuggestionService {
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	private final SuggestionImpressionService suggestionImpressionService;
 	private final SuggestionDismissalService suggestionDismissalService;
+	private final TitleRatingService titleRatingService;
 	private final Clock clock;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
@@ -166,6 +184,7 @@ public class SuggestionService {
 		TmdbTitleCacheRepository tmdbTitleCacheRepository,
 		SuggestionImpressionService suggestionImpressionService,
 		SuggestionDismissalService suggestionDismissalService,
+		TitleRatingService titleRatingService,
 		Clock clock,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
@@ -178,6 +197,7 @@ public class SuggestionService {
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
 		this.suggestionImpressionService = suggestionImpressionService;
 		this.suggestionDismissalService = suggestionDismissalService;
+		this.titleRatingService = titleRatingService;
 		this.clock = clock;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
@@ -222,27 +242,41 @@ public class SuggestionService {
 		Map<String, TmdbTitleCache> cacheByTmdbId = tmdbTitleCacheRepository.findAllById(ownedExternalIds)
 			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
 
-		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId);
+		// The recency penalty follows the user, not the list (#247): a shelf answers
+		// to every member's impressions, so a title one member saw elsewhere sinks
+		// here too. For a personal list this is just the single owner. Resolved
+		// before profile building because ratings (#273) fold in per member.
+		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
+
+		// Thumbs ratings (#273): the net across members per title (conflicting
+		// up/down cancel to unrated — the documented shared-list choice), keyed
+		// by tmdb id for the cache-row-driven keyword/person builders
+		Map<Long, Rating> ratingsByTitleId = titleRatingService.effectiveRatings(memberUserIds, titleIds);
+		Map<String, Rating> ratingsByTmdbId = new HashMap<>();
+		for (WatchlistEntry e : allEntries) {
+			Rating rating = ratingsByTitleId.get(e.getTitleId());
+			Title t = titlesById.get(e.getTitleId());
+			if (rating != null && t != null && t.getExternalId() != null) {
+				ratingsByTmdbId.put(t.getExternalId(), rating);
+			}
+		}
+
+		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
 		// Top keywords across the list: ids boost candidate scores, and the ones
 		// with a cached display name can seed a keyword shelf (#271)
-		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values());
+		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values(), ratingsByTmdbId);
 		Set<Integer> keywordProfile = keywordAffinities.stream()
 			.map(KeywordAffinity::id)
 			.collect(Collectors.toSet());
 		// Recurring cast/directors across the list (#269): ids boost candidate
 		// scores, names label the person-seeded exploration shelf
-		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values());
+		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values(), ratingsByTmdbId);
 		Set<Integer> personIdProfile = personProfile.stream()
 			.map(PersonAffinity::id)
 			.collect(Collectors.toSet());
 
 		// Cross-shelf dedup: start from all owned externalIds
 		Set<String> seen = new HashSet<>(ownedExternalIds);
-
-		// The recency penalty follows the user, not the list (#247): a shelf answers
-		// to every member's impressions, so a title one member saw elsewhere sinks
-		// here too. For a personal list this is just the single owner.
-		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
 
 		// Watch-provider context (#270): which streaming services this shelf set
 		// may assume, and in which region. Union across members with a settings
@@ -386,7 +420,7 @@ public class SuggestionService {
 
 			if (group.size() < GENRE_GROUP_THRESHOLD) continue;
 
-			List<Integer> topGenres = topGenresFor(type, allEntries, titlesById, cacheByTmdbId);
+			List<Integer> topGenres = topGenresFor(type, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
 			if (topGenres.isEmpty()) continue;
 
 			// Type-scoped keywords to avoid cross-namespace contamination
@@ -427,7 +461,7 @@ public class SuggestionService {
 		// MAX_EXPLORATION_SHELVES that fill — a kind that can't fill (no genre
 		// data, empty TMDB response) yields its slot to the next one
 		TitleType dominantType = dominantType(allEntries, titlesById);
-		List<Integer> dominantGenres = topGenresFor(dominantType, allEntries, titlesById, cacheByTmdbId);
+		List<Integer> dominantGenres = topGenresFor(dominantType, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
 
 		List<SuggestionShelfResponse.ShelfKind> explorationOrder = new ArrayList<>(List.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
@@ -667,24 +701,32 @@ public class SuggestionService {
 		return movies > shows ? TitleType.MOVIE : TitleType.TV;
 	}
 
+	// Rating-weighted (#273): a rated-up title counts double toward its genres
+	// making the discover filter cut, a rated-down title counts against them,
+	// and a genre with non-positive weighted frequency can't qualify at all —
+	// unrated entries keep the old 1-per-title counting exactly.
 	private List<Integer> topGenresFor(
 		TitleType type,
 		List<WatchlistEntry> entries,
 		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId
+		Map<String, TmdbTitleCache> cacheByTmdbId,
+		Map<Long, Rating> ratingsByTitleId
 	) {
-		Map<Integer, Integer> genreFreq = new HashMap<>();
+		Map<Integer, Double> genreFreq = new HashMap<>();
 		for (WatchlistEntry e : entries) {
 			Title t = titlesById.get(e.getTitleId());
 			if (t == null || t.getType() != type || t.getExternalId() == null) continue;
 			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
 			if (cached == null || cached.getGenreIds() == null) continue;
+			double weight = signalWeight(ratingsByTitleId.get(e.getTitleId()));
 			for (int genreId : cached.getGenreIds()) {
-				genreFreq.merge(genreId, 1, Integer::sum);
+				genreFreq.merge(genreId, weight, Double::sum);
 			}
 		}
 		return genreFreq.entrySet().stream()
-			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
+			.filter(en -> en.getValue() > 0)
+			.sorted(Map.Entry.<Integer, Double>comparingByValue().reversed()
+				.thenComparing(Map.Entry::getKey))
 			.limit(MAX_GENRES)
 			.map(Map.Entry::getKey)
 			.toList();
@@ -865,7 +907,8 @@ public class SuggestionService {
 	private Map<Integer, Double> buildGenreProfile(
 		List<WatchlistEntry> entries,
 		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId
+		Map<String, TmdbTitleCache> cacheByTmdbId,
+		Map<Long, Rating> ratingsByTitleId
 	) {
 		Map<Integer, Double> profile = new HashMap<>();
 		for (WatchlistEntry e : entries) {
@@ -873,7 +916,7 @@ public class SuggestionService {
 			if (t == null || t.getExternalId() == null) continue;
 			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
 			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = profileWeight(e.getStatus());
+			double weight = profileWeight(e.getStatus(), ratingsByTitleId.get(e.getTitleId()));
 			for (int genreId : cached.getGenreIds()) {
 				profile.merge(genreId, weight, Double::sum);
 			}
@@ -883,27 +926,43 @@ public class SuggestionService {
 
 	// A recurring person across the user's titles (#269). director flags which
 	// label the shelf gets ("Directed by" vs "More with") when the same person
-	// does both; titleCount drives the top-N cut like keyword frequency does.
-	private record PersonAffinity(int id, String name, int titleCount, boolean director) {}
+	// does both; score drives the top-N cut like keyword frequency does.
+	private record PersonAffinity(int id, String name, double score, boolean director) {}
 
 	// Frequency-weighted like the keyword profile, but floored at
 	// PERSON_MIN_TITLE_COUNT: keywords are meaningful once, a person only through
 	// recurrence. Ties break by id so the profile is stable across recomputes —
 	// the daily rng never touches profile construction (#231).
-	private List<PersonAffinity> buildPersonProfile(Collection<TmdbTitleCache> caches) {
+	// Rating-weighted (#273): appearances in rated-up titles count double toward
+	// the ranking and rated-down appearances count against it, but the recurrence
+	// floor stays a plain appearance count over non-down-rated titles — one loved
+	// title still isn't "you keep watching this person", and a person carried
+	// only by disliked titles (score ≤ 0) drops out of the profile entirely.
+	private List<PersonAffinity> buildPersonProfile(
+		Collection<TmdbTitleCache> caches,
+		Map<String, Rating> ratingsByTmdbId
+	) {
 		Map<Integer, String> names = new HashMap<>();
 		Map<Integer, Integer> castCounts = new HashMap<>();
 		Map<Integer, Integer> directorCounts = new HashMap<>();
+		Map<Integer, Integer> positiveCounts = new HashMap<>();
+		Map<Integer, Double> scores = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
+			Rating rating = ratingsByTmdbId.get(c.getTmdbId());
+			double weight = signalWeight(rating);
 			if (c.getTopCast() != null) {
 				for (CachedPerson p : c.getTopCast()) {
 					castCounts.merge(p.id(), 1, Integer::sum);
+					scores.merge(p.id(), weight, Double::sum);
+					if (rating != Rating.DOWN) positiveCounts.merge(p.id(), 1, Integer::sum);
 					names.putIfAbsent(p.id(), p.name());
 				}
 			}
 			if (c.getDirectors() != null) {
 				for (CachedPerson p : c.getDirectors()) {
 					directorCounts.merge(p.id(), 1, Integer::sum);
+					scores.merge(p.id(), weight, Double::sum);
+					if (rating != Rating.DOWN) positiveCounts.merge(p.id(), 1, Integer::sum);
 					names.putIfAbsent(p.id(), p.name());
 				}
 			}
@@ -912,11 +971,12 @@ public class SuggestionService {
 			.map(id -> {
 				int cast = castCounts.getOrDefault(id, 0);
 				int directed = directorCounts.getOrDefault(id, 0);
-				return new PersonAffinity(id, names.get(id), cast + directed,
+				return new PersonAffinity(id, names.get(id), scores.getOrDefault(id, 0.0),
 					directed > 0 && directed >= cast);
 			})
-			.filter(p -> p.titleCount() >= PERSON_MIN_TITLE_COUNT)
-			.sorted(Comparator.comparingInt(PersonAffinity::titleCount).reversed()
+			.filter(p -> positiveCounts.getOrDefault(p.id(), 0) >= PERSON_MIN_TITLE_COUNT
+				&& p.score() > 0)
+			.sorted(Comparator.comparingDouble(PersonAffinity::score).reversed()
 				.thenComparing(PersonAffinity::id))
 			.limit(MAX_PEOPLE)
 			.toList();
@@ -930,19 +990,26 @@ public class SuggestionService {
 	// Frequency counting stays on the flat keyword_ids column (every row has it);
 	// names come from the keywords JSON where present. Ties break by id so the
 	// profile is stable across recomputes — the daily rng never touches profile
-	// construction (#231).
-	private List<KeywordAffinity> buildKeywordAffinities(Collection<TmdbTitleCache> caches) {
-		Map<Integer, Integer> freq = new HashMap<>();
+	// construction (#231). Rating-weighted (#273): a rated-down title's keywords
+	// count negatively, so a keyword carried only by disliked titles can't make
+	// the profile, and one shared with liked titles ranks lower.
+	private List<KeywordAffinity> buildKeywordAffinities(
+		Collection<TmdbTitleCache> caches,
+		Map<String, Rating> ratingsByTmdbId
+	) {
+		Map<Integer, Double> freq = new HashMap<>();
 		Map<Integer, String> names = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
 			if (c.getKeywordIds() == null) continue;
-			for (int kw : c.getKeywordIds()) freq.merge(kw, 1, Integer::sum);
+			double weight = signalWeight(ratingsByTmdbId.get(c.getTmdbId()));
+			for (int kw : c.getKeywordIds()) freq.merge(kw, weight, Double::sum);
 			if (c.getKeywords() != null) {
 				c.getKeywords().forEach(k -> names.putIfAbsent(k.id(), k.name()));
 			}
 		}
 		return freq.entrySet().stream()
-			.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed()
+			.filter(e -> e.getValue() > 0)
+			.sorted(Map.Entry.<Integer, Double>comparingByValue().reversed()
 				.thenComparing(Map.Entry::getKey))
 			.limit(MAX_KEYWORDS)
 			.map(e -> new KeywordAffinity(e.getKey(), names.get(e.getKey())))
@@ -1033,11 +1100,25 @@ public class SuggestionService {
 
 	// Taste-profile weights only. Seed eligibility is a separate filter in compute
 	// (WATCHING / WANT_TO_WATCH): finished titles shape the profile — finishing is
-	// the strongest completed-interest signal — but don't get per-seed shelves
-	private int profileWeight(WatchStatus status) {
+	// the strongest completed-interest signal — but don't get per-seed shelves.
+	// An explicit thumbs rating (#273) overrides the status inference entirely:
+	// up elevates above any status weight, down goes negative regardless of
+	// status (finishing a show you hated is not an endorsement of its genres).
+	private double profileWeight(WatchStatus status, Rating rating) {
+		if (rating == Rating.UP) return RATED_UP_PROFILE_WEIGHT;
+		if (rating == Rating.DOWN) return RATED_DOWN_PROFILE_WEIGHT;
 		return switch (status) {
 			case WATCHING, WATCHED -> 2;
 			case WANT_TO_WATCH -> 1;
 		};
+	}
+
+	// Per-title multiplier for the frequency-counted profiles (keyword, person,
+	// top-genre cut), where the unrated baseline is 1 per title regardless of
+	// status — unrated behavior stays exactly as before (#273)
+	private double signalWeight(Rating rating) {
+		if (rating == Rating.UP) return RATED_UP_SIGNAL_WEIGHT;
+		if (rating == Rating.DOWN) return RATED_DOWN_SIGNAL_WEIGHT;
+		return UNRATED_SIGNAL_WEIGHT;
 	}
 }

@@ -1062,6 +1062,53 @@ a {
   transform: scale(1.1);
 }
 
+/* ── Thumbs rating (#273) ─────────────────────────────────── */
+
+.thumbs-rating {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thumb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.6);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  filter: grayscale(1) opacity(0.65);
+  transition: background 0.15s, border-color 0.15s, filter 0.15s, transform 0.1s;
+}
+
+.thumb-btn:hover:not(:disabled) {
+  filter: grayscale(0) opacity(1);
+  transform: scale(1.1);
+}
+
+.thumb-btn:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.thumb-btn-up-active {
+  filter: none;
+  border-color: rgba(52, 211, 153, 0.7);
+  background: rgba(52, 211, 153, 0.18);
+}
+
+.thumb-btn-down-active {
+  filter: none;
+  border-color: rgba(248, 113, 113, 0.7);
+  background: rgba(248, 113, 113, 0.18);
+}
+
 .undo-snackbar {
   position: fixed;
   bottom: 24px;

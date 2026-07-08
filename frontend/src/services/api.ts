@@ -5,6 +5,7 @@ import type {
   SeasonSummary,
   SuggestionShelf,
   TitleDetailResponse,
+  TitleRating,
   TitleResponse,
   TitleSearchResponse,
   TitleType,
@@ -316,6 +317,25 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
         method: 'DELETE',
       })
       if (!response.ok) throw new Error(`Failed to remove from watchlist: ${response.status}`)
+    },
+
+    // ── Title ratings (#273) ─────────────────────────────────
+    // User-scoped like dismissals: a rating follows the caller across lists
+
+    async rateTitle(titleId: number, rating: TitleRating): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/titles/${titleId}/rating`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating }),
+      })
+      if (!response.ok) throw new Error(`Failed to rate title: ${response.status}`)
+    },
+
+    async clearTitleRating(titleId: number): Promise<void> {
+      const response = await authedFetch(`${BASE_URL}/titles/${titleId}/rating`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) throw new Error(`Failed to clear title rating: ${response.status}`)
     },
 
     // ── Suggestions ──────────────────────────────────────────

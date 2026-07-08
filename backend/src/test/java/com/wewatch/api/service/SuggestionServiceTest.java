@@ -44,6 +44,7 @@ import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -67,6 +68,7 @@ class SuggestionServiceTest {
 	@Mock private TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	@Mock private SuggestionImpressionService suggestionImpressionService;
 	@Mock private SuggestionDismissalService suggestionDismissalService;
+	@Mock private TitleRatingService titleRatingService;
 
 	private static final long WATCHLIST_ID = 42L;
 	// The watchlist's members — suppression is scoped to these users, not the list (#247)
@@ -78,7 +80,7 @@ class SuggestionServiceTest {
 		return new SuggestionService(
 			watchlistEntryRepository, watchlistMemberRepository, userRepository, titleService, tmdbClient,
 			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
-			Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
+			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
 	}
 
 	private void stubEmptyWatchlist() {
@@ -285,6 +287,108 @@ class SuggestionServiceTest {
 		assertThat(shelves).hasSize(1);
 		assertThat(shelves.get(0).reason()).isEqualTo("Because you added Show 1");
 		assertThat(shelves.get(0).titles().get(0).externalId()).isEqualTo("rec-hit");
+	}
+
+	// ── thumbs ratings feeding the taste profile (#273) ────────
+
+	@Test
+	void aRatedDownTitlesGenresSinkInShelfRanking() {
+		// Mirror of watchedTitlesContributeToGenreProfileScoring, with the WATCHED
+		// entry rated down: its genres now carry -2 each instead of +2, so the
+		// candidate sharing them scores -6 and drops from first to last — the
+		// acceptance criterion for #273.
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of("ext2", cacheRow("ext2", List.of(97, 98, 99), null)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(titleRatingService.effectiveRatings(eq(MEMBER_IDS), any()))
+			.thenReturn(Map.of(2L, Rating.DOWN));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(new TitleSearchResponse("rec-disliked-genres", "TMDB", TitleType.TV, "Miss",
+			null, null, null, List.of(97, 98, 99)));
+		IntStream.rangeClosed(1, 11).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).hasSize(1);
+		List<TitleSearchResponse> shelf = shelves.get(0).titles();
+		assertThat(shelf).hasSize(12);
+		assertThat(shelf.get(11).externalId()).isEqualTo("rec-disliked-genres");
+	}
+
+	@Test
+	void aRatedUpTitlesGenresOutrankAWatchedTitles() {
+		// Rated-up carries weight 4 against WATCHED's inferred 2: the candidate
+		// sharing the loved title's genre beats the one sharing the finished
+		// title's genre on every day — 4 ∓ 0.6 of proportional jitter never
+		// crosses 2 ± 0.3 (#273 calibrated against #267)
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED),
+			entry(3, "ext3", WatchStatus.WATCHED));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(
+			1L, title(1, "ext1"), 2L, title(2, "ext2"), 3L, title(3, "ext3")));
+		stubCacheRows(Map.of(
+			"ext2", cacheRow("ext2", List.of(10), null),
+			"ext3", cacheRow("ext3", List.of(20), null)));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(titleRatingService.effectiveRatings(eq(MEMBER_IDS), any()))
+			.thenReturn(Map.of(2L, Rating.UP));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(scored("rec-watched-genre", List.of(20))); // score 2
+		candidates.add(scored("rec-loved-genre", List.of(10)));   // score 4
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		for (int d = 0; d < 10; d++) {
+			List<String> order = seededShelfOrder(
+				serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID));
+			assertThat(order).isNotEmpty();
+			assertThat(order.get(0)).isEqualTo("rec-loved-genre");
+			assertThat(order.get(1)).isEqualTo("rec-watched-genre");
+		}
+	}
+
+	@Test
+	void aPersonCarriedOnlyByDislikedTitlesBuildsNoShelf() {
+		// Person 500 recurs across two owned titles — enough for the recurrence
+		// floor — but both are rated down, so their weighted score is negative
+		// and the person drops out of the profile entirely (#273)
+		stubWatchlistWithRecurringPerson(
+			List.of(new CachedPerson(500, "Ana de Armas")), null);
+		when(titleRatingService.effectiveRatings(eq(MEMBER_IDS), any()))
+			.thenReturn(Map.of(1L, Rating.DOWN, 2L, Rating.DOWN));
+
+		for (int d = 0; d < 10; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, never()).discoverByPerson(anyInt(), anyInt(), anyInt());
+	}
+
+	@Test
+	void aKeywordCarriedOnlyByADislikedTitleSeedsNoShelf() {
+		// The one owned title carrying the named keyword is rated down: its
+		// weighted frequency is negative, so the keyword can't make the profile
+		// or seed a shelf (#273)
+		stubWatchlistWithNamedKeyword();
+		when(titleRatingService.effectiveRatings(eq(MEMBER_IDS), any()))
+			.thenReturn(Map.of(1L, Rating.DOWN));
+
+		for (int d = 0; d < 10; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		verify(tmdbClient, never()).discoverByKeyword(any(), anyInt(), anyInt(), any(), any(), anyInt());
 	}
 
 	@Test

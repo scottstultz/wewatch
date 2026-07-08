@@ -4,7 +4,8 @@ import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import JustWatchAttribution from '../components/JustWatchAttribution'
-import type { TitleDetailResponse, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
+import ThumbsRating from '../components/ThumbsRating'
+import type { TitleDetailResponse, TitleRating, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
 type AddState = 'idle' | 'loading' | 'error'
 
@@ -39,6 +40,10 @@ function TitleDetailPage() {
   const [entry, setEntry] = useState<{ id: number; status: WatchStatus } | null>(null)
   const [entryLoaded, setEntryLoaded] = useState(false)
   const [picking, setPicking] = useState(false)
+  // Thumbs rating (#273): titleId is null until a titles row exists — the
+  // first rate resolves one on demand
+  const [titleId, setTitleId] = useState<number | null>(null)
+  const [myRating, setMyRating] = useState<TitleRating | null>(null)
 
   useEffect(() => {
     if (!source || !externalId || !type) {
@@ -54,6 +59,8 @@ function TitleDetailPage() {
       .then(data => {
         if (!cancelled) {
           setDetail(data)
+          setTitleId(data.titleId)
+          setMyRating(data.myRating)
           setIsLoading(false)
         }
       })
@@ -98,6 +105,22 @@ function TitleDetailPage() {
       setAddState('idle')
     } catch {
       setAddState('error')
+    }
+  }
+
+  // Optimistic thumb flip with revert (#273). Rating a never-resolved title
+  // creates its titles row first — same server-managed resolve as adding.
+  async function handleRate(rating: TitleRating | null) {
+    if (!detail) return
+    const previous = myRating
+    setMyRating(rating)
+    try {
+      const id = titleId ?? (await api.findOrCreateTitle(detail))
+      if (titleId == null) setTitleId(id)
+      if (rating) await api.rateTitle(id, rating)
+      else await api.clearTitleRating(id)
+    } catch {
+      setMyRating(previous)
     }
   }
 
@@ -185,6 +208,8 @@ function TitleDetailPage() {
                   ))}
                 </div>
               )}
+
+              {detail && <ThumbsRating rating={myRating} onRate={handleRate} />}
 
               {entry ? (
                 picking ? (

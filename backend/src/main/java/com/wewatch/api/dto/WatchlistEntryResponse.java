@@ -2,6 +2,7 @@ package com.wewatch.api.dto;
 
 import java.time.Instant;
 
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.WatchStatus;
 
@@ -20,6 +21,9 @@ public record WatchlistEntryResponse(
 	Instant updatedAt,
 	Instant startedAt,
 	Instant completedAt,
-	EpisodeProgressSummary episodeProgress
+	EpisodeProgressSummary episodeProgress,
+	// The caller's own thumbs rating (#273) — personal, not the entry's;
+	// two members of a shared list see different values here
+	Rating myRating
 ) {
 }

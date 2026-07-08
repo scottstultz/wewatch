@@ -26,6 +26,7 @@ import com.wewatch.api.dto.EpisodeProgressSummary;
 import com.wewatch.api.dto.WatchlistEntryCreateRequest;
 import com.wewatch.api.dto.WatchlistEntryResponse;
 import com.wewatch.api.dto.WatchlistEntryUpdateRequest;
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
@@ -33,6 +34,7 @@ import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.service.EpisodeProgressSummaryService;
 import com.wewatch.api.service.SuggestionService;
+import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.WatchlistEntryService;
@@ -48,6 +50,7 @@ public class WatchlistEntryController {
 	private final EpisodeProgressSummaryService episodeProgressSummaryService;
 	private final TmdbCacheService tmdbCacheService;
 	private final SuggestionService suggestionService;
+	private final TitleRatingService titleRatingService;
 
 	public WatchlistEntryController(
 		WatchlistEntryService watchlistEntryService,
@@ -55,7 +58,8 @@ public class WatchlistEntryController {
 		WatchlistService watchlistService,
 		EpisodeProgressSummaryService episodeProgressSummaryService,
 		TmdbCacheService tmdbCacheService,
-		SuggestionService suggestionService
+		SuggestionService suggestionService,
+		TitleRatingService titleRatingService
 	) {
 		this.watchlistEntryService = watchlistEntryService;
 		this.titleService = titleService;
@@ -63,6 +67,7 @@ public class WatchlistEntryController {
 		this.episodeProgressSummaryService = episodeProgressSummaryService;
 		this.tmdbCacheService = tmdbCacheService;
 		this.suggestionService = suggestionService;
+		this.titleRatingService = titleRatingService;
 	}
 
 	@PostMapping
@@ -93,7 +98,7 @@ public class WatchlistEntryController {
 		suggestionService.recompute(watchlistId);
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
-			.body(toResponse(created, title, null));
+			.body(toResponse(created, title, null, callerRating(caller, created.getTitleId())));
 	}
 
 	@GetMapping
@@ -119,7 +124,12 @@ public class WatchlistEntryController {
 		Map<Long, EpisodeProgressSummary> summaries =
 			episodeProgressSummaryService.buildSummaries(tvEntryExternalIds);
 
-		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId())));
+		// The caller's own ratings (#273) — personal, so keyed on the caller,
+		// not the watchlist; one batch read for the page
+		Map<Long, Rating> myRatings = titleRatingService.ratingsFor(caller.getId(), titleIds);
+
+		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId()),
+			myRatings.get(e.getTitleId())));
 	}
 
 	@GetMapping("/{entryId}")
@@ -131,7 +141,7 @@ public class WatchlistEntryController {
 		watchlistService.requireMember(watchlistId, caller.getId());
 		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		Title title = titleService.findById(entry.getTitleId());
-		return toResponse(entry, title, summaryForSingleEntry(entry, title));
+		return toResponse(entry, title, summaryForSingleEntry(entry, title), callerRating(caller, entry.getTitleId()));
 	}
 
 	@PatchMapping("/{entryId}")
@@ -156,7 +166,7 @@ public class WatchlistEntryController {
 		// invoked after the update so shelves aren't rebuilt from the pre-update status (#198)
 		suggestionService.recompute(watchlistId);
 		Title title = titleService.findById(updated.getTitleId());
-		return toResponse(updated, title, summaryForSingleEntry(updated, title));
+		return toResponse(updated, title, summaryForSingleEntry(updated, title), callerRating(caller, updated.getTitleId()));
 	}
 
 	@DeleteMapping("/{entryId}")
@@ -180,7 +190,11 @@ public class WatchlistEntryController {
 		return summaries.get(entry.getId());
 	}
 
-	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary) {
+	private Rating callerRating(User caller, Long titleId) {
+		return titleRatingService.ratingsFor(caller.getId(), List.of(titleId)).get(titleId);
+	}
+
+	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary, Rating myRating) {
 		return new WatchlistEntryResponse(
 			entry.getId(),
 			entry.getWatchlistId(),
@@ -196,7 +210,8 @@ public class WatchlistEntryController {
 			entry.getUpdatedAt(),
 			entry.getStartedAt(),
 			entry.getCompletedAt(),
-			summary
+			summary,
+			myRating
 		);
 	}
 }
