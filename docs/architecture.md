@@ -14,7 +14,7 @@ source.
 
 Frontend sends a provider credential (a Google ID token or an email+password pair) to
 `POST /api/auth/token`. The backend validates it against the provider and returns a
-self-issued WeWatch JWT (HS256, 1-hour expiry). Every other endpoint only ever sees WeWatch
+self-issued WeWatch JWT (HS256, 24-hour expiry — see [Session lifetime & hardening](#session-lifetime--hardening-293)). Every other endpoint only ever sees WeWatch
 JWTs — provider-specific logic is isolated to the exchange endpoint, so adding a new provider
 means writing one new validator and adding one branch in `AuthController.exchangeToken`; JWT
 issuance, validation, and every downstream endpoint are untouched.
@@ -34,11 +34,33 @@ issuance, validation, and every downstream endpoint are untouched.
 
 Sliding re-issue rather than a separate refresh-token flow. `TokenRefreshFilter` runs after
 `BearerTokenAuthenticationFilter` and, when an authenticated request's token is within
-`jwt.refresh-window-seconds` (default 1800s) of expiry, returns a fresh JWT in the
+`jwt.refresh-window-seconds` (default 43200s / 12h) of expiry, returns a fresh JWT in the
 `X-Refreshed-Token` response header. The frontend's `apiFetch` picks it up and dispatches a
 `wewatch:token-refreshed` event; `AuthContext` listens for it and also runs an expiry timer that
 signs the user out gracefully ("Your session expired") if a token lapses without a refreshed
-request happening first.
+request happening first. The window is half the token lifetime so requests in the back half slide
+the session forward, while a request in the front half leaves the token untouched — this keeps
+daily-active users perpetually renewed without minting a token on every response.
+
+### Session lifetime & hardening (#293)
+
+The token lifetime is **24h** (`jwt.expiration-seconds`, default 86400s). It was originally 1h,
+which logged users out during the common watch-and-return pattern: sign in → brief burst of
+activity → idle through a show → return. That burst happens early in the token's life, so it
+never lands in the refresh window and no fresh token is minted; the idle stretch then outlives a
+1h token. The lifetime only needs to exceed the longest realistic single idle gap (a movie), so
+24h comfortably covers any single sitting, and the sliding refresh above keeps active sessions
+alive indefinitely.
+
+**Accepted trade-off:** the JWT is stateless with **no server-side revocation** — a leaked token
+is valid until it expires, and the sliding refresh lets an *actively used* stolen token
+self-renew. A 24h lifetime is acceptable because WeWatch is a low-sensitivity, **allowlist-gated**
+personal app (the `allowed_emails` table gates every sign-in). If WeWatch ever opens to
+non-allowlisted users, lifetime is no longer a safe substitute for revocation, and we should first
+implement proper hardening: a **short-lived access token** (minutes) plus a **revocable,
+server-side refresh token** — which also enables real logout and "sign out all devices". Until
+then, keep the lifetime bounded (don't push it to days) and treat `JWT_SECRET` rotation as the
+only blunt-instrument way to invalidate all outstanding tokens.
 
 ### Tab-restore resilience (#242)
 
