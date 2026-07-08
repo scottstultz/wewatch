@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -60,6 +61,12 @@ public class TitleService {
 	public Map<Long, Title> findByIds(Collection<Long> ids) {
 		return titleRepository.findAllById(ids).stream()
 			.collect(Collectors.toMap(Title::getId, t -> t));
+	}
+
+	// Optional variant for callers where "no row yet" is a normal state (the
+	// pre-add detail page, #273) rather than an error
+	public Optional<Title> findOptionalByExternalSourceAndExternalId(String externalSource, String externalId) {
+		return titleRepository.findByExternalSourceAndExternalId(externalSource, externalId);
 	}
 
 	public Title findByExternalSourceAndExternalId(String externalSource, String externalId) {

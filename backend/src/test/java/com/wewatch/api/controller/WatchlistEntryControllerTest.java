@@ -52,6 +52,7 @@ import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.EpisodeProgressSummaryService;
 import com.wewatch.api.service.SuggestionService;
+import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
@@ -86,6 +87,9 @@ class WatchlistEntryControllerTest {
 
 	@MockBean
 	private SuggestionService suggestionService;
+
+	@MockBean
+	private TitleRatingService titleRatingService;
 
 	@MockBean
 	private JwtDecoder jwtDecoder;

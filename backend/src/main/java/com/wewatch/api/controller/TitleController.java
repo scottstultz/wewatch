@@ -23,9 +23,11 @@ import com.wewatch.api.dto.TitleResolveRequest;
 import com.wewatch.api.dto.TitleResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.dto.WatchProviderResponse;
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
+import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.tmdb.TmdbClient;
@@ -47,11 +49,18 @@ public class TitleController {
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
 	private final TmdbCacheService tmdbCacheService;
+	private final TitleRatingService titleRatingService;
 
-	public TitleController(TitleService titleService, TmdbClient tmdbClient, TmdbCacheService tmdbCacheService) {
+	public TitleController(
+		TitleService titleService,
+		TmdbClient tmdbClient,
+		TmdbCacheService tmdbCacheService,
+		TitleRatingService titleRatingService
+	) {
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbCacheService = tmdbCacheService;
+		this.titleRatingService = titleRatingService;
 	}
 
 	@GetMapping("/search")
@@ -77,6 +86,15 @@ public class TitleController {
 		// the page needs some region before the user configures one)
 		String watchRegion = caller.getWatchRegion() != null ? caller.getWatchRegion() : DEFAULT_WATCH_REGION;
 
+		// The caller's thumbs rating (#273) rides along when a titles row exists
+		// for this external id — pre-resolve titles have no row and no rating
+		Long titleId = titleService.findOptionalByExternalSourceAndExternalId(externalSource, externalId)
+			.map(Title::getId)
+			.orElse(null);
+		Rating myRating = titleId != null
+			? titleRatingService.ratingsFor(caller.getId(), List.of(titleId)).get(titleId)
+			: null;
+
 		if (type == TitleType.MOVIE) {
 			TmdbMovieDetail detail = tmdbClient.getMovieDetail(externalId);
 			return new TitleDetailResponse(
@@ -94,7 +112,9 @@ public class TitleController {
 				null,
 				null,
 				watchRegion,
-				flatrateProviders(detail.watchProviders(), watchRegion)
+				flatrateProviders(detail.watchProviders(), watchRegion),
+				titleId,
+				myRating
 			);
 		}
 
@@ -125,7 +145,9 @@ public class TitleController {
 			seasons.size(),
 			seasons,
 			watchRegion,
-			flatrateProviders(detail.watchProviders(), watchRegion)
+			flatrateProviders(detail.watchProviders(), watchRegion),
+			titleId,
+			myRating
 		);
 	}
 

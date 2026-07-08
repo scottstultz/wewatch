@@ -1,5 +1,8 @@
 export type TitleType = 'MOVIE' | 'TV'
 export type WatchStatus = 'WANT_TO_WATCH' | 'WATCHING' | 'WATCHED'
+// Thumbs up/down (#273) — deliberately binary; the suggestion algorithm
+// only needs sign, not magnitude
+export type TitleRating = 'UP' | 'DOWN'
 export type WatchlistType = 'PERSONAL' | 'SHARED'
 export type MemberRole = 'OWNER' | 'EDITOR' | 'VIEWER'
 
@@ -87,6 +90,8 @@ export interface WatchlistEntryResponse {
   startedAt: string | null
   completedAt: string | null
   episodeProgress: EpisodeProgressSummary | null
+  // The caller's own thumbs rating (#273) — personal, not the entry's
+  myRating: TitleRating | null
 }
 
 // ── Season / Episode types ──────────────────────────────────
@@ -133,6 +138,11 @@ export interface TitleDetailResponse {
   // Where the title streams (flatrate) in the caller's watch region (#270)
   watchRegion: string | null
   watchProviders: WatchProvider[] | null
+  // Internal title id when a titles row exists (#273) — the ratings API is
+  // keyed on it; null for titles nobody has resolved yet
+  titleId: number | null
+  // The caller's thumbs rating; null when unrated or no title row
+  myRating: TitleRating | null
 }
 
 export type ShelfKind =

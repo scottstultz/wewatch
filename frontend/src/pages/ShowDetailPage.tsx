@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import ThumbsRating from '../components/ThumbsRating'
 import type {
   EpisodeDetail,
   EpisodeProgress,
   SeasonSummary,
   TitleDetailResponse,
+  TitleRating,
   WatchlistEntryResponse,
 } from '../types/api'
 
@@ -304,6 +306,21 @@ function ShowDetailPage() {
     }
   }
 
+  // ── Thumbs rating (#273) ───────────────────────────────────
+  // Optimistic flip with revert; personal, so no canEdit gating
+
+  async function handleRate(rating: TitleRating | null) {
+    if (!entry) return
+    const previous = entry.myRating
+    setEntry({ ...entry, myRating: rating })
+    try {
+      if (rating) await api.rateTitle(entry.titleId, rating)
+      else await api.clearTitleRating(entry.titleId)
+    } catch {
+      setEntry(e => (e ? { ...e, myRating: previous } : e))
+    }
+  }
+
   // ── Bulk mark season ───────────────────────────────────────
 
   async function handleBulkMark(watched: boolean) {
@@ -400,6 +417,8 @@ function ShowDetailPage() {
                   ))}
                 </div>
               )}
+
+              <ThumbsRating rating={entry.myRating} onRate={handleRate} />
 
               {!isLoadingSeasons && totalEpisodes > 0 && (
                 <div className="show-detail-progress-section">

@@ -40,6 +40,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
@@ -69,6 +70,9 @@ class TitleControllerTest {
 
 	@MockBean
 	private TmdbCacheService tmdbCacheService;
+
+	@MockBean
+	private TitleRatingService titleRatingService;
 
 	@MockBean
 	private UserService userService;

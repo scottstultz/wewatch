@@ -2,6 +2,7 @@ package com.wewatch.api.dto;
 
 import java.util.List;
 
+import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.TitleType;
 
 /**
@@ -27,6 +28,11 @@ public record TitleDetailResponse(
 	// The region the providers were resolved for — the caller's setting, or the
 	// US default when unset
 	String watchRegion,
-	List<WatchProviderResponse> watchProviders
+	List<WatchProviderResponse> watchProviders,
+	// Internal title id when a titles row exists for this external id (#273) —
+	// null for titles nobody has resolved yet; the ratings API is keyed on it
+	Long titleId,
+	// The caller's own thumbs rating (#273); null when unrated or no title row
+	Rating myRating
 ) {
 }
