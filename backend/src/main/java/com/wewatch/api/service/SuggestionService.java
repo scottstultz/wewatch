@@ -2,6 +2,7 @@ package com.wewatch.api.service;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -169,6 +170,11 @@ public class SuggestionService {
 	private final SuggestionDismissalService suggestionDismissalService;
 	private final TitleRatingService titleRatingService;
 	private final Clock clock;
+	// Recency decay for the taste profile (#274): an entry's contribution halves
+	// every half-life from its last touch, floored so history never zeroes out.
+	// Config-driven tunables alongside the other suggestion properties.
+	private final double profileHalfLifeDays;
+	private final double profileDecayFloor;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
 	// horizontally, each node caches (and invalidates) independently, so recompute
@@ -187,7 +193,9 @@ public class SuggestionService {
 		TitleRatingService titleRatingService,
 		Clock clock,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
-		@Value("${suggestions.cache.max-size}") long cacheMaxSize
+		@Value("${suggestions.cache.max-size}") long cacheMaxSize,
+		@Value("${suggestions.profile.half-life-days}") double profileHalfLifeDays,
+		@Value("${suggestions.profile.decay-floor}") double profileDecayFloor
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.watchlistMemberRepository = watchlistMemberRepository;
@@ -199,6 +207,8 @@ public class SuggestionService {
 		this.suggestionDismissalService = suggestionDismissalService;
 		this.titleRatingService = titleRatingService;
 		this.clock = clock;
+		this.profileHalfLifeDays = profileHalfLifeDays;
+		this.profileDecayFloor = profileDecayFloor;
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
 			.maximumSize(cacheMaxSize)
@@ -248,29 +258,35 @@ public class SuggestionService {
 		// before profile building because ratings (#273) fold in per member.
 		List<Long> memberUserIds = watchlistMemberRepository.findUserIdsByWatchlistId(watchlistId);
 
+		LocalDate today = LocalDate.now(clock);
+
 		// Thumbs ratings (#273): the net across members per title (conflicting
 		// up/down cancel to unrated — the documented shared-list choice), keyed
-		// by tmdb id for the cache-row-driven keyword/person builders
+		// by tmdb id for the cache-row-driven keyword/person builders. The
+		// recency decay (#274) rides the same loop, keyed the same way.
 		Map<Long, Rating> ratingsByTitleId = titleRatingService.effectiveRatings(memberUserIds, titleIds);
 		Map<String, Rating> ratingsByTmdbId = new HashMap<>();
+		Map<String, Double> decayByTmdbId = new HashMap<>();
 		for (WatchlistEntry e : allEntries) {
-			Rating rating = ratingsByTitleId.get(e.getTitleId());
 			Title t = titlesById.get(e.getTitleId());
-			if (rating != null && t != null && t.getExternalId() != null) {
+			if (t == null || t.getExternalId() == null) continue;
+			Rating rating = ratingsByTitleId.get(e.getTitleId());
+			if (rating != null) {
 				ratingsByTmdbId.put(t.getExternalId(), rating);
 			}
+			decayByTmdbId.put(t.getExternalId(), recencyDecay(e, today));
 		}
 
-		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
+		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
 		// Top keywords across the list: ids boost candidate scores, and the ones
 		// with a cached display name can seed a keyword shelf (#271)
-		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values(), ratingsByTmdbId);
+		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values(), ratingsByTmdbId, decayByTmdbId);
 		Set<Integer> keywordProfile = keywordAffinities.stream()
 			.map(KeywordAffinity::id)
 			.collect(Collectors.toSet());
 		// Recurring cast/directors across the list (#269): ids boost candidate
 		// scores, names label the person-seeded exploration shelf
-		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values(), ratingsByTmdbId);
+		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values(), ratingsByTmdbId, decayByTmdbId);
 		Set<Integer> personIdProfile = personProfile.stream()
 			.map(PersonAffinity::id)
 			.collect(Collectors.toSet());
@@ -300,7 +316,7 @@ public class SuggestionService {
 
 		// Seeded on (watchlist, calendar day): shelves are stable across recomputes
 		// within a day and rotate at midnight for free (#231)
-		Random rng = new Random(Objects.hash(watchlistId, LocalDate.now(clock).toEpochDay()));
+		Random rng = new Random(Objects.hash(watchlistId, today.toEpochDay()));
 
 		// ── Franchise-continuation shelf (#272) ───────────────────
 		// Franchise continuation is the highest-precision suggestion class
@@ -420,7 +436,7 @@ public class SuggestionService {
 
 			if (group.size() < GENRE_GROUP_THRESHOLD) continue;
 
-			List<Integer> topGenres = topGenresFor(type, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
+			List<Integer> topGenres = topGenresFor(type, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
 			if (topGenres.isEmpty()) continue;
 
 			// Type-scoped keywords to avoid cross-namespace contamination
@@ -461,7 +477,7 @@ public class SuggestionService {
 		// MAX_EXPLORATION_SHELVES that fill — a kind that can't fill (no genre
 		// data, empty TMDB response) yields its slot to the next one
 		TitleType dominantType = dominantType(allEntries, titlesById);
-		List<Integer> dominantGenres = topGenresFor(dominantType, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId);
+		List<Integer> dominantGenres = topGenresFor(dominantType, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
 
 		List<SuggestionShelfResponse.ShelfKind> explorationOrder = new ArrayList<>(List.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
@@ -705,12 +721,15 @@ public class SuggestionService {
 	// making the discover filter cut, a rated-down title counts against them,
 	// and a genre with non-positive weighted frequency can't qualify at all —
 	// unrated entries keep the old 1-per-title counting exactly.
+	// Recency-decayed (#274): an old entry's vote fades toward the floor, so
+	// the filter cut tracks what the user watches now.
 	private List<Integer> topGenresFor(
 		TitleType type,
 		List<WatchlistEntry> entries,
 		Map<Long, Title> titlesById,
 		Map<String, TmdbTitleCache> cacheByTmdbId,
-		Map<Long, Rating> ratingsByTitleId
+		Map<Long, Rating> ratingsByTitleId,
+		LocalDate today
 	) {
 		Map<Integer, Double> genreFreq = new HashMap<>();
 		for (WatchlistEntry e : entries) {
@@ -718,7 +737,7 @@ public class SuggestionService {
 			if (t == null || t.getType() != type || t.getExternalId() == null) continue;
 			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
 			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = signalWeight(ratingsByTitleId.get(e.getTitleId()));
+			double weight = signalWeight(ratingsByTitleId.get(e.getTitleId())) * recencyDecay(e, today);
 			for (int genreId : cached.getGenreIds()) {
 				genreFreq.merge(genreId, weight, Double::sum);
 			}
@@ -904,11 +923,15 @@ public class SuggestionService {
 		return genres.stream().mapToDouble(id -> genreProfile.getOrDefault(id, 0.0)).sum();
 	}
 
+	// Recency-decayed (#274): a show added two years ago no longer shapes the
+	// profile as much as one added this week — current taste dominates, while
+	// the decay floor keeps history counting for something.
 	private Map<Integer, Double> buildGenreProfile(
 		List<WatchlistEntry> entries,
 		Map<Long, Title> titlesById,
 		Map<String, TmdbTitleCache> cacheByTmdbId,
-		Map<Long, Rating> ratingsByTitleId
+		Map<Long, Rating> ratingsByTitleId,
+		LocalDate today
 	) {
 		Map<Integer, Double> profile = new HashMap<>();
 		for (WatchlistEntry e : entries) {
@@ -916,7 +939,8 @@ public class SuggestionService {
 			if (t == null || t.getExternalId() == null) continue;
 			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
 			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = profileWeight(e.getStatus(), ratingsByTitleId.get(e.getTitleId()));
+			double weight = profileWeight(e.getStatus(), ratingsByTitleId.get(e.getTitleId()))
+				* recencyDecay(e, today);
 			for (int genreId : cached.getGenreIds()) {
 				profile.merge(genreId, weight, Double::sum);
 			}
@@ -938,9 +962,14 @@ public class SuggestionService {
 	// floor stays a plain appearance count over non-down-rated titles — one loved
 	// title still isn't "you keep watching this person", and a person carried
 	// only by disliked titles (score ≤ 0) drops out of the profile entirely.
+	// Recency-decayed (#274) via the entry-derived per-title factor, like the
+	// keyword profile; the recurrence floor stays an undecayed count for the
+	// same reason it ignores rating weight — recurrence is about how often,
+	// not how recently.
 	private List<PersonAffinity> buildPersonProfile(
 		Collection<TmdbTitleCache> caches,
-		Map<String, Rating> ratingsByTmdbId
+		Map<String, Rating> ratingsByTmdbId,
+		Map<String, Double> decayByTmdbId
 	) {
 		Map<Integer, String> names = new HashMap<>();
 		Map<Integer, Integer> castCounts = new HashMap<>();
@@ -949,7 +978,7 @@ public class SuggestionService {
 		Map<Integer, Double> scores = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
 			Rating rating = ratingsByTmdbId.get(c.getTmdbId());
-			double weight = signalWeight(rating);
+			double weight = signalWeight(rating) * decayByTmdbId.getOrDefault(c.getTmdbId(), 1.0);
 			if (c.getTopCast() != null) {
 				for (CachedPerson p : c.getTopCast()) {
 					castCounts.merge(p.id(), 1, Integer::sum);
@@ -993,15 +1022,19 @@ public class SuggestionService {
 	// construction (#231). Rating-weighted (#273): a rated-down title's keywords
 	// count negatively, so a keyword carried only by disliked titles can't make
 	// the profile, and one shared with liked titles ranks lower.
+	// Recency-decayed (#274): a keyword riding only old entries fades out of
+	// the top-N cut as fresher titles bring their own.
 	private List<KeywordAffinity> buildKeywordAffinities(
 		Collection<TmdbTitleCache> caches,
-		Map<String, Rating> ratingsByTmdbId
+		Map<String, Rating> ratingsByTmdbId,
+		Map<String, Double> decayByTmdbId
 	) {
 		Map<Integer, Double> freq = new HashMap<>();
 		Map<Integer, String> names = new HashMap<>();
 		for (TmdbTitleCache c : caches) {
 			if (c.getKeywordIds() == null) continue;
-			double weight = signalWeight(ratingsByTmdbId.get(c.getTmdbId()));
+			double weight = signalWeight(ratingsByTmdbId.get(c.getTmdbId()))
+				* decayByTmdbId.getOrDefault(c.getTmdbId(), 1.0);
 			for (int kw : c.getKeywordIds()) freq.merge(kw, weight, Double::sum);
 			if (c.getKeywords() != null) {
 				c.getKeywords().forEach(k -> names.putIfAbsent(k.id(), k.name()));
@@ -1111,6 +1144,21 @@ public class SuggestionService {
 			case WATCHING, WATCHED -> 2;
 			case WANT_TO_WATCH -> 1;
 		};
+	}
+
+	// Recency decay for the taste profile (#274): taste drifts, so an entry's
+	// vote halves every configured half-life from its last touch (updated_at
+	// covers both adding and status changes; added_at is the legacy fallback).
+	// Day-granular off the injected clock so profiles are stable within a day,
+	// preserving same-day shelf reproducibility (#231) the way the recency-
+	// penalty reads do. The floor keeps old entries counting — history still
+	// matters, just less than last month's watching.
+	private double recencyDecay(WatchlistEntry entry, LocalDate today) {
+		Instant touched = entry.getUpdatedAt() != null ? entry.getUpdatedAt() : entry.getAddedAt();
+		if (touched == null) return 1.0;
+		long ageDays = Math.max(0,
+			today.toEpochDay() - LocalDate.ofInstant(touched, clock.getZone()).toEpochDay());
+		return Math.max(profileDecayFloor, Math.pow(0.5, ageDays / profileHalfLifeDays));
 	}
 
 	// Per-title multiplier for the frequency-counted profiles (keyword, person,

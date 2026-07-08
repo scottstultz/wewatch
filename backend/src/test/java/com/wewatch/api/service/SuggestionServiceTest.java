@@ -76,11 +76,14 @@ class SuggestionServiceTest {
 	private static final Instant DAY_1 = Instant.parse("2026-07-03T12:00:00Z");
 	private static final Instant DAY_2 = Instant.parse("2026-07-04T12:00:00Z");
 
+	// 90-day half-life / 0.2 floor mirror the application.properties defaults;
+	// test entries are touched within days of DAY_1, so their decay stays ~1
+	// and the pre-#274 score calibrations in these tests still hold
 	private SuggestionService serviceAt(Instant now) {
 		return new SuggestionService(
 			watchlistEntryRepository, watchlistMemberRepository, userRepository, titleService, tmdbClient,
 			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
-			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L);
+			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), 30L, 1000L, 90.0, 0.2);
 	}
 
 	private void stubEmptyWatchlist() {
@@ -389,6 +392,111 @@ class SuggestionServiceTest {
 		}
 
 		verify(tmdbClient, never()).discoverByKeyword(any(), anyInt(), anyInt(), any(), any(), anyInt());
+	}
+
+	// ── recency-decayed taste profile (#274) ──────────────────
+
+	@Test
+	void aRecentEntryOutweighsAnOldEntryOfEqualStatus() {
+		// Two WATCHED titles of equal status: one touched two days before DAY_1
+		// (decay ~1, genre 10 weight ~2) and one a year stale (floored at 0.2,
+		// genre 20 weight 0.4). The candidate sharing the recent title's genre
+		// outranks the one sharing the old title's every day — ~2 ∓ 0.3 of
+		// proportional jitter never crosses 0.4 ± 0.25 (#274 acceptance criterion;
+		// pre-decay both scored an identical 2).
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED),
+			entry(3, "ext3", WatchStatus.WATCHED));
+		entries.get(2).setUpdatedAt(Instant.parse("2025-07-01T00:00:00Z"));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(
+			1L, title(1, "ext1"), 2L, title(2, "ext2"), 3L, title(3, "ext3")));
+		stubCacheRows(Map.of(
+			"ext2", cacheRow("ext2", List.of(10), null),
+			"ext3", cacheRow("ext3", List.of(20), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(scored("rec-recent-genre", List.of(10)));
+		candidates.add(scored("rec-old-genre", List.of(20)));
+		IntStream.rangeClosed(1, 10).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		for (int d = 0; d < 10; d++) {
+			List<String> order = seededShelfOrder(
+				serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID));
+			assertThat(order).isNotEmpty();
+			assertThat(order.indexOf("rec-recent-genre")).isLessThan(order.indexOf("rec-old-genre"));
+		}
+	}
+
+	@Test
+	void anAncientEntrysGenresStillContributeAtTheDecayFloor() {
+		// A decade-old WATCHED title decays to the 0.2 floor, not to zero: its
+		// four genres still give a matching candidate score 4 × 2 × 0.2 = 1.6,
+		// clear of the zero-affinity fillers' ±0.25 jitter floor on every day —
+		// history still matters, just less (#274)
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHED));
+		entries.get(1).setUpdatedAt(Instant.parse("2016-07-01T00:00:00Z"));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(1L, title(1, "ext1"), 2L, title(2, "ext2")));
+		stubCacheRows(Map.of("ext2", cacheRow("ext2", List.of(10, 11, 12, 13), null)));
+
+		List<TitleSearchResponse> candidates = new ArrayList<>();
+		candidates.add(scored("rec-floored-hit", List.of(10, 11, 12, 13)));
+		IntStream.rangeClosed(1, 11).forEach(i -> candidates.add(candidate("rec-filler-" + i)));
+		when(tmdbClient.getRecommendations(any(), eq("ext1"), anyInt())).thenReturn(candidates);
+
+		for (int d = 0; d < 10; d++) {
+			List<String> order = seededShelfOrder(
+				serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID));
+			assertThat(order).isNotEmpty();
+			assertThat(order.get(0)).isEqualTo("rec-floored-hit");
+		}
+	}
+
+	@Test
+	void decayDropsAnOldTitlesKeywordFromTheProfileCut() {
+		// Keyword 900 rides two year-old titles (2 × 0.2 floor = 0.4 weighted)
+		// against five keywords riding one fresh title (~1.0 each): the top-5
+		// cut keeps the fresh five and drops 900, where the undecayed count
+		// (2 vs 1) would have ranked it first — so the keyword-shelf draw can
+		// never seed on it (#274 applies to the keyword profile too)
+		List<WatchlistEntry> entries = List.of(
+			entry(1, "ext1", WatchStatus.WATCHING),
+			entry(2, "ext2", WatchStatus.WATCHING),
+			entry(3, "ext3", WatchStatus.WATCHING));
+		entries.get(0).setUpdatedAt(Instant.parse("2025-07-01T00:00:00Z"));
+		entries.get(1).setUpdatedAt(Instant.parse("2025-07-01T00:00:00Z"));
+		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(entries));
+		when(titleService.findByIds(any())).thenReturn(Map.of(
+			1L, title(1, "ext1"), 2L, title(2, "ext2"), 3L, title(3, "ext3")));
+		stubCacheRows(Map.of(
+			"ext1", keywordRow("ext1", List.of(900), List.of(new CachedKeyword(900, "time travel"))),
+			"ext2", keywordRow("ext2", List.of(900), List.of(new CachedKeyword(900, "time travel"))),
+			"ext3", keywordRow("ext3", List.of(100, 200, 300, 400, 500), List.of(
+				new CachedKeyword(100, "heist"),
+				new CachedKeyword(200, "space race"),
+				new CachedKeyword(300, "con artist"),
+				new CachedKeyword(400, "slow burn"),
+				new CachedKeyword(500, "road trip")))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(tmdbClient.discoverByKeyword(any(), anyInt(), anyInt(), any(), any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12)
+				.mapToObj(i -> candidate("kw-" + inv.getArgument(1) + "-" + i)).toList());
+
+		for (int d = 0; d < 15; d++) {
+			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
+		}
+
+		ArgumentCaptor<Integer> keywordId = ArgumentCaptor.forClass(Integer.class);
+		verify(tmdbClient, atLeastOnce()).discoverByKeyword(any(), keywordId.capture(), anyInt(), any(), any(), anyInt());
+		assertThat(keywordId.getAllValues()).isNotEmpty().doesNotContain(900);
 	}
 
 	@Test
