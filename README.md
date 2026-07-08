@@ -1,6 +1,6 @@
 # WeWatch
 
-WeWatch is a full-stack app for discovering, tracking, and organizing movies and TV shows. Users sign in with Google or email+password, search for titles via the TMDB API, and manage personal or shared watchlists with episode-level tracking.
+WeWatch is a full-stack app for discovering, tracking, and organizing movies and TV shows. Users sign in with Google or email+password, search for titles via the TMDB API, and manage personal or shared watchlists with episode-level tracking, personalized suggestion shelves, and a "Roll the dice" random picker.
 
 ---
 
@@ -8,7 +8,24 @@ WeWatch is a full-stack app for discovering, tracking, and organizing movies and
 
 ### Content Discovery
 - Search for movies and TV shows via TMDB
-- View title details: poster, overview, release year, content type
+- Title detail pages: poster, overview, release year, seasons/episodes, cast, where to watch
+- Personalized Discover shelves built from each watchlist's taste profile (genres, keywords,
+  cast/directors): "Because you added/finished X", genre picks, franchise continuations
+  ("Next in the series"), trending, new releases, hidden gems, and themed keyword shelves
+- Shelves rotate daily, with a soft recency penalty so recently shown titles sink instead
+  of repeating
+- "Not interested" dismissal on suggestion tiles (undoable, applies across all your lists)
+- "Roll the dice" random picker for choosing what to watch next
+
+### Ratings
+- Thumbs up/down per title, feeding the suggestion taste profile (a disliked title steers
+  suggestions away from its genres, keywords, and people)
+- Profile contributions decay with age, so long-ago watches fade from suggestions
+
+### Watch Providers
+- Pick your streaming services and region on the Profile page
+- Provider badges on suggestion tiles and provider-filtered discover shelves
+- "Where to watch" panel on title details (TMDB/JustWatch data, attributed)
 
 ### Watchlist Management
 - Create multiple named watchlists
@@ -26,12 +43,14 @@ WeWatch is a full-stack app for discovering, tracking, and organizing movies and
 ### Authentication
 - Google Sign-In (OAuth2 ID token exchange)
 - Email + password registration and sign-in (BCrypt)
-- Provider-agnostic self-issued JWT (HS256, 1-hour expiry)
+- Provider-agnostic self-issued JWT (HS256, 1-hour expiry) with sliding session refresh
 - Email allowlist restricts registration to approved users
-- Sign-out from sidebar (desktop) and header (mobile)
+- Sign-out from sidebar (desktop) and header (mobile); graceful sign-out on expiry,
+  resilient to mobile tab freeze/restore
 
 ### TMDB Metadata Cache
-- Server-side cache for TV show and episode metadata (7-day configurable TTL)
+- Server-side cache for title, season, and episode metadata (7-day configurable TTL),
+  including genres, keywords, top cast/directors, watch providers, and collections
 - Async prewarm on watchlist add — all seasons/episodes cached immediately
 - Startup backfill for titles added before the cache was deployed
 - Cache-through reads: stale entries refreshed transparently on access
@@ -155,10 +174,10 @@ Use three terminals:
 
 ```bash
 cd backend
-doppler run -- ./mvnw test
+./mvnw test        # Doppler not required — tests use mocks and property defaults
 ```
 
-250 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
+429 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
 
 ---
 
@@ -167,8 +186,9 @@ doppler run -- ./mvnw test
 ```text
 wewatch/
 ├── backend/          # Spring Boot API (Java 21)
-│   └── src/main/resources/db/migration/   # Flyway migrations (V1–V9)
+│   └── src/main/resources/db/migration/   # Flyway migrations (V1–V22)
 ├── frontend/         # React + TypeScript + Vite
+├── docs/             # Architecture notes
 ├── .github/          # CI workflows, issue templates
 └── README.md
 ```
@@ -231,10 +251,14 @@ PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**
 - Next unwatched episode display on library tiles
 - Production deployment (Railway, we-watch.app)
 - CI pipeline (GitHub Actions)
+- Title detail pages
+- Personalized suggestion shelves (taste profile, daily rotation, recency penalty,
+  dismissals, franchise/keyword/people shelves)
+- Thumbs up/down ratings feeding the taste profile
+- Streaming provider integration (settings, badges, provider-aware suggestions)
+- "Roll the dice" random picker
+- Frontend unit/component tests (Vitest + React Testing Library)
 
 ### Planned
-- Title detail page
-- Streaming provider integration
 - Advanced filtering and sorting
-- Recommendation system
-- Ratings and reviews
+- Written reviews
