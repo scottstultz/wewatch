@@ -19,6 +19,7 @@ function ProfilePage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [showAll, setShowAll] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Load current settings and the region list once
   useEffect(() => {
@@ -50,12 +51,17 @@ function ProfilePage() {
     return () => { cancelled = true }
   }, [api, region])
 
-  const visibleProviders = useMemo(
-    () => showAll
+  const filteredProviders = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
+    return q ? providers.filter(p => p.name.toLowerCase().includes(q)) : providers
+  }, [providers, searchQuery])
+
+  const visibleProviders = useMemo(() => {
+    if (searchQuery.trim()) return filteredProviders
+    return showAll
       ? providers
-      : providers.filter((p, i) => i < COLLAPSED_PROVIDER_COUNT || selected.has(p.id)),
-    [providers, showAll, selected],
-  )
+      : providers.filter((p, i) => i < COLLAPSED_PROVIDER_COUNT || selected.has(p.id))
+  }, [providers, filteredProviders, showAll, selected, searchQuery])
 
   function toggleProvider(id: number) {
     setSaveState('idle')
@@ -102,7 +108,7 @@ function ProfilePage() {
               id="watch-region"
               className="discover-picker-select"
               value={region}
-              onChange={e => { setSaveState('idle'); setShowAll(false); setRegion(e.target.value) }}
+              onChange={e => { setSaveState('idle'); setShowAll(false); setSearchQuery(''); setRegion(e.target.value) }}
             >
               <option value="">Select a country…</option>
               {regions.map(r => (
@@ -113,21 +119,47 @@ function ProfilePage() {
 
           {region && providers.length > 0 && (
             <>
-              <div className="provider-grid" role="group" aria-label="Streaming services">
-                {visibleProviders.map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className={`provider-chip${selected.has(p.id) ? ' provider-chip-selected' : ''}`}
-                    aria-pressed={selected.has(p.id)}
-                    onClick={() => toggleProvider(p.id)}
-                  >
-                    {p.logoUrl && <img className="provider-chip-logo" src={p.logoUrl} alt="" loading="lazy" />}
-                    <span className="provider-chip-name">{p.name}</span>
-                  </button>
-                ))}
-              </div>
-              {!showAll && providers.length > COLLAPSED_PROVIDER_COUNT && (
+              {providers.length > COLLAPSED_PROVIDER_COUNT && (
+                <div className="search-input-wrapper provider-search-row">
+                  <input
+                    className="search-input"
+                    type="search"
+                    placeholder="Search streaming services…"
+                    aria-label="Search streaming services"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                  {searchQuery && (
+                    <button
+                      className="search-clear-btn"
+                      onClick={() => setSearchQuery('')}
+                      aria-label="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {filteredProviders.length > 0 ? (
+                <div className="provider-grid" role="group" aria-label="Streaming services">
+                  {visibleProviders.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`provider-chip${selected.has(p.id) ? ' provider-chip-selected' : ''}`}
+                      aria-pressed={selected.has(p.id)}
+                      onClick={() => toggleProvider(p.id)}
+                    >
+                      {p.logoUrl && <img className="provider-chip-logo" src={p.logoUrl} alt="" loading="lazy" />}
+                      <span className="provider-chip-name">{p.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="search-status">No streaming services match "{searchQuery.trim()}".</p>
+              )}
+              {!showAll && !searchQuery.trim() && providers.length > COLLAPSED_PROVIDER_COUNT && (
                 <button className="provider-show-all-btn" onClick={() => setShowAll(true)}>
                   Show all {providers.length} services
                 </button>
