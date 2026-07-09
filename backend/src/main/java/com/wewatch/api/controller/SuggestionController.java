@@ -22,8 +22,14 @@ import com.wewatch.api.service.SuggestionDismissalService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.WatchlistService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/suggestions")
+@Tag(name = "Suggestions", description = "Personalized suggestion shelves for a watchlist, and per-user dismissals.")
 public class SuggestionController {
 
 	private final SuggestionService suggestionService;
@@ -41,6 +47,19 @@ public class SuggestionController {
 	}
 
 	@GetMapping
+	@Operation(summary = "Get personalized suggestion shelves for a watchlist",
+		description = "Builds \"top picks\" shelves from the members' taste profile (genre, cast/"
+			+ "director, keyword, and franchise-continuation signals), streaming-provider "
+			+ "availability, and TMDB discover/trending pools. Excludes titles already on the "
+			+ "watchlist and titles any member has dismissed. Caller must be a member of the "
+			+ "watchlist.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Suggestion shelves returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of the watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found"),
+		@ApiResponse(responseCode = "502", description = "TMDB API request failed")
+	})
 	public ResponseEntity<List<SuggestionShelfResponse>> getSuggestions(
 		@RequestParam Long watchlistId,
 		@AuthenticationPrincipal User caller
@@ -53,6 +72,16 @@ public class SuggestionController {
 	// follows the user into every list they belong to. Eviction lets the next
 	// suggestions read recompute without the dismissed title.
 	@PostMapping("/dismissals")
+	@Operation(summary = "Dismiss a suggested title",
+		description = "Dismissal is scoped to the caller, not to a single watchlist — the title is "
+			+ "excluded from the caller's suggestions across every watchlist they belong to. "
+			+ "Evicts the caller's cached suggestions so the next read recomputes without the "
+			+ "dismissed title.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "204", description = "Title dismissed"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header")
+	})
 	public ResponseEntity<Void> dismiss(
 		@Valid @RequestBody SuggestionDismissalRequest request,
 		@AuthenticationPrincipal User caller
@@ -63,6 +92,14 @@ public class SuggestionController {
 	}
 
 	@DeleteMapping("/dismissals/{tmdbId}")
+	@Operation(summary = "Undo a dismissal",
+		description = "Removes the caller's dismissal of the given title, if one exists, and evicts "
+			+ "the caller's cached suggestions so the title becomes eligible again. Idempotent — "
+			+ "succeeds even if the title was never dismissed.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "204", description = "Dismissal removed (or none existed)"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header")
+	})
 	public ResponseEntity<Void> undoDismissal(
 		@PathVariable String tmdbId,
 		@AuthenticationPrincipal User caller

@@ -43,8 +43,15 @@ import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 import com.wewatch.api.tmdb.TmdbWatchProviders;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/titles")
+@Tag(name = "Titles", description = "TMDB-backed title search/detail, local title resolution, and TV season data.")
 public class TitleController {
 
 	private static final String TMDB_SOURCE = "TMDB";
@@ -69,6 +76,13 @@ public class TitleController {
 	}
 
 	@GetMapping("/search")
+	@Operation(summary = "Search titles via TMDB",
+		description = "Blank query returns an empty list without calling TMDB.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Search results returned (possibly empty)"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
 	public List<TitleSearchResponse> searchTitles(
 		@RequestParam String q,
 		@RequestParam(required = false) TitleType type
@@ -80,8 +94,19 @@ public class TitleController {
 	}
 
 	@GetMapping("/detail")
+	@Operation(summary = "Get live TMDB detail for a title",
+		description = "Includes genres, watch providers resolved for the caller's watch region "
+			+ "(#270), the caller's own thumbs rating if the title has been resolved locally "
+			+ "(#273), and top-billed cast (#295). This calls TMDB live and does not require the "
+			+ "title to exist locally.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Detail returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
 	public TitleDetailResponse getTitleDetail(
 		@RequestParam String externalId,
+		@Parameter(description = "External source of the title. Only \"TMDB\" is supported.")
 		@RequestParam String externalSource,
 		@RequestParam TitleType type,
 		@AuthenticationPrincipal User caller
@@ -197,6 +222,16 @@ public class TitleController {
 	}
 
 	@PostMapping("/resolve")
+	@Operation(summary = "Resolve or create the local Title row for a TMDB title",
+		description = "Idempotent — returns the existing local row if one already exists for the "
+			+ "given external id, otherwise fetches the title from TMDB and creates it.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Title resolved"),
+		@ApiResponse(responseCode = "400", description = "Validation failed, or externalSource is not "
+			+ "\"TMDB\""),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
 	public TitleResponse resolveTitle(@Valid @RequestBody TitleResolveRequest request) {
 		if (!TMDB_SOURCE.equalsIgnoreCase(request.externalSource())) {
 			throw new IllegalArgumentException("Unsupported external source: " + request.externalSource());
@@ -240,8 +275,16 @@ public class TitleController {
 	}
 
 	@GetMapping
+	@Operation(summary = "List local titles, optionally filtered",
+		description = "Paginated search over titles that have already been resolved locally "
+			+ "(see /resolve). All filter params are optional and combine as an AND.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Page of titles returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header")
+	})
 	public Page<TitleResponse> getTitles(
 		@RequestParam(required = false) String externalId,
+		@Parameter(description = "External source of the title. Only \"TMDB\" is supported.")
 		@RequestParam(required = false) String externalSource,
 		@RequestParam(required = false) TitleType type,
 		@RequestParam(required = false) String name,
@@ -252,11 +295,26 @@ public class TitleController {
 	}
 
 	@GetMapping("/{titleId}")
+	@Operation(summary = "Get a local title by id")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Title returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "404", description = "No title with this id")
+	})
 	public TitleResponse getTitle(@PathVariable Long titleId) {
 		return toResponse(titleService.findById(titleId));
 	}
 
 	@GetMapping("/{titleId}/seasons")
+	@Operation(summary = "List TV season summaries for a local title",
+		description = "TV titles only.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Season summaries returned"),
+		@ApiResponse(responseCode = "400", description = "Title is not a TV show"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "404", description = "No title with this id"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
 	public List<SeasonSummaryResponse> getSeasons(@PathVariable Long titleId) {
 		Title title = titleService.findById(titleId);
 		requireTv(title);
@@ -272,6 +330,15 @@ public class TitleController {
 	}
 
 	@GetMapping("/{titleId}/seasons/{seasonNumber}")
+	@Operation(summary = "Get TV season detail including episodes",
+		description = "TV titles only.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Season detail returned"),
+		@ApiResponse(responseCode = "400", description = "Title is not a TV show"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "404", description = "No title with this id"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
 	public SeasonDetailResponse getSeasonDetail(
 		@PathVariable Long titleId,
 		@PathVariable int seasonNumber

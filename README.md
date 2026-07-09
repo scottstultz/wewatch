@@ -180,7 +180,7 @@ cd backend
 ./mvnw test        # Doppler not required — tests use mocks and property defaults
 ```
 
-429 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
+440 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
 
 ---
 
@@ -261,6 +261,7 @@ PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**
 - Streaming provider integration (settings, badges, provider-aware suggestions)
 - "Roll the dice" random picker
 - Frontend unit/component tests (Vitest + React Testing Library)
+- Interactive API documentation (Swagger UI + OpenAPI spec, see [`docs/api.md`](docs/api.md))
 
 ### Planned
 - Advanced filtering and sorting
