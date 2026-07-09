@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -17,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.IntStream;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +46,9 @@ import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.UserService;
+import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
 import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
@@ -659,9 +663,63 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.voteAverage").value(8.2))
 			.andExpect(jsonPath("$.voteCount").value(25000))
 			.andExpect(jsonPath("$.seasonCount").doesNotExist())
-			.andExpect(jsonPath("$.seasons").doesNotExist());
+			.andExpect(jsonPath("$.seasons").doesNotExist())
+			// No credits block from TMDB — an empty cast, not a null (#295)
+			.andExpect(jsonPath("$.cast.length()").value(0));
 
 		verify(tmdbClient).getMovieDetail("603");
+	}
+
+	@Test
+	void getTitleDetailReturnsCastInBillingOrderWithProfileUrls() throws Exception {
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", null, null, "Released", "1999-03-31",
+			List.of(), 8.2, 25000,
+			new TmdbCredits(List.of(
+				new TmdbCastMember(2L, "Laurence Fishburne", "Morpheus", "/morpheus.jpg", 1),
+				new TmdbCastMember(1L, "Keanu Reeves", "Neo", "/neo.jpg", 0),
+				// TMDB has no headshot for this one — the client renders a placeholder
+				new TmdbCastMember(3L, "Joe Pantoliano", "Cypher", null, 2)),
+				List.of()),
+			null, null));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.cast.length()").value(3))
+			.andExpect(jsonPath("$.cast[0].id").value(1))
+			.andExpect(jsonPath("$.cast[0].name").value("Keanu Reeves"))
+			.andExpect(jsonPath("$.cast[0].character").value("Neo"))
+			.andExpect(jsonPath("$.cast[0].profileUrl").value("https://image.tmdb.org/t/p/w185/neo.jpg"))
+			.andExpect(jsonPath("$.cast[1].name").value("Laurence Fishburne"))
+			.andExpect(jsonPath("$.cast[2].name").value("Joe Pantoliano"))
+			.andExpect(jsonPath("$.cast[2].profileUrl").doesNotExist());
+
+		// Credits ride the existing detail call — no extra TMDB request
+		verify(tmdbClient).getMovieDetail("603");
+		verifyNoMoreInteractions(tmdbClient);
+	}
+
+	@Test
+	void getTitleDetailCapsCastAtTenMembers() throws Exception {
+		List<TmdbCastMember> fifteen = IntStream.range(0, 15)
+			.mapToObj(i -> new TmdbCastMember(i, "Actor " + i, "Role " + i, null, i))
+			.toList();
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", null, null, "Released", "1999-03-31",
+			List.of(), 8.2, 25000, new TmdbCredits(fifteen, List.of()), null, null));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.cast.length()").value(10))
+			.andExpect(jsonPath("$.cast[9].name").value("Actor 9"));
 	}
 
 	@Test
@@ -750,6 +808,29 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.seasons[1].seasonNumber").value(2));
 
 		verify(tmdbClient).getTvDetail("1399");
+	}
+
+	@Test
+	void getTitleDetailReturnsCastForTvShows() throws Exception {
+		when(tmdbClient.getTvDetail("1399")).thenReturn(new TmdbTvDetail(
+			1399, 1, "Ended", "2011-04-17",
+			List.of(new TmdbTvSeason(3625, 1, "Season 1", null, null, 10, "2011-04-17", null)),
+			"Game of Thrones", null, null, List.of(), 8.4, 21000,
+			new TmdbCredits(List.of(
+				new TmdbCastMember(1223786L, "Emilia Clarke", "Daenerys Targaryen", "/emilia.jpg", 0)),
+				List.of()),
+			null));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "1399")
+			.param("externalSource", "TMDB")
+			.param("type", "TV"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.cast.length()").value(1))
+			.andExpect(jsonPath("$.cast[0].name").value("Emilia Clarke"))
+			.andExpect(jsonPath("$.cast[0].character").value("Daenerys Targaryen"))
+			.andExpect(jsonPath("$.cast[0].profileUrl").value("https://image.tmdb.org/t/p/w185/emilia.jpg"));
 	}
 
 	@Test

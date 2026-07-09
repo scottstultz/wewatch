@@ -121,6 +121,16 @@ export interface EpisodeDetail {
   runtimeMinutes: number | null
 }
 
+// One top-billed cast member on a title's detail page (#295)
+export interface CastMember {
+  id: number
+  name: string
+  // Blank for some TMDB credits
+  character: string | null
+  // Null when TMDB has no headshot — the UI renders a silhouette placeholder
+  profileUrl: string | null
+}
+
 export interface TitleDetailResponse {
   externalId: string
   externalSource: string
@@ -143,6 +153,8 @@ export interface TitleDetailResponse {
   titleId: number | null
   // The caller's thumbs rating; null when unrated or no title row
   myRating: TitleRating | null
+  // Top-billed cast in TMDB billing order (#295); empty when TMDB has no credits
+  cast: CastMember[] | null
 }
 
 export type ShelfKind =

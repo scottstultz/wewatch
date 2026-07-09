@@ -340,8 +340,8 @@ class TmdbClientTest {
 		  ],
 		  "credits": {
 		    "cast": [
-		      { "id": 1223786, "name": "Emilia Clarke", "order": 0 },
-		      { "id": 12795, "name": "Kit Harington", "order": 1 }
+		      { "id": 1223786, "name": "Emilia Clarke", "character": "Daenerys Targaryen", "profile_path": "/emilia.jpg", "order": 0 },
+		      { "id": 12795, "name": "Kit Harington", "character": "Jon Snow", "order": 1 }
 		    ],
 		    "crew": [
 		      { "id": 44797, "name": "Miguel Sapochnik", "job": "Director" },
@@ -380,8 +380,9 @@ class TmdbClientTest {
 
 		assertThat(credits.cast())
 			.containsExactly(
-				new TmdbCastMember(1223786L, "Emilia Clarke", 0),
-				new TmdbCastMember(12795L, "Kit Harington", 1));
+				new TmdbCastMember(1223786L, "Emilia Clarke", "Daenerys Targaryen", "/emilia.jpg", 0),
+				// no profile_path — TMDB has no headshot for some credits (#295)
+				new TmdbCastMember(12795L, "Kit Harington", "Jon Snow", null, 1));
 		assertThat(credits.crew())
 			.containsExactly(
 				new TmdbCrewMember(44797L, "Miguel Sapochnik", "Director"),
@@ -410,7 +411,7 @@ class TmdbClientTest {
 
 		TmdbCredits credits = tmdbClient.getMovieDetail("27205").credits();
 
-		assertThat(credits.cast()).containsExactly(new TmdbCastMember(6193L, "Leonardo DiCaprio", 0));
+		assertThat(credits.cast()).containsExactly(new TmdbCastMember(6193L, "Leonardo DiCaprio", null, null, 0));
 		assertThat(credits.crew()).containsExactly(new TmdbCrewMember(525L, "Christopher Nolan", "Director"));
 	}
 

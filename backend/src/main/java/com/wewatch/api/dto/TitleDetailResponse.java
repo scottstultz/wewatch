@@ -8,8 +8,9 @@ import com.wewatch.api.model.TitleType;
 /**
  * Full title detail for the browse/pre-add detail page, keyed by external id.
  * Carries fields beyond {@link TitleSearchResponse} (genre names, status, a
- * read-only season summary for TV, and where the title streams in the caller's
- * watch region, #270) sourced live from a TMDB detail call.
+ * read-only season summary for TV, where the title streams in the caller's
+ * watch region (#270), and the top-billed cast, #295) sourced live from a TMDB
+ * detail call.
  */
 public record TitleDetailResponse(
 	String externalId,
@@ -33,6 +34,9 @@ public record TitleDetailResponse(
 	// null for titles nobody has resolved yet; the ratings API is keyed on it
 	Long titleId,
 	// The caller's own thumbs rating (#273); null when unrated or no title row
-	Rating myRating
+	Rating myRating,
+	// Top-billed cast in TMDB billing order (#295); empty when TMDB has no
+	// credits for the title
+	List<CastMemberResponse> cast
 ) {
 }

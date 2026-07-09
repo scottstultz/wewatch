@@ -170,12 +170,12 @@ class TmdbCacheServiceTest {
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
 		TmdbCredits credits = new TmdbCredits(
 			List.of(
-				new TmdbCastMember(6L, "Sixth Billed", 5),
-				new TmdbCastMember(1L, "Lead", 0),
-				new TmdbCastMember(2L, "Second", 1),
-				new TmdbCastMember(3L, "Third", 2),
-				new TmdbCastMember(4L, "Fourth", 3),
-				new TmdbCastMember(5L, "Fifth", 4)),
+				new TmdbCastMember(6L, "Sixth Billed", null, null, 5),
+				new TmdbCastMember(1L, "Lead", null, null, 0),
+				new TmdbCastMember(2L, "Second", null, null, 1),
+				new TmdbCastMember(3L, "Third", null, null, 2),
+				new TmdbCastMember(4L, "Fourth", null, null, 3),
+				new TmdbCastMember(5L, "Fifth", null, null, 4)),
 			List.of(
 				new TmdbCrewMember(100L, "The Director", "Director"),
 				new TmdbCrewMember(101L, "The Producer", "Producer"),

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
 import type {
   EpisodeDetail,
@@ -438,13 +439,8 @@ function ShowDetailPage() {
         </div>
       </section>
 
-      {/* Overview */}
-      {detail?.overview && (
-        <section className="panel">
-          <h3>Overview</h3>
-          <p>{detail.overview}</p>
-        </section>
-      )}
+      {/* Overview / Cast */}
+      {detail && <OverviewCastPanel overview={detail.overview} cast={detail.cast} />}
 
       {/* Season tabs */}
       {isLoadingSeasons ? (
