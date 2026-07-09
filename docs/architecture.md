@@ -298,3 +298,28 @@ don't belong on the same tuning surface. An offline harness
 watchlists through the real `SuggestionService` against a deterministic synthetic TMDB catalog
 (no network) and diffs shelves across parameter sets — for evaluating a tuning change's effect
 before shipping it, without touching production data.
+
+## API Documentation (#297)
+
+The REST API is documented via [springdoc-openapi](https://springdoc.org/)
+(`springdoc-openapi-starter-webmvc-ui`), generating both Swagger UI and an OpenAPI 3 spec from
+annotations on the existing controllers/DTOs (`@Tag`, `@Operation`, `@ApiResponses`, `@Schema`)
+rather than a hand-maintained spec file. `OpenApiConfig` registers the API metadata and a
+`bearerAuth` `SecurityScheme` (HTTP bearer, JWT format) as a global security requirement, which
+is what powers Swagger UI's "Authorize" button against the app's self-issued JWTs; the two public
+controllers (`HealthController`, `AuthController`) override it with an empty
+`@SecurityRequirements` so Swagger UI reflects that they don't need a token.
+
+`SecurityConfig` permits `/v3/api-docs/**`, `/swagger-ui/**`, and `/swagger-ui.html` alongside the
+existing `/api/health` and `/api/auth/**` matchers — otherwise `anyRequest().authenticated()`
+would block Swagger UI itself before a caller could authenticate. Swagger UI is served directly
+from the backend, not proxied through the Vite dev server, so no CORS changes were needed.
+
+**Local-only exposure:** `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` are set to
+`false` in `application-prod.properties` only. There's no Actuator or other admin surface in this
+app to model the gating on, so this follows the existing per-profile `.properties` split (CORS
+origins, datasource credentials) instead. The API is allowlist-gated but the docs endpoints
+themselves are unauthenticated by necessity (a caller needs the spec before they have a token),
+so disabling them in prod avoids exposing the full internal API shape — every route, DTO field,
+and error code — to the public internet with no corresponding benefit, since the only consumer is
+the first-party frontend. See [`docs/api.md`](api.md) for how to reach Swagger UI locally.

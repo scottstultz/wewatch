@@ -40,8 +40,14 @@ import com.wewatch.api.service.TmdbCacheService;
 import com.wewatch.api.service.WatchlistEntryService;
 import com.wewatch.api.service.WatchlistService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/watchlists/{watchlistId}/entries")
+@Tag(name = "Watchlist Entries", description = "Add, browse, and update titles on a watchlist, including episode-progress tracking.")
 public class WatchlistEntryController {
 
 	private final WatchlistEntryService watchlistEntryService;
@@ -71,6 +77,18 @@ public class WatchlistEntryController {
 	}
 
 	@PostMapping
+	@Operation(summary = "Add a title to a watchlist",
+		description = "Editor or owner role required. As side effects, this prewarms the title's TMDB "
+			+ "metadata cache (show or movie details) and triggers an async recompute of the watchlist's "
+			+ "suggestion shelves.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "201", description = "Entry created"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller does not have editor access to this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist or title not found"),
+		@ApiResponse(responseCode = "409", description = "This title is already on the watchlist")
+	})
 	public ResponseEntity<WatchlistEntryResponse> createWatchlistEntry(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -102,6 +120,15 @@ public class WatchlistEntryController {
 	}
 
 	@GetMapping
+	@Operation(summary = "List a watchlist's entries",
+		description = "Member-only. Paginated; optionally filtered by watch status. Each entry includes an "
+			+ "episode-progress summary for TV titles and the caller's own thumbs rating for the title, if any.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Entries returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public Page<WatchlistEntryResponse> getWatchlistEntries(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -133,6 +160,13 @@ public class WatchlistEntryController {
 	}
 
 	@GetMapping("/{entryId}")
+	@Operation(summary = "Get a single watchlist entry", description = "Member-only.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Entry returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist or entry not found")
+	})
 	public WatchlistEntryResponse getWatchlistEntry(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -145,6 +179,16 @@ public class WatchlistEntryController {
 	}
 
 	@PatchMapping("/{entryId}")
+	@Operation(summary = "Update a watchlist entry's watch status",
+		description = "Editor or owner role required. Triggers an async recompute of the watchlist's "
+			+ "suggestion shelves as a side effect.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Entry updated"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller does not have editor access to this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist or entry not found")
+	})
 	public WatchlistEntryResponse updateWatchlistEntry(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -170,6 +214,15 @@ public class WatchlistEntryController {
 	}
 
 	@DeleteMapping("/{entryId}")
+	@Operation(summary = "Remove a title from a watchlist",
+		description = "Editor or owner role required. Triggers an async recompute of the watchlist's "
+			+ "suggestion shelves as a side effect.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "204", description = "Entry removed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller does not have editor access to this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public ResponseEntity<Void> deleteWatchlistEntry(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,

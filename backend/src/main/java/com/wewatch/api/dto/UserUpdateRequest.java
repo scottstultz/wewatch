@@ -6,6 +6,8 @@ import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 public record UserUpdateRequest(
 	@Email
 	@Size(max = 255)
@@ -16,10 +18,15 @@ public record UserUpdateRequest(
 
 	// TMDB watch region, ISO 3166-1 alpha-2 (#270)
 	@Pattern(regexp = "[A-Z]{2}")
+	@Schema(description = "TMDB watch region, ISO 3166-1 alpha-2 (e.g. \"US\"). Null leaves the "
+		+ "current value unchanged (#270).")
 	String watchRegion,
 
 	// null = unchanged; empty list = clear (turns provider-aware behavior off)
 	@Size(max = 100)
+	@Schema(description = "TMDB provider ids for the user's selected streaming services. Null leaves "
+		+ "the current value unchanged; an empty list clears it, turning provider-aware suggestions "
+		+ "off (#270).")
 	List<Integer> watchProviderIds
 ) {
 }

@@ -30,8 +30,14 @@ import com.wewatch.api.model.WatchlistMember;
 import com.wewatch.api.service.UserService;
 import com.wewatch.api.service.WatchlistService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/watchlists")
+@Tag(name = "Watchlists", description = "Create, manage, and share watchlists (personal and shared) and their memberships.")
 public class WatchlistController {
 
 	private final WatchlistService watchlistService;
@@ -43,6 +49,12 @@ public class WatchlistController {
 	}
 
 	@GetMapping
+	@Operation(summary = "List the caller's watchlists",
+		description = "Returns every watchlist (personal and shared) the caller is a member of.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Watchlists returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header")
+	})
 	public List<WatchlistResponse> getWatchlists(@AuthenticationPrincipal User caller) {
 		List<Watchlist> watchlists = watchlistService.findByUserId(caller.getId());
 		if (watchlists.isEmpty()) {
@@ -73,6 +85,12 @@ public class WatchlistController {
 	}
 
 	@PostMapping
+	@Operation(summary = "Create a shared watchlist", description = "The caller becomes the watchlist's owner.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "201", description = "Watchlist created"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header")
+	})
 	public ResponseEntity<WatchlistResponse> createWatchlist(
 		@AuthenticationPrincipal User caller,
 		@Valid @RequestBody WatchlistCreateRequest request
@@ -85,6 +103,13 @@ public class WatchlistController {
 	}
 
 	@GetMapping("/{watchlistId}")
+	@Operation(summary = "Get a watchlist", description = "Caller must be a member of the watchlist.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Watchlist returned"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public WatchlistResponse getWatchlist(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller
@@ -94,6 +119,14 @@ public class WatchlistController {
 	}
 
 	@PatchMapping("/{watchlistId}")
+	@Operation(summary = "Rename a watchlist", description = "Owner-only.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Watchlist renamed"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not the watchlist owner"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public WatchlistResponse updateWatchlist(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -105,6 +138,16 @@ public class WatchlistController {
 	}
 
 	@DeleteMapping("/{watchlistId}")
+	@Operation(summary = "Delete a shared watchlist",
+		description = "Owner-only. Personal watchlists cannot be deleted. Cascades to the watchlist's "
+			+ "entries and memberships.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "204", description = "Watchlist deleted"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403",
+			description = "Caller is not the watchlist owner, or the watchlist is a personal watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public ResponseEntity<Void> deleteWatchlist(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller
@@ -114,6 +157,14 @@ public class WatchlistController {
 	}
 
 	@PatchMapping("/{watchlistId}/default")
+	@Operation(summary = "Mark a watchlist as the caller's default",
+		description = "Member-only. Clears the default flag on the caller's other watchlists.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Default watchlist updated"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of this watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found")
+	})
 	public WatchlistResponse setDefault(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller
@@ -123,6 +174,16 @@ public class WatchlistController {
 	}
 
 	@PostMapping("/{watchlistId}/members")
+	@Operation(summary = "Add a member to a watchlist by email",
+		description = "Owner-only. The new member is added with the editor role.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "201", description = "Member added"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not the watchlist owner"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found, or no user exists with that email"),
+		@ApiResponse(responseCode = "409", description = "That user is already a member of this watchlist")
+	})
 	public ResponseEntity<WatchlistMemberResponse> addMember(
 		@PathVariable Long watchlistId,
 		@AuthenticationPrincipal User caller,
@@ -137,6 +198,18 @@ public class WatchlistController {
 	}
 
 	@PatchMapping("/{watchlistId}/members/{userId}/role")
+	@Operation(summary = "Change a member's role",
+		description = "Owner-only. The caller cannot change their own role, and the owner's role cannot be "
+			+ "changed or assigned to another member (promoting a member to owner is not supported).")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Member role updated"),
+		@ApiResponse(responseCode = "400", description = "Requested role is OWNER, which is not assignable"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403",
+			description = "Caller is not the watchlist owner, is targeting their own membership, or is "
+				+ "targeting the owner's membership"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found, or target user is not a member")
+	})
 	public WatchlistMemberResponse updateMemberRole(
 		@PathVariable Long watchlistId,
 		@PathVariable Long userId,
@@ -151,6 +224,14 @@ public class WatchlistController {
 	}
 
 	@DeleteMapping("/{watchlistId}/members/{userId}")
+	@Operation(summary = "Remove a member from a watchlist", description = "Owner-only. The owner cannot be removed.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "204", description = "Member removed"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403",
+			description = "Caller is not the watchlist owner, or the target is the owner"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found, or target user is not a member")
+	})
 	public ResponseEntity<Void> removeMember(
 		@PathVariable Long watchlistId,
 		@PathVariable Long userId,

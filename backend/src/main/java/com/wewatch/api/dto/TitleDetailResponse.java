@@ -5,6 +5,8 @@ import java.util.List;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.TitleType;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /**
  * Full title detail for the browse/pre-add detail page, keyed by external id.
  * Carries fields beyond {@link TitleSearchResponse} (genre names, status, a
@@ -14,6 +16,7 @@ import com.wewatch.api.model.TitleType;
  */
 public record TitleDetailResponse(
 	String externalId,
+	@Schema(description = "External source of the title. Only \"TMDB\" is currently supported.")
 	String externalSource,
 	TitleType type,
 	String name,
@@ -28,12 +31,18 @@ public record TitleDetailResponse(
 	List<SeasonSummaryResponse> seasons,
 	// The region the providers were resolved for — the caller's setting, or the
 	// US default when unset
+	@Schema(description = "TMDB watch region the providers below were resolved for — the caller's "
+		+ "configured region, or \"US\" if unset (#270)")
 	String watchRegion,
 	List<WatchProviderResponse> watchProviders,
 	// Internal title id when a titles row exists for this external id (#273) —
 	// null for titles nobody has resolved yet; the ratings API is keyed on it
+	@Schema(description = "Local titles row id when this title has already been resolved (see "
+		+ "/api/titles/resolve); null if nobody has resolved it yet. The ratings API "
+		+ "(/api/titles/{titleId}/rating) is keyed on this id.")
 	Long titleId,
 	// The caller's own thumbs rating (#273); null when unrated or no title row
+	@Schema(description = "The caller's own thumbs rating; null when unrated or when titleId is null")
 	Rating myRating,
 	// Top-billed cast in TMDB billing order (#295); empty when TMDB has no
 	// credits for the title

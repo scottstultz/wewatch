@@ -5,9 +5,12 @@ import java.time.LocalDate;
 
 import com.wewatch.api.model.TitleType;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 public record TitleResponse(
 	Long id,
 	String externalId,
+	@Schema(description = "External source of the title. Only \"TMDB\" is currently supported.")
 	String externalSource,
 	TitleType type,
 	String name,

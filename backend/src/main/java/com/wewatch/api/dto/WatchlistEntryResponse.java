@@ -6,6 +6,8 @@ import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.WatchStatus;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
 public record WatchlistEntryResponse(
 	Long id,
 	Long watchlistId,
@@ -14,16 +16,22 @@ public record WatchlistEntryResponse(
 	String externalId,
 	String externalSource,
 	String name,
+	@Schema(description = "Whether the title is a movie or a TV show", allowableValues = {"MOVIE", "TV"})
 	TitleType type,
 	String posterUrl,
+	@Schema(description = "The entry's watch status", allowableValues = {"WANT_TO_WATCH", "WATCHING", "WATCHED"})
 	WatchStatus status,
 	Instant addedAt,
 	Instant updatedAt,
 	Instant startedAt,
 	Instant completedAt,
+	@Schema(description = "Episode-progress summary; present only for TV entries, null for movies")
 	EpisodeProgressSummary episodeProgress,
 	// The caller's own thumbs rating (#273) — personal, not the entry's;
 	// two members of a shared list see different values here
+	@Schema(description = "The caller's own thumbs rating for this title (#273) — personal to the caller, "
+		+ "not shared with other watchlist members. Null if the caller hasn't rated the title.",
+		allowableValues = {"UP", "DOWN"})
 	Rating myRating
 ) {
 }

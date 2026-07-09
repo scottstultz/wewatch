@@ -22,8 +22,16 @@ import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.service.UserService;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api/auth")
+@Tag(name = "Auth", description = "Credential exchange for WeWatch JWTs. Sign-in is allowlist-gated.")
+@SecurityRequirements
 public class AuthController {
 
 	private final GoogleTokenValidator googleTokenValidator;
@@ -43,6 +51,15 @@ public class AuthController {
 	}
 
 	@PostMapping("/token")
+	@Operation(summary = "Exchange a provider credential for a WeWatch JWT",
+		description = "Accepts a Google ID token or an email+password credential. The associated "
+			+ "email must be present in the allowlist.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Credential accepted; JWT issued"),
+		@ApiResponse(responseCode = "400", description = "Unrecognized provider"),
+		@ApiResponse(responseCode = "401", description = "Invalid credential"),
+		@ApiResponse(responseCode = "403", description = "Email not in the allowlist")
+	})
 	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request) {
 		User user;
 		if ("google".equals(request.provider())) {
@@ -63,6 +80,14 @@ public class AuthController {
 	}
 
 	@PostMapping("/register")
+	@Operation(summary = "Register a new email+password account",
+		description = "Email must be present in the allowlist. Returns a WeWatch JWT for the new user.")
+	@ApiResponses({
+		@ApiResponse(responseCode = "201", description = "Account created; JWT issued"),
+		@ApiResponse(responseCode = "400", description = "Validation failed"),
+		@ApiResponse(responseCode = "403", description = "Email not in the allowlist"),
+		@ApiResponse(responseCode = "409", description = "Email already registered")
+	})
 	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
 		requireAllowedEmail(request.email());
 		User user = userService.registerWithPassword(
