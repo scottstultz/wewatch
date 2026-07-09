@@ -4,6 +4,7 @@ import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import JustWatchAttribution from '../components/JustWatchAttribution'
+import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
 import type { TitleDetailResponse, TitleRating, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
@@ -261,12 +262,7 @@ function TitleDetailPage() {
 
       {isLoading && <p className="search-status">Loading details…</p>}
 
-      {detail?.overview && (
-        <section className="panel">
-          <h3>Overview</h3>
-          <p>{detail.overview}</p>
-        </section>
-      )}
+      {detail && <OverviewCastPanel overview={detail.overview} cast={detail.cast} />}
 
       {detail?.watchProviders && detail.watchProviders.length > 0 && (
         <section className="panel">

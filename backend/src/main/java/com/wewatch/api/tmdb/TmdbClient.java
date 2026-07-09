@@ -20,6 +20,7 @@ public class TmdbClient {
 	private static final String POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500";
 	private static final String STILL_BASE_URL = "https://image.tmdb.org/t/p/w300";
 	private static final String PROVIDER_LOGO_BASE_URL = "https://image.tmdb.org/t/p/w92";
+	private static final String PROFILE_BASE_URL = "https://image.tmdb.org/t/p/w185";
 
 	private final RestClient restClient;
 
@@ -293,6 +294,12 @@ public class TmdbClient {
 
 	public static String providerLogoUrl(String logoPath) {
 		return logoPath != null ? PROVIDER_LOGO_BASE_URL + logoPath : null;
+	}
+
+	// Null for cast members TMDB has no headshot for — the client renders a
+	// silhouette placeholder in that case (#295)
+	public static String profileUrl(String profilePath) {
+		return profilePath != null ? PROFILE_BASE_URL + profilePath : null;
 	}
 
 	private List<TmdbItem> fetchItems(String path, String query) {

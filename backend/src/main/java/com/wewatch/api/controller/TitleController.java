@@ -1,5 +1,6 @@
 package com.wewatch.api.controller;
 
+import java.util.Comparator;
 import java.util.List;
 
 import jakarta.validation.Valid;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.wewatch.api.dto.CastMemberResponse;
 import com.wewatch.api.dto.EpisodeResponse;
 import com.wewatch.api.dto.SeasonDetailResponse;
 import com.wewatch.api.dto.SeasonSummaryResponse;
@@ -30,7 +32,9 @@ import com.wewatch.api.model.User;
 import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
+import com.wewatch.api.tmdb.TmdbCastMember;
 import com.wewatch.api.tmdb.TmdbClient;
+import com.wewatch.api.tmdb.TmdbCredits;
 import com.wewatch.api.tmdb.TmdbDates;
 import com.wewatch.api.tmdb.TmdbGenre;
 import com.wewatch.api.tmdb.TmdbMovieDetail;
@@ -45,6 +49,7 @@ public class TitleController {
 
 	private static final String TMDB_SOURCE = "TMDB";
 	private static final String DEFAULT_WATCH_REGION = "US";
+	private static final int CAST_LIMIT = 10;
 
 	private final TitleService titleService;
 	private final TmdbClient tmdbClient;
@@ -114,7 +119,8 @@ public class TitleController {
 				watchRegion,
 				flatrateProviders(detail.watchProviders(), watchRegion),
 				titleId,
-				myRating
+				myRating,
+				topCast(detail.credits())
 			);
 		}
 
@@ -147,12 +153,31 @@ public class TitleController {
 			watchRegion,
 			flatrateProviders(detail.watchProviders(), watchRegion),
 			titleId,
-			myRating
+			myRating,
+			topCast(detail.credits())
 		);
 	}
 
 	private List<String> genreNames(List<TmdbGenre> genres) {
 		return genres != null ? genres.stream().map(TmdbGenre::name).toList() : List.of();
+	}
+
+	// Credits already ride the detail call via append_to_response (#269), so the
+	// Cast section (#295) adds no TMDB request. TMDB usually returns cast in
+	// billing order, but sort defensively — obscure titles come back unordered,
+	// and a null order sinks to the bottom.
+	private List<CastMemberResponse> topCast(TmdbCredits credits) {
+		if (credits == null || credits.cast() == null) return List.of();
+		return credits.cast().stream()
+			.sorted(Comparator.comparing(TmdbCastMember::order,
+				Comparator.nullsLast(Comparator.naturalOrder())))
+			.limit(CAST_LIMIT)
+			.map(c -> new CastMemberResponse(
+				c.id(),
+				c.name(),
+				c.character(),
+				TmdbClient.profileUrl(c.profilePath())))
+			.toList();
 	}
 
 	// Flatrate (subscription) offers only, matching the suggestion pipeline's
