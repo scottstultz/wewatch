@@ -2558,6 +2558,10 @@ a {
   margin: 12px 0 16px;
 }
 
+.provider-search-row {
+  margin: 0 0 12px;
+}
+
 .provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
