@@ -149,6 +149,7 @@ function ProfilePage() {
                       type="button"
                       className={`provider-chip${selected.has(p.id) ? ' provider-chip-selected' : ''}`}
                       aria-pressed={selected.has(p.id)}
+                      title={p.name}
                       onClick={() => toggleProvider(p.id)}
                     >
                       {p.logoUrl && <img className="provider-chip-logo" src={p.logoUrl} alt="" loading="lazy" />}
