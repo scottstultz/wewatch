@@ -6,6 +6,7 @@ import { WatchlistProvider } from './contexts/WatchlistContext'
 import DiscoverPage from './pages/DiscoverPage'
 import HomePage from './pages/HomePage'
 import LibraryPage from './pages/LibraryPage'
+import PersonPage from './pages/PersonPage'
 import ShowDetailPage from './pages/ShowDetailPage'
 import TitleDetailPage from './pages/TitleDetailPage'
 import ProfilePage from './pages/ProfilePage'
@@ -35,6 +36,8 @@ function App() {
             <Route path="/library" element={<LibraryPage />} />
             <Route path="/library/:entryId" element={<ShowDetailPage />} />
             <Route path="/title/:type/:source/:externalId" element={<TitleDetailPage />} />
+            {/* Reached from a cast tile, not the nav bar (#305) */}
+            <Route path="/person/:personId" element={<PersonPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>

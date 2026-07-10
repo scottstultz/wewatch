@@ -1,6 +1,7 @@
 import type {
   EpisodeProgress,
   MemberRole,
+  PersonDetailResponse,
   SeasonDetail,
   SeasonSummary,
   SuggestionShelf,
@@ -150,6 +151,14 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       const response = await authedFetch(`${BASE_URL}/titles/detail?${params}`)
       if (!response.ok) throw new Error(`Failed to fetch title detail: ${response.status}`)
       return response.json() as Promise<TitleDetailResponse>
+    },
+
+    // ── People (#305) ────────────────────────────────────────
+
+    async getPerson(personId: number): Promise<PersonDetailResponse> {
+      const response = await authedFetch(`${BASE_URL}/people/${personId}`)
+      if (!response.ok) throw new Error(`Failed to fetch person: ${response.status}`)
+      return response.json() as Promise<PersonDetailResponse>
     },
 
     // ── User settings & watch providers (#270) ───────────────
