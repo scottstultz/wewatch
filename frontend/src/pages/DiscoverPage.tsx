@@ -2,21 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import JustWatchAttribution from '../components/JustWatchAttribution'
-import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider, WatchStatus } from '../types/api'
-
-type AddHandler = (title: TitleSearchResponse, status: WatchStatus) => void
-type OpenHandler = (title: TitleSearchResponse) => void
-type ToggleHandler = (title: TitleSearchResponse) => void
-type RemoveHandler = (title: TitleSearchResponse) => void
-type DismissHandler = (title: TitleSearchResponse) => void
-
-type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
-
-function cardKey(title: TitleSearchResponse) {
-  return `${title.externalSource}-${title.externalId}`
-}
+import TitleCard, { cardKey } from '../components/TitleCard'
+import type { AddHandler, CardStatus, DismissHandler, OpenHandler, RemoveHandler, ToggleHandler } from '../components/TitleCard'
+import { useTitleCardActions } from '../hooks/useTitleCardActions'
+import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider } from '../types/api'
 
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
@@ -35,117 +25,6 @@ const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
   TRENDING: 4,
   PERSON: 4,
   KEYWORD: 4,
-}
-
-interface TitleCardProps {
-  title: TitleSearchResponse
-  status: CardStatus
-  isPicking: boolean
-  onAdd: AddHandler
-  onChangeStatus: AddHandler
-  onTogglePicker: ToggleHandler
-  onOpen: OpenHandler
-  onRemove: RemoveHandler
-  // Only suggestion tiles get the "Not interested" affordance (#268); search
-  // results have no dismiss concept, so the prop is absent there
-  onDismiss?: DismissHandler
-  // id -> provider lookup for availability badges (#270); absent on search
-  // results and when the user has no streaming services configured
-  providersById?: Map<number, WatchProvider>
-}
-
-function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePicker, onOpen, onRemove, onDismiss, providersById }: TitleCardProps) {
-  const addedStatus =
-    status === 'WANT_TO_WATCH' || status === 'WATCHING' || status === 'WATCHED' ? status : null
-  const badgeProviders = (providersById && title.providerIds ? title.providerIds : [])
-    .map(id => providersById?.get(id))
-    .filter((p): p is WatchProvider => p != null)
-    .slice(0, 3)
-  return (
-    <article
-      className="title-card title-card-clickable"
-      role="button"
-      tabIndex={0}
-      onClick={() => onOpen(title)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onOpen(title)
-        }
-      }}
-      aria-label={`View details for ${title.name}`}
-    >
-      {onDismiss && (
-        <button
-          className="title-dismiss-btn"
-          onClick={(e) => { e.stopPropagation(); onDismiss(title) }}
-          aria-label={`Not interested in ${title.name}`}
-          title="Not interested"
-        >
-          ✕
-        </button>
-      )}
-      {title.posterUrl ? (
-        <img className="title-poster" src={title.posterUrl} alt={title.name} loading="lazy" />
-      ) : (
-        <div className="title-poster title-poster-empty" />
-      )}
-      {badgeProviders.length > 0 && (
-        <div className="provider-badge-row" aria-label="Streaming on your services">
-          {badgeProviders.map(p => (
-            p.logoUrl && <img key={p.id} className="provider-badge-logo" src={p.logoUrl} alt={p.name} title={p.name} loading="lazy" />
-          ))}
-        </div>
-      )}
-      <div className="title-card-body">
-        <span className="title-type-badge">
-          {title.type === 'MOVIE' ? 'Movie' : 'TV Show'}
-        </span>
-        <p className="title-name">{title.name}</p>
-        {title.releaseDate && (
-          <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
-        )}
-        {addedStatus ? (
-          isPicking ? (
-            <StatusPicker
-              current={addedStatus}
-              onSelect={(s) => onChangeStatus(title, s)}
-              onRemove={() => onRemove(title)}
-            />
-          ) : (
-            <div className="discover-action-row">
-              <button
-                className="discover-added-chip"
-                onClick={(e) => { e.stopPropagation(); onTogglePicker(title) }}
-                aria-label={`Status: ${STATUS_LABELS[addedStatus]}. Tap to change.`}
-              >
-                <span className="discover-round-btn discover-round-btn-added" aria-hidden="true">✓</span>
-                <span className="discover-added-label">{STATUS_LABELS[addedStatus]}</span>
-              </button>
-            </div>
-          )
-        ) : (
-          <div className="discover-action-row">
-            <button
-              className={`discover-round-btn discover-round-btn-add${status === 'error' ? ' discover-round-btn-error' : ''}`}
-              disabled={status === 'loading'}
-              onClick={(e) => { e.stopPropagation(); onAdd(title, 'WANT_TO_WATCH') }}
-              aria-label={status === 'error' ? 'Retry adding to watchlist' : 'Add to watchlist'}
-            >
-              {status === 'loading' ? '…' : (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              )}
-            </button>
-            {status === 'error' && (
-              <span className="discover-added-label discover-error-label">Failed — tap to retry</span>
-            )}
-          </div>
-        )}
-      </div>
-    </article>
-  )
 }
 
 interface ShelfRowProps {
@@ -241,9 +120,16 @@ function DiscoverPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
-  const [cardStatus, setCardStatus] = useState<Record<string, CardStatus>>({})
-  const [entryIds, setEntryIds] = useState<Record<string, number>>({})
-  const [pickingKey, setPickingKey] = useState<string | null>(null)
+  const {
+    cardStatus,
+    setCardStatus,
+    setEntryIds,
+    pickingKey,
+    handleAddToWatchlist,
+    togglePicker,
+    handleChangeStatus,
+    handleRemove,
+  } = useTitleCardActions(api, selectedWatchlistId)
   const [suggestions, setSuggestions] = useState<SuggestionShelf[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
   // Optimistically hidden "Not interested" tiles (#268) — the backend excludes
@@ -322,7 +208,7 @@ function DiscoverPage() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [query, api, selectedWatchlistId])
+  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds])
 
   // Suggestions effect (when query is empty)
   useEffect(() => {
@@ -371,7 +257,7 @@ function DiscoverPage() {
       })
 
     return () => { cancelled = true }
-  }, [query, api, selectedWatchlistId])
+  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds])
 
   // Restore scroll on back-navigation once the content giving the page its
   // height has rendered; anything else invalidates the saved offset (#241).
@@ -398,40 +284,6 @@ function DiscoverPage() {
       `/title/${title.type.toLowerCase()}/${title.externalSource}/${title.externalId}`,
       { state: { title } },
     )
-  }
-
-  async function handleAddToWatchlist(title: TitleSearchResponse, status: WatchStatus) {
-    if (!selectedWatchlistId) return
-    const key = cardKey(title)
-    setCardStatus(prev => ({ ...prev, [key]: 'loading' }))
-    try {
-      const titleId = await api.findOrCreateTitle(title)
-      const created = await api.addToWatchlist(selectedWatchlistId, titleId, status)
-      setEntryIds(prev => ({ ...prev, [key]: created.id }))
-      setCardStatus(prev => ({ ...prev, [key]: created.status }))
-    } catch {
-      setCardStatus(prev => ({ ...prev, [key]: 'error' }))
-    }
-  }
-
-  function togglePicker(title: TitleSearchResponse) {
-    const key = cardKey(title)
-    setPickingKey(prev => (prev === key ? null : key))
-  }
-
-  async function handleChangeStatus(title: TitleSearchResponse, newStatus: WatchStatus) {
-    if (!selectedWatchlistId) return
-    const key = cardKey(title)
-    setPickingKey(null)
-    const entryId = entryIds[key]
-    const previous = cardStatus[key]
-    if (entryId == null || previous === newStatus) return
-    setCardStatus(prev => ({ ...prev, [key]: newStatus }))
-    try {
-      await api.updateWatchlistEntry(selectedWatchlistId, entryId, newStatus)
-    } catch {
-      setCardStatus(prev => ({ ...prev, [key]: previous }))
-    }
   }
 
   async function handleDismiss(title: TitleSearchResponse) {
@@ -469,31 +321,6 @@ function DiscoverPage() {
     } catch {
       // The dismissal still stands server-side, so hide the tile again
       setDismissedKeys(prev => new Set(prev).add(key))
-    }
-  }
-
-  async function handleRemove(title: TitleSearchResponse) {
-    if (!selectedWatchlistId) return
-    const key = cardKey(title)
-    setPickingKey(null)
-    const entryId = entryIds[key]
-    const previous = cardStatus[key]
-    if (entryId == null) return
-    setCardStatus(prev => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-    setEntryIds(prev => {
-      const next = { ...prev }
-      delete next[key]
-      return next
-    })
-    try {
-      await api.removeFromWatchlist(selectedWatchlistId, entryId)
-    } catch {
-      setCardStatus(prev => ({ ...prev, [key]: previous }))
-      setEntryIds(prev => ({ ...prev, [key]: entryId }))
     }
   }
 
