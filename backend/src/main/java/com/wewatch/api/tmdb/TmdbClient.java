@@ -284,6 +284,24 @@ public class TmdbClient {
 		}
 	}
 
+	// Person page (#304). combined_credits carries movie and TV credits alike,
+	// which discoverByPerson cannot: /3/discover/tv has no people filter, so the
+	// suggestion shelf's with_people call would drop every TV credit here.
+	public TmdbPersonDetail getPersonDetail(int personId) {
+		try {
+			TmdbPersonDetail detail = restClient.get()
+				.uri("/3/person/{id}?language=en-US&append_to_response=combined_credits", personId)
+				.retrieve()
+				.body(TmdbPersonDetail.class);
+			if (detail == null) {
+				throw new TmdbApiException("TMDB returned null for person " + personId, null);
+			}
+			return detail;
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB get person detail failed: " + e.getMessage(), e);
+		}
+	}
+
 	public static String posterUrl(String posterPath) {
 		return posterPath != null ? POSTER_BASE_URL + posterPath : null;
 	}
