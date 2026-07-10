@@ -323,3 +323,46 @@ themselves are unauthenticated by necessity (a caller needs the spec before they
 so disabling them in prod avoids exposing the full internal API shape — every route, DTO field,
 and error code — to the public internet with no corresponding benefit, since the only consumer is
 the first-party frontend. See [`docs/api.md`](api.md) for how to reach Swagger UI locally.
+
+## Person Endpoint (#304)
+
+`GET /api/people/{personId}` (`PersonController`) returns a person's bio plus their acting
+filmography, backed by TMDB's `/3/person/{id}?append_to_response=combined_credits`. As with
+`getMovieDetail`, `TmdbClient` returns the raw TMDB record and the controller maps it to a DTO;
+the credit selection lives in `PersonCreditsMapper` so its rules are unit-testable on their own.
+
+**Why this uses `combined_credits` while the PERSON suggestion shelf uses
+`discover?with_people`.** These look like the same query and are not. `TmdbClient.discoverByPerson`
+wraps `/3/discover/movie?with_people=`, and TMDB offers no equivalent for TV — `/3/discover/tv`
+has no people filter at all. That's fine for the `PERSON` suggestion shelf (#269), which is
+movie-only by design, but reusing it for the person page would silently drop every TV credit,
+which is wrong in an app that tracks both. `combined_credits` returns the bio *and* the full
+movie+TV filmography in one request. **The asymmetry is deliberate; collapsing the two call sites
+into one would quietly break the person page's TV credits.**
+
+**Credit selection.** Acting credits (`cast`) only; crew is out of scope. Entries are dropped when
+the media type is neither `movie` nor `tv` (TMDB emits others), when there's no `poster_path`
+(nothing to render), when the credit is a talk/news/reality appearance, or when the character
+marks it as an appearance-as-yourself. Survivors are sorted by `popularity` descending, deduped by
+`(mediaType, id)` — a person can hold two credits on one title via a dual role or a recurring TV
+guest arc — and capped at 100.
+
+**No vote-count floor.** A `vote_count >= N` filter reads sensible for movies but silently deletes
+real TV credits, whose vote counts run an order of magnitude lower. (Bryan Cranston's filmography
+is ~58% TV.) Requiring a poster and dropping self-appearances is what actually removes the junk.
+
+**Removing late-night junk takes two signals, not one.** Filtering on `character` alone does not
+work: TMDB leaves the character *blank* on many talk-show credits — "LIVE with Kelly and Mark" and
+"The Tonight Show with Jay Leno" both come back with `character: ""` — and they outrank real
+credits on popularity, so they land near the top of the page. The reliable signal is the genre
+tag, so the mapper drops TMDB's TV genres Talk (10767), News (10763), and Reality (10764). Those
+ids exist only in TMDB's TV genre list, so matching them unconditionally cannot drop a movie. The
+`character` check still runs alongside it, catching self-appearances embedded in otherwise
+scripted titles (`Self`, `Self - Guest`, `Himself`, `Herself`, case-insensitive with suffixes).
+
+Two deliberate non-filters. Blank characters are **kept** — on a movie a blank character usually
+means a real film whose cast TMDB hasn't detailed yet. And playing a fictionalized version of
+yourself is a real role, which TMDB credits under the person's own name rather than `Self`, so
+Keanu Reeves in *Always Be My Maybe* survives. Documentaries (genre 99) are also kept, since
+filtering them would drop legitimate documentary work; the cost is that promo series like
+"HBO First Look" can still appear, far down the list.

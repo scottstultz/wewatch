@@ -566,4 +566,84 @@ class TmdbClientTest {
 		assertThat(season.episodes().get(2).stillPath()).isNull();
 	}
 
+	private static final String PERSON_DETAIL_JSON = """
+		{
+		  "id": 6384,
+		  "name": "Keanu Reeves",
+		  "biography": "Keanu Charles Reeves is a Canadian actor.",
+		  "profile_path": "/keanu.jpg",
+		  "known_for_department": "Acting",
+		  "birthday": "1964-09-02",
+		  "place_of_birth": "Beirut, Lebanon",
+		  "combined_credits": {
+		    "cast": [
+		      {
+		        "id": 603,
+		        "media_type": "movie",
+		        "title": "The Matrix",
+		        "overview": "A computer hacker learns the true nature of reality.",
+		        "release_date": "1999-03-31",
+		        "poster_path": "/matrix.jpg",
+		        "genre_ids": [28, 878],
+		        "popularity": 92.5,
+		        "vote_count": 24000,
+		        "character": "Thomas A. Anderson"
+		      },
+		      {
+		        "id": 1408,
+		        "media_type": "tv",
+		        "name": "Swedish Dicks",
+		        "overview": "Two men run a private investigation firm.",
+		        "first_air_date": "2016-09-15",
+		        "poster_path": "/dicks.jpg",
+		        "genre_ids": [35],
+		        "popularity": 8.1,
+		        "vote_count": 40,
+		        "character": "Tex"
+		      }
+		    ],
+		    "crew": []
+		  }
+		}
+		""";
+
+	@Test
+	void getPersonDetailRequestsAndParsesCombinedCredits() {
+		server.expect(requestTo(allOf(
+				containsString("/3/person/6384"),
+				containsString("append_to_response=combined_credits"))))
+			.andRespond(withSuccess(PERSON_DETAIL_JSON, MediaType.APPLICATION_JSON));
+
+		TmdbPersonDetail detail = tmdbClient.getPersonDetail(6384);
+
+		assertThat(detail.id()).isEqualTo(6384L);
+		assertThat(detail.name()).isEqualTo("Keanu Reeves");
+		assertThat(detail.biography()).startsWith("Keanu Charles Reeves");
+		assertThat(detail.profilePath()).isEqualTo("/keanu.jpg");
+		assertThat(detail.knownForDepartment()).isEqualTo("Acting");
+		assertThat(detail.birthday()).isEqualTo("1964-09-02");
+		assertThat(detail.placeOfBirth()).isEqualTo("Beirut, Lebanon");
+
+		List<TmdbPersonCredit> cast = detail.combinedCredits().cast();
+		assertThat(cast).hasSize(2);
+		assertThat(cast.get(0).mediaType()).isEqualTo("movie");
+		assertThat(cast.get(0).title()).isEqualTo("The Matrix");
+		assertThat(cast.get(0).popularity()).isEqualTo(92.5);
+		assertThat(cast.get(0).voteCount()).isEqualTo(24000);
+		assertThat(cast.get(0).character()).isEqualTo("Thomas A. Anderson");
+		assertThat(cast.get(1).mediaType()).isEqualTo("tv");
+		assertThat(cast.get(1).name()).isEqualTo("Swedish Dicks");
+		assertThat(cast.get(1).firstAirDate()).isEqualTo("2016-09-15");
+	}
+
+	@Test
+	void getPersonDetailWrapsServerErrors() {
+		server.expect(requestTo(containsString("/3/person/6384")))
+			.andRespond(withServerError());
+
+		assertThatThrownBy(() -> tmdbClient.getPersonDetail(6384))
+			.isInstanceOf(TmdbApiException.class)
+			.hasMessageContaining("TMDB get person detail failed");
+	}
+
 }
