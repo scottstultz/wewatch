@@ -157,6 +157,21 @@ export interface TitleDetailResponse {
   cast: CastMember[] | null
 }
 
+// ── People (#305) ──────────────────────────────────────────
+
+export interface PersonDetailResponse {
+  id: number
+  name: string
+  biography: string | null
+  // Null when TMDB has no headshot — the UI renders a silhouette placeholder
+  profileUrl: string | null
+  knownForDepartment: string | null
+  birthday: string | null
+  placeOfBirth: string | null
+  // Acting credits across movies and TV, deduped and most popular first
+  credits: TitleSearchResponse[]
+}
+
 export type ShelfKind =
   | 'PER_SEED'
   | 'FINISHED_SEED'

@@ -1,5 +1,7 @@
+import type { ReactElement } from 'react'
 import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import OverviewCastPanel from './OverviewCastPanel'
 import type { CastMember } from '../types/api'
 
@@ -7,6 +9,11 @@ const CAST: CastMember[] = [
   { id: 1, name: 'Keanu Reeves', character: 'Neo', profileUrl: 'https://img/neo.jpg' },
   { id: 3, name: 'Joe Pantoliano', character: 'Cypher', profileUrl: null },
 ]
+
+// Cast tiles are react-router Links (#305), so the panel needs a router.
+function render(ui: ReactElement) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>)
+}
 
 describe('OverviewCastPanel', () => {
   it('opens on Overview and switches to Cast when the tab is clicked', () => {
@@ -65,6 +72,13 @@ describe('OverviewCastPanel', () => {
     const { container } = render(<OverviewCastPanel overview={null} cast={null} />)
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('links each cast tile to the person page (#305)', () => {
+    render(<OverviewCastPanel overview={null} cast={CAST} />)
+
+    expect(screen.getByRole('link', { name: /Keanu Reeves/ })).toHaveAttribute('href', '/person/1')
+    expect(screen.getByRole('link', { name: /Joe Pantoliano/ })).toHaveAttribute('href', '/person/3')
   })
 
   it('omits the character line when TMDB has no role for a credit', () => {

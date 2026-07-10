@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { CastMember } from '../types/api'
 
 interface OverviewCastPanelProps {
@@ -9,7 +10,7 @@ interface OverviewCastPanelProps {
 type Tab = 'overview' | 'cast'
 
 // Stands in for a headshot when TMDB has no profile photo for a cast member.
-function PersonSilhouette() {
+export function PersonSilhouette() {
   return (
     <svg className="cast-photo-placeholder-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <circle cx="12" cy="8" r="4" fill="currentColor" />
@@ -61,16 +62,18 @@ function OverviewCastPanel({ overview, cast }: OverviewCastPanelProps) {
       ) : (
         <ul className="cast-grid">
           {cast!.map(member => (
-            <li key={member.id} className="cast-card">
-              {member.profileUrl ? (
-                <img className="cast-photo" src={member.profileUrl} alt="" loading="lazy" />
-              ) : (
-                <div className="cast-photo cast-photo-placeholder">
-                  <PersonSilhouette />
-                </div>
-              )}
-              <span className="cast-name">{member.name}</span>
-              {member.character && <span className="cast-character">{member.character}</span>}
+            <li key={member.id}>
+              <Link className="cast-card" to={`/person/${member.id}`}>
+                {member.profileUrl ? (
+                  <img className="cast-photo" src={member.profileUrl} alt="" loading="lazy" />
+                ) : (
+                  <div className="cast-photo cast-photo-placeholder">
+                    <PersonSilhouette />
+                  </div>
+                )}
+                <span className="cast-name">{member.name}</span>
+                {member.character && <span className="cast-character">{member.character}</span>}
+              </Link>
             </li>
           ))}
         </ul>
