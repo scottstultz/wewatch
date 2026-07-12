@@ -247,6 +247,9 @@ PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**
 
 ## Roadmap
 
+Shipped work is listed below; the live backlog is tracked in
+[GitHub Issues](https://github.com/scottstultz/wewatch/issues).
+
 ### Completed
 - Content search and detail view (TMDB integration)
 - Status-based tracking (Want to Watch, Watching, Watched)
@@ -270,5 +273,9 @@ PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**
 - Cast sections on title details and person filmography pages
 
 ### Planned
+- "Returning this week" — upcoming episodes for shows in Watching (#321)
+- "What can we both watch" — provider/taste intersection for shared watchlists (#322)
+- Stats page — watch time, episodes finished, genre breakdown (#323)
+- PWA manifest — make WeWatch installable on mobile (#324)
 - Advanced filtering and sorting
 - Written reviews
