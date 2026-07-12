@@ -21,6 +21,15 @@ function yearOf(dateStr: string | null): string | null {
   return Number.isNaN(d.getTime()) ? null : String(d.getFullYear())
 }
 
+// Movie runtime as "2h 16m" / "58m"; null when TMDB has no runtime
+function formatRuntime(minutes: number | null | undefined): string | null {
+  if (!minutes || minutes <= 0) return null
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
+  if (hours === 0) return `${mins}m`
+  return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`
+}
+
 function TitleDetailPage() {
   const { type: typeParam, source, externalId } = useParams<{ type: string; source: string; externalId: string }>()
   const location = useLocation()
@@ -143,6 +152,7 @@ function TitleDetailPage() {
   const posterUrl = detail?.posterUrl ?? hint?.posterUrl ?? null
   const displayType = detail?.type ?? hint?.type ?? type
   const year = yearOf(detail?.releaseDate ?? hint?.releaseDate ?? null)
+  const runtime = formatRuntime(detail?.runtimeMinutes)
 
   function goBack() {
     if (fromLibrary) navigate(`/library?status=${fromLibrary}`)
@@ -193,6 +203,7 @@ function TitleDetailPage() {
 
               <div className="title-detail-meta">
                 {year && <span>{year}</span>}
+                {runtime && <span>{runtime}</span>}
                 {detail?.status && <span>{detail.status}</span>}
                 {displayType === 'TV' && detail?.seasonCount != null && (
                   <span>{detail.seasonCount} {detail.seasonCount === 1 ? 'season' : 'seasons'}</span>

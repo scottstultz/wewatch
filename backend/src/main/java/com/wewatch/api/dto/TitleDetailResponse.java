@@ -27,6 +27,9 @@ public record TitleDetailResponse(
 	List<String> genres,
 	Double voteAverage,
 	Integer voteCount,
+	// Total runtime in minutes for movies; null for TV (episode runtimes live
+	// on the per-episode detail instead)
+	Integer runtimeMinutes,
 	Integer seasonCount,
 	List<SeasonSummaryResponse> seasons,
 	// The region the providers were resolved for — the caller's setting, or the

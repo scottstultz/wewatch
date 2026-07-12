@@ -117,7 +117,7 @@ public class TmdbClient {
 				.uri("/3/movie/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null, null);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}

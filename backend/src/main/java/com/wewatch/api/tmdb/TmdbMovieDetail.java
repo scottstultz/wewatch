@@ -18,5 +18,7 @@ public record TmdbMovieDetail(
 	@JsonProperty("vote_count") Integer voteCount,
 	TmdbCredits credits,
 	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders,
-	@JsonProperty("belongs_to_collection") TmdbCollectionRef belongsToCollection
+	@JsonProperty("belongs_to_collection") TmdbCollectionRef belongsToCollection,
+	// Total runtime in minutes; null or 0 for titles TMDB has no runtime for
+	Integer runtime
 ) {}
