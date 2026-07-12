@@ -227,7 +227,7 @@ class TmdbCacheServiceTest {
 		existing.setTmdbId(TMDB_ID);
 		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
 		when(tmdbClient.getMovieDetail(TMDB_ID)).thenReturn(new TmdbMovieDetail(
-			1399L, "Inception", null, null, null, null, List.of(), null, null, null, null, null));
+			1399L, "Inception", null, null, null, null, List.of(), null, null, null, null, null, null));
 		when(tmdbClient.getKeywords(TitleType.MOVIE, TMDB_ID)).thenReturn(List.of(
 			new TmdbKeyword(9882, "space race"),
 			new TmdbKeyword(4565, "dystopia")));

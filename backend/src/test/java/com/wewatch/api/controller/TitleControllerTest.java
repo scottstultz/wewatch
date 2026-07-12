@@ -158,7 +158,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action")),
 			8.2, 25000, null, null
-		, null));
+		, null, 136));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
 			candidate.setId(1L);
@@ -642,7 +642,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
 			8.2, 25000, null, null
-		, null));
+		, null, 136));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -662,6 +662,7 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.genres[0]").value("Action"))
 			.andExpect(jsonPath("$.voteAverage").value(8.2))
 			.andExpect(jsonPath("$.voteCount").value(25000))
+			.andExpect(jsonPath("$.runtimeMinutes").value(136))
 			.andExpect(jsonPath("$.seasonCount").doesNotExist())
 			.andExpect(jsonPath("$.seasons").doesNotExist())
 			// No credits block from TMDB — an empty cast, not a null (#295)
@@ -681,7 +682,7 @@ class TitleControllerTest {
 				// TMDB has no headshot for this one — the client renders a placeholder
 				new TmdbCastMember(3L, "Joe Pantoliano", "Cypher", null, 2)),
 				List.of()),
-			null, null));
+			null, null, 136));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -710,7 +711,7 @@ class TitleControllerTest {
 			.toList();
 		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
 			603, "The Matrix", null, null, "Released", "1999-03-31",
-			List.of(), 8.2, 25000, new TmdbCredits(fifteen, List.of()), null, null));
+			List.of(), 8.2, 25000, new TmdbCredits(fifteen, List.of()), null, null, 136));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -733,7 +734,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		, null));
+		, null, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -761,7 +762,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		, null));
+		, null, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")

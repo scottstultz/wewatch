@@ -143,6 +143,8 @@ export interface TitleDetailResponse {
   genres: string[]
   voteAverage: number | null
   voteCount: number | null
+  // Total runtime in minutes for movies; null for TV
+  runtimeMinutes: number | null
   seasonCount: number | null
   seasons: SeasonSummary[] | null
   // Where the title streams (flatrate) in the caller's watch region (#270)
