@@ -83,9 +83,51 @@ memory against distinct-key flooding.
 
 **Single-instance constraint:** the buckets are per-node in-memory state, so a horizontally scaled
 deployment would throttle independently per node — move to a shared store (e.g. Redis) before
-scaling out. Client IP is `getRemoteAddr()`; behind a reverse proxy that's the proxy address, so
-trust `X-Forwarded-For` only from a known proxy (naive trust lets a caller spoof the bucket key) —
-deferred until a proxy actually fronts the service.
+scaling out.
+
+### Client IP behind the proxy (#336)
+
+The per-IP bucket originally keyed on `getRemoteAddr()`, the peer that opened the socket. But nginx
+proxies `/api/` to the backend and the frontend calls relative `/api` paths, so in the deployed
+topology that peer is *nginx* for every user: one shared bucket, and 20 bad passwords from anywhere
+locked out every sign-in for the rest of the 15-minute window. The per-IP throttle had exactly
+inverted its purpose — it was a cheap global-lockout DoS rather than per-attacker isolation. (The
+per-email bucket was unaffected, which is why password brute-forcing stayed capped throughout.)
+
+`ClientIpResolver` resolves the real client, and the order of its checks is the security property:
+
+1. **Peer first.** If `getRemoteAddr()` is not a configured trusted proxy, return it and ignore the
+   forwarding headers entirely. Skipping this step is worse than the bug: a direct caller could set
+   a fresh `X-Forwarded-For` per request and never fill a bucket at all, bypassing the IP throttle
+   outright.
+2. **Right to left.** From a trusted peer, walk `X-Forwarded-For` backwards, skipping hops that are
+   themselves trusted proxies, and take the first untrusted one. Direction is load-bearing: nginx's
+   `$proxy_add_x_forwarded_for` *appends* the peer to whatever the client sent, so a client that
+   forges the header produces `"1.2.3.4, <real client>"` — everything left of the rightmost
+   untrusted entry is attacker-controlled. Reading left-to-right would hand the caller its own
+   bucket key back.
+3. **Fall back** to `X-Real-IP` (nginx overwrites any client-supplied value with `$remote_addr`),
+   then to the peer.
+
+`app.auth.throttle.trusted-proxies` takes a comma-separated list of literal addresses or CIDR
+blocks, v4 or v6, matched by prefix bits. It defaults to loopback plus the RFC 1918 ranges — the
+same set as Tomcat's `internal-proxies` — which covers the docker-compose bridge network with no
+extra configuration. Blank trusts nothing and reverts to peer-only behavior. Bad entries are
+discarded rather than fatal, and a header carrying a hostname is rejected before `InetAddress` sees
+it, so a hostile header can't trigger a DNS lookup per auth request.
+
+Tomcat's own `RemoteIpValve` (`server.forward-headers-strategy=native`) does the same job, and was
+the alternative considered. It was passed over because it rewrites `getRemoteAddr()` at the
+container level, where MockMvc never runs it — the three cases that matter (direct caller ignores
+the header, trusted proxy honors it, spoofed header from an untrusted peer is discarded) would have
+had no test coverage in a suite that starts no container.
+
+**Residual exposure:** `docker-compose.yml` publishes the backend's `:8080` to the host, so with the
+private ranges trusted, something *already inside* the private network could reach the backend
+directly and spoof `X-Forwarded-For` to rotate its bucket key. That is strictly narrower than the
+pre-#336 state (a free global lockout from anywhere on the internet) and the per-email bucket is
+untouched either way. Closing it means not publishing that port in a deployment that faces anything
+but localhost.
 
 ### Tab-restore resilience (#242)
 
