@@ -613,3 +613,70 @@ for the same reason: **no test in this suite executes SQL** (every repository is
 nothing could check. The two native queries are dumb row fetches, verified by hand against local
 Postgres. `TmdbCacheBackfillTest` exists specifically because the runtime backfill is the kind of
 thing that can silently do nothing and take every movie's watch time to zero with it.
+
+## PWA Manifest (#324)
+
+WeWatch is installable to the home screen: `frontend/public/manifest.webmanifest`, five PNG icons,
+and a handful of `<head>` tags. **Installability only — there is no service worker**, so no offline
+support and no cache-invalidation surface. Static files in `public/` need no build, Docker, or Vite
+config change: Vite copies `publicDir` into `dist/`, the Dockerfile's `COPY . .` picks it up, and
+nginx's `try_files $uri ...` serves real files ahead of the SPA fallback.
+
+### The icons are generated, not drawn
+
+The repo had **no image assets at all** — the only brand mark was `WeWatchLogo.tsx`, a 520×140
+inline-SVG wordmark that cannot survive being squeezed into a square tile. So the app icon is a new
+mark: a geometric "W" in brand teal `#22B6B0` on the app background `#0f1720`, stroked with round
+caps and joins to echo the wordmark's Nunito 800 weight. **It is paths, not `<text>`** — a webfont
+would not resolve in a headless renderer, and glyph rendering would drift between machines.
+
+`frontend/public/favicon.svg` is the authoritative vector. `scripts/render-icons.sh` rasterises it
+(and the two variants in `scripts/`) through headless Chrome — nothing else on a stock macOS box
+rasterises SVG. The PNGs are committed; rerun the script only when a source SVG changes.
+
+Three variants exist because three platforms crop differently: the `any` icons keep the rounded
+tile; the `maskable` ones are full-bleed with the mark scaled to 0.78 so it survives Android's
+circle/squircle crop (content must sit inside a centred circle of radius 40%); `apple-touch-icon.png`
+is square and **opaque**, because iOS ignores manifest icons entirely and paints transparency black.
+
+⚠️ **nginx does not know what a `.webmanifest` is.** Stock `mime.types` (checked on nginx 1.31.2)
+has no mapping for the extension, so the manifest was served as `application/octet-stream`. The
+exact-match `location = /manifest.webmanifest` in `nginx.conf.template` fixes the type — and, as a
+bonus, keeps the manifest out of the SPA fallback. The `types` block is scoped to that location, so
+it does not shadow the global type map (a `types` block *replaces* the map in its context — putting
+one in `server` would have turned every PNG and JS bundle into octet-stream).
+
+⚠️ **A missing static asset does not 404 — it returns 200 and a page of HTML.** `try_files $uri $uri/
+/index.html` means a typo'd icon path is answered with `index.html`, which the browser then tries to
+decode as an image. This is not hypothetical: `index.html` linked `/favicon.svg` from the first
+commit and **no such file ever existed**; it went unnoticed for months precisely because the failure
+is silent. `src/manifest.test.ts` now fails CI if any root-relative `href`/`src` in `index.html`, or
+any icon in the manifest, does not exist on disk — and checks each PNG's real dimensions (read from
+the IHDR header) against the size the manifest advertises. That file is `exclude`d from
+`tsconfig.app.json` and compiled by `tsconfig.node.json` instead: it uses `node:fs`, and letting
+`node` types into the app project is what would let app code reach for `process`, which Vite does not
+polyfill in the browser.
+
+### Standalone mode
+
+`start_url` is `/`, not `/home`: the index route already redirects, and `/` is the one entry point
+that stays correct whether or not the caller is signed in (every route but `/sign-in` is auth-gated,
+so a signed-out launch correctly lands on sign-in). `theme_color` and `background_color` are both the
+app background `#0f1720` — the app is dark-mode only (no `prefers-color-scheme` anywhere in
+`index.css`), so one fixed pair is safe and the status bar reads as seamless. `orientation` is
+deliberately unset; forcing portrait would be wrong on a tablet.
+
+⚠️ **`env(safe-area-inset-*)` is currently inert, and that is the intended state.** `index.css`
+already pads the mobile header (top) and mobile nav (bottom) for the notch and home indicator — but
+those `env()` values resolve to **0** without `viewport-fit=cover` on the viewport meta, which is not
+set. Without it, iOS insets the standalone webview itself and paints the strips with `theme_color`,
+so nothing is ever obscured and no existing layout can break. If anyone adds `viewport-fit=cover` to
+go edge-to-edge, those two paddings switch on and start doing real work — and the *left/right* insets
+(landscape) are handled nowhere. That change needs testing on a physical device, not in Chrome's
+device toolbar. `apple-mobile-web-app-status-bar-style` is omitted for the same reason:
+`black-translucent` pushes content under the status bar and would require exactly that change.
+
+⚠️ **An installed iOS PWA gets its own storage partition.** `localStorage` — where `AuthContext`
+seeds the JWT for the #308 cold-load path — does not carry over from Safari, so each member signs in
+once more inside the installed app. Expected, not a regression. Everything else about #242
+tab-restore and #308 deep-linking is unaffected: same origin, same `BrowserRouter`, no `basename`.

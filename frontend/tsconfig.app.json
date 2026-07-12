@@ -21,5 +21,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Reads files off disk with node:fs, so it typechecks under tsconfig.node.json instead.
+     Keeping "node" out of the app's types is what stops app code reaching for `process`,
+     which Vite does not polyfill in the browser. */
+  "exclude": ["src/manifest.test.ts"]
 }
