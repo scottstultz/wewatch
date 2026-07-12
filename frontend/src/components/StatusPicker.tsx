@@ -1,5 +1,6 @@
 import type { WatchStatus } from '../types/api'
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const STATUS_LABELS: Record<WatchStatus, string> = {
   WANT_TO_WATCH: 'Want to Watch',
   WATCHING: 'Watching',

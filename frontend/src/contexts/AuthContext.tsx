@@ -149,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth(): AuthContextType {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')
@@ -159,6 +160,7 @@ export function useAuth(): AuthContextType {
  * The authenticated API client. Only usable under ProtectedRoute, where a
  * token is guaranteed; the client is recreated whenever the token rotates.
  */
+// eslint-disable-next-line react-refresh/only-export-components
 export function useApi(): ApiClient {
   const { api } = useAuth()
   if (!api) throw new Error('useApi requires an authenticated session')
