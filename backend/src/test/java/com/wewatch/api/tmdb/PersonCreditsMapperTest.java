@@ -160,6 +160,17 @@ class PersonCreditsMapperTest {
 		assertThat(credits).extracting(TitleSearchResponse::name).containsExactly("Always Be My Maybe");
 	}
 
+	// (uncredited) marks cameo/background appearances; (voice) alone is a real role
+	@Test
+	void dropsUncreditedCameosButKeepsLegitimateVoiceRoles() {
+		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
+			tv(95396, "Severance", 90.0, "Animated Lumon Administrative Building (voice) (uncredited)"),
+			movie(301528, "Toy Story 4", 80.0, "Duke Caboom (voice)")
+		));
+
+		assertThat(credits).extracting(TitleSearchResponse::name).containsExactly("Toy Story 4");
+	}
+
 	@Test
 	void dedupesByMediaTypeAndIdKeepingTheMostPopular() {
 		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
