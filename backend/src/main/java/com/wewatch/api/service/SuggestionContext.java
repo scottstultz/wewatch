@@ -39,6 +39,11 @@ record SuggestionContext(
 	Map<String, TmdbTitleCache> cacheByTmdbId,
 	TasteProfile profile,
 	ProviderContext providers,
+	// The services every member has, where `providers` above is the union of them
+	// (#322). Disabled unless the list has 2+ members who have all configured a
+	// region and providers and share at least one service — see
+	// ProviderContextResolver.resolveShared.
+	ProviderContext sharedProviders,
 	Set<String> seen,
 	Map<String, Double> recencyWeights,
 	Random rng

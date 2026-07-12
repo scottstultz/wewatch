@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -1619,6 +1620,13 @@ class SuggestionServiceTest {
 	// Like stubPopulatedWatchlist, but every owned title carries cached genre 99,
 	// enabling genre-profile and exploration shelves
 	private void stubPopulatedWatchlistWithGenres() {
+		stubPopulatedWatchlistWithGenres(Map.of());
+	}
+
+	// stubCacheRows can only be called once per test — a second when(findAllById(any()))
+	// re-invokes the first stub's answer with a null argument — so extra candidate rows
+	// have to go in through here rather than a follow-up call
+	private void stubPopulatedWatchlistWithGenres(Map<String, TmdbTitleCache> candidateRows) {
 		List<WatchlistEntry> entries = IntStream.rangeClosed(1, 5)
 			.mapToObj(i -> entry(i, "ext" + i))
 			.toList();
@@ -1629,8 +1637,10 @@ class SuggestionServiceTest {
 		when(watchlistEntryRepository.findByWatchlistId(eq(WATCHLIST_ID), any(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(entries));
 		when(titleService.findByIds(any())).thenReturn(titles);
-		stubCacheRows(IntStream.rangeClosed(1, 5).boxed()
+		Map<String, TmdbTitleCache> rows = new HashMap<>(IntStream.rangeClosed(1, 5).boxed()
 			.collect(Collectors.toMap(i -> "ext" + i, i -> cacheRow("ext" + i, List.of(99), null))));
+		rows.putAll(candidateRows);
+		stubCacheRows(rows);
 	}
 
 	// ── Watch-provider awareness (#270) ───────────────────────
@@ -1644,9 +1654,17 @@ class SuggestionServiceTest {
 		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
 			providerUser(7L, "US", List.of(8, 9)),
 			providerUser(8L, "US", List.of(8, 337))));
+		// These members also qualify for the #322 both-watch shelf, which discovers
+		// against the intersection {8} and gets first pick of the dedup set. Give it
+		// its own pool so it doesn't eat the genre shelf's candidates — in production
+		// the two filters hit TMDB with different provider sets and get different results.
 		lenient().when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"),
 				isNull(), isNull(), eq("US"), any(), anyInt()))
-			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+			.thenAnswer(inv -> {
+				List<Integer> providerIds = inv.getArgument(8);
+				String pool = new HashSet<>(providerIds).equals(Set.of(8)) ? "bw-" : "gp-";
+				return IntStream.rangeClosed(1, 12).mapToObj(i -> candidate(pool + i)).toList();
+			});
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
@@ -1763,6 +1781,147 @@ class SuggestionServiceTest {
 			assertThat(shelf.providerFiltered()).isFalse();
 			assertThat(shelf.titles()).allSatisfy(t -> assertThat(t.providerIds()).isNull());
 		});
+	}
+
+	// ── "What can we both watch" (#322) ───────────────────────
+	//
+	// The gate cases below assert the shelf's *absence*. They can't also prove the
+	// builder bailed before drawing from the shared rng — that contract is checked
+	// where it's observable, by the tuning harness: every fixture list is gated off,
+	// and its baseline output stayed byte-identical when this stage was added.
+
+	@Test
+	void bothWatchShelfDiscoversAgainstTheProviderIntersection() {
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		// Netflix + Hulu, Netflix + Max → the only service they both have is Netflix (8)
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, "US", List.of(8, 9)),
+			providerUser(8L, "US", List.of(8, 337))));
+		when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+				isNull(), isNull(), eq("US"), any(), anyInt()))
+			.thenAnswer(inv -> {
+				List<Integer> providerIds = inv.getArgument(8);
+				String pool = new HashSet<>(providerIds).equals(Set.of(8)) ? "bw-" : "gp-";
+				return IntStream.rangeClosed(1, 12).mapToObj(i -> candidate(pool + i)).toList();
+			});
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.BOTH_WATCH);
+			assertThat(shelf.reason()).isEqualTo("What you can both watch");
+			assertThat(shelf.providerFiltered()).isTrue();
+			assertThat(shelf.titles()).isNotEmpty();
+			assertThat(shelf.titles()).allSatisfy(t -> assertThat(t.externalId()).startsWith("bw-"));
+		});
+		// The intersection, not the {8, 9, 337} union every other shelf discovers against
+		verify(tmdbClient).discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+			isNull(), isNull(), eq("US"),
+			argThat((List<Integer> ids) -> ids != null && new HashSet<>(ids).equals(Set.of(8))),
+			anyInt());
+	}
+
+	@Test
+	void bothWatchShelfIsSkippedWhenMembersShareNoService() {
+		// Empty intersection is a real answer ("nothing you can both stream"), and the
+		// honest way to give it is to not claim a shelf — not to widen the filter
+		assertNoBothWatchShelf(
+			providerUser(7L, "US", List.of(8, 9)),
+			providerUser(8L, "US", List.of(337)));
+	}
+
+	@Test
+	void bothWatchShelfIsSkippedWhenAMemberHasNoProvidersConfigured() {
+		// The union quietly ignores an unconfigured member (they add nothing to it);
+		// an intersection can't, or the shelf would promise a service nobody confirmed
+		assertNoBothWatchShelf(
+			providerUser(7L, "US", List.of(8)),
+			providerUser(8L, null, null));
+	}
+
+	@Test
+	void bothWatchShelfIsSkippedWhenMemberRegionsConflict() {
+		assertNoBothWatchShelf(
+			providerUser(7L, "US", List.of(8)),
+			providerUser(8L, "GB", List.of(8)));
+	}
+
+	@Test
+	void bothWatchShelfIsSkippedForAPersonalList() {
+		// One member always "shares" every service with themselves — the shelf would
+		// be a relabelled genre shelf, and its name would be a lie
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(List.of(7L));
+		when(userRepository.findAllById(List.of(7L)))
+			.thenReturn(List.of(providerUser(7L, "US", List.of(8))));
+		lenient().when(tmdbClient.discover(any(), any(), any(), anyInt(), anyString(),
+				any(), any(), any(), any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).noneMatch(s -> s.kind() == SuggestionShelfResponse.ShelfKind.BOTH_WATCH);
+	}
+
+	@Test
+	void bothWatchTitlesAreBadgedWithOnlySharedServices() {
+		// bw-1 is streamable on 8 (shared) and 9 (only one member has it). Every other
+		// shelf would badge both; this one must not, or the tile contradicts its label
+		stubPopulatedWatchlistWithGenres(
+			Map.of("bw-1", providerRow("bw-1", Map.of("US", List.of(8, 9)))));
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(
+			providerUser(7L, "US", List.of(8, 9)),
+			providerUser(8L, "US", List.of(8, 337))));
+		when(tmdbClient.discover(any(), any(), any(), eq(100), eq("popularity.desc"),
+				isNull(), isNull(), eq("US"), any(), anyInt()))
+			.thenAnswer(inv -> {
+				List<Integer> providerIds = inv.getArgument(8);
+				String pool = new HashSet<>(providerIds).equals(Set.of(8)) ? "bw-" : "gp-";
+				return IntStream.rangeClosed(1, 12).mapToObj(i -> candidate(pool + i)).toList();
+			});
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		TitleSearchResponse badged = shelves.stream()
+			.filter(s -> s.kind() == SuggestionShelfResponse.ShelfKind.BOTH_WATCH)
+			.flatMap(s -> s.titles().stream())
+			.filter(t -> t.externalId().equals("bw-1"))
+			.findFirst().orElseThrow();
+		assertThat(badged.providerIds()).containsExactly(8);
+	}
+
+	@Test
+	void titleThumbedDownByAnyMemberIsExcludedFromEveryShelf() {
+		// Thumbs used to only steer the taste profile (#273), so a title a member had
+		// explicitly rejected could still be suggested back to the list (#322)
+		stubPopulatedWatchlist();
+		when(titleRatingService.downRatedExternalIds(MEMBER_IDS)).thenReturn(List.of("rec-ext1-3"));
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).isNotEmpty();
+		assertThat(shelves)
+			.flatExtracting(SuggestionShelfResponse::titles)
+			.extracting(TitleSearchResponse::externalId)
+			.contains("rec-ext1-1")
+			.doesNotContain("rec-ext1-3");
+	}
+
+	private void assertNoBothWatchShelf(User... members) {
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
+		when(userRepository.findAllById(MEMBER_IDS)).thenReturn(List.of(members));
+		lenient().when(tmdbClient.discover(any(), any(), any(), anyInt(), anyString(),
+				any(), any(), any(), any(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gp-" + i)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).noneMatch(s -> s.kind() == SuggestionShelfResponse.ShelfKind.BOTH_WATCH);
 	}
 
 	private User providerUser(long id, String watchRegion, List<Integer> watchProviderIds) {

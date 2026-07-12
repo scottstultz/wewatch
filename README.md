@@ -272,9 +272,10 @@ Shipped work is listed below; the live backlog is tracked in
 - Interactive API documentation (Swagger UI + OpenAPI spec, see [`docs/api.md`](docs/api.md))
 - Cast sections on title details and person filmography pages
 - "Returning this week" — upcoming episodes for shows in Watching
+- "What can we both watch" — shelf of titles on the streaming services every member of a shared
+  watchlist has, ranked by their blended taste profile
 
 ### Planned
-- "What can we both watch" — provider/taste intersection for shared watchlists (#322)
 - Stats page — watch time, episodes finished, genre breakdown (#323)
 - PWA manifest — make WeWatch installable on mobile (#324)
 - Advanced filtering and sorting

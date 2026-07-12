@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 
@@ -78,5 +79,17 @@ public class TitleRatingService {
 			if (sum != 0) effective.put(titleId, sum > 0 ? Rating.UP : Rating.DOWN);
 		});
 		return effective;
+	}
+
+	// Everything these users thumbed down, as TMDB external ids, for the
+	// suggestion dedup set (#322). Deliberately a veto and not a net, unlike
+	// effectiveRatings above: scoring a shared list blends the members' opinions,
+	// but *showing* a title one of them has rejected is a different question, and
+	// there the answer is no — the same rule dismissals (#268) already follow.
+	// Ratings are user-scoped, so this reaches titles rated on any of the user's
+	// lists, not just the one being computed.
+	public List<String> downRatedExternalIds(Collection<Long> userIds) {
+		if (userIds.isEmpty()) return List.of();
+		return titleRatingRepository.findDownRatedExternalIds(userIds);
 	}
 }

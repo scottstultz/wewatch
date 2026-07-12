@@ -37,7 +37,7 @@ import com.wewatch.api.tmdb.TmdbClient;
  * Builds the per-watchlist suggestion shelves. This class owns the cache and the
  * order of the pipeline; the stages themselves live in package-private
  * collaborators ({@link TasteProfileBuilder}, {@link CandidateScorer},
- * {@link ShelfFiller}, and the four shelf builders), which are constructed here
+ * {@link ShelfFiller}, and the five shelf builders), which are constructed here
  * rather than injected so this constructor stays the single wiring point.
  *
  * <p>Stage order is behavior, not style. Shelves are built strongest-first
@@ -60,6 +60,7 @@ public class SuggestionService {
 	private final TasteProfileBuilder profileBuilder;
 	private final ProviderContextResolver providerResolver;
 	private final FranchiseShelfBuilder franchiseShelves;
+	private final BothWatchShelfBuilder bothWatchShelves;
 	private final SeedShelfBuilder seedShelves;
 	private final GenreShelfBuilder genreShelves;
 	private final ExplorationShelfBuilder explorationShelves;
@@ -103,6 +104,7 @@ public class SuggestionService {
 		this.profileBuilder = new TasteProfileBuilder(clock, tuning);
 		this.providerResolver = new ProviderContextResolver(userRepository, tmdbTitleCacheRepository);
 		this.franchiseShelves = new FranchiseShelfBuilder(tmdbClient, filler);
+		this.bothWatchShelves = new BothWatchShelfBuilder(tmdbClient, scorer, filler);
 		this.seedShelves = new SeedShelfBuilder(tmdbClient, scorer, filler);
 		this.genreShelves = new GenreShelfBuilder(tmdbClient, filler);
 		this.explorationShelves = new ExplorationShelfBuilder(tmdbClient, scorer, filler);
@@ -144,13 +146,25 @@ public class SuggestionService {
 		SuggestionShelfResponse franchise = franchiseShelves.build(ctx);
 		if (franchise != null) shelves.add(franchise);
 
+		// "What you can both watch" (#322) — the answer to the question a household
+		// actually opens the app with, so it outranks every generic shelf for its
+		// pick of the dedup set. It sits behind franchise because a remaining part of
+		// a series they already started is still the more precise call, and a
+		// collection shelf barely competes with a broad discover feed for candidates.
+		// Builds only for a shared list whose members share services, and draws
+		// nothing from the rng otherwise — which is why adding it here left every
+		// existing shelf byte-identical for personal lists.
+		SuggestionShelfResponse bothWatch = bothWatchShelves.build(ctx);
+		if (bothWatch != null) shelves.add(bothWatch);
+
 		shelves.addAll(seedShelves.build(ctx));
 		shelves.addAll(genreShelves.build(ctx));
 		shelves.addAll(explorationShelves.build(ctx));
 
 		// Availability badges (#270): annotate served titles with which of the
 		// members' services carry them, from cached provider data
-		List<SuggestionShelfResponse> badged = providerResolver.attachBadges(shelves, ctx.providers());
+		List<SuggestionShelfResponse> badged =
+			providerResolver.attachBadges(shelves, ctx.providers(), ctx.sharedProviders());
 
 		recordImpressions(badged, ctx.memberUserIds());
 		return badged;
@@ -199,6 +213,13 @@ public class SuggestionService {
 		// penalty — dismissals are personal but shelves are per-watchlist.
 		Set<String> seen = new HashSet<>(ownedExternalIds);
 		seen.addAll(suggestionDismissalService.dismissedTmdbIds(memberUserIds));
+		// A thumbs-down is a veto too (#322), and for the same reason: it used to only
+		// steer the taste profile, so a title a member had explicitly rejected could
+		// still be suggested to the list. Note the asymmetry with effectiveRatings
+		// above, which nets up against down — blending what the members *like* is a
+		// fair way to score, but there is no fair way to show someone a title they
+		// said no to.
+		seen.addAll(titleRatingService.downRatedExternalIds(memberUserIds));
 
 		// Titles shown on previous days within the penalty window sink in the ranking
 		// instead of being held back outright (#264): thin pools still fill a whole
@@ -210,8 +231,12 @@ public class SuggestionService {
 		// within a day and rotate at midnight for free (#231)
 		Random rng = new Random(Objects.hash(watchlistId, today.toEpochDay()));
 
+		// Both contexts (the member-service union, and the intersection the both-watch
+		// shelf answers to) come out of one read of the members
+		ProviderContextResolver.ProviderContexts providers = providerResolver.resolve(memberUserIds);
+
 		return new SuggestionContext(today, memberUserIds, allEntries, titlesById, cacheByTmdbId,
-			profile, providerResolver.resolve(memberUserIds), seen, recencyWeights, rng);
+			profile, providers.union(), providers.shared(), seen, recencyWeights, rng);
 	}
 
 	// Record everything we're about to serve so tomorrow's compute penalizes it

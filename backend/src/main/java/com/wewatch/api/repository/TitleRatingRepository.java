@@ -29,6 +29,15 @@ public interface TitleRatingRepository extends JpaRepository<TitleRating, Long> 
 		@Param("titleIds") Collection<Long> titleIds
 	);
 
+	// External ids of everything the given users thumbed down (#322). Suggestions
+	// dedup on the TMDB external id while ratings are keyed on the internal title
+	// id, so the join is what bridges them. TitleRating has no association to
+	// Title — an explicit entity join on the id column stands in for one.
+	@Query("SELECT t.externalId FROM TitleRating tr JOIN Title t ON t.id = tr.titleId "
+		+ "WHERE tr.userId IN :userIds AND tr.rating = com.wewatch.api.model.Rating.DOWN "
+		+ "AND t.externalId IS NOT NULL")
+	List<String> findDownRatedExternalIds(@Param("userIds") Collection<Long> userIds);
+
 	// Atomic upsert: re-rating flips the rating in place (double tap, stale
 	// client, changed mind) while keeping the original created_at
 	@Modifying

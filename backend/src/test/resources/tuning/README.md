@@ -116,21 +116,21 @@ a time.
 ## Adding a fixture watchlist
 
 Drop a JSON file in `watchlists/`. It's loaded automatically (files are sorted
-by `name`). Aim for a regime not already covered — the current five are
+by `name`). Aim for a regime not already covered — the current six are
 `sparse-profile`, `rich-single-genre`, `genre-mixed`, `heavily-rated`,
-`stale-history`.
+`stale-history`, `shared-household`.
 
 ```jsonc
 {
   "name": "my-regime",
   "description": "One line on what makes this interesting.",
-  "watchlistId": 1006,               // unique across fixtures
+  "watchlistId": 1007,               // unique across fixtures
   "members": [
-    { "userId": 6, "region": "US", "providerIds": [8, 9] }  // region/providerIds null = provider-awareness off
+    { "userId": 8, "region": "US", "providerIds": [8, 9] }  // region/providerIds null = provider-awareness off
   ],
   "entries": [
     {
-      "titleId": 10601, "tmdbId": "w6-t1", "type": "TV", "name": "Example Show",
+      "titleId": 10701, "tmdbId": "w7-t1", "type": "TV", "name": "Example Show",
       "status": "WATCHING",           // WATCHING | WANT_TO_WATCH | WATCHED
       "ageDays": 7,                   // updated_at = base day (2026-07-06) minus this; drives #274 decay
       "rating": null,                 // "UP" | "DOWN" | null (already netted across members)
@@ -163,6 +163,9 @@ Notes:
 - Need ≥3 titles of a media type for its `GENRE_PROFILE` shelf; ≥2 shared
   people/keyword occurrences for those exploration shelves; a movie
   `collectionId` (on a `WATCHED`/`WATCHING` entry) for `FRANCHISE`.
+- `BOTH_WATCH` (#322) needs ≥2 members who *all* set a region (the same one) and
+  a `providerIds` list, with at least one id common to every member. One
+  unconfigured member disables it — see `shared-household`.
 
 ## Recording real TMDB fixtures (optional overlay)
 

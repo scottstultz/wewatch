@@ -203,6 +203,7 @@ export type ShelfKind =
   | 'PERSON'
   | 'KEYWORD'
   | 'FRANCHISE'
+  | 'BOTH_WATCH'
 
 export interface SuggestionShelf {
   reason: string
