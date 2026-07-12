@@ -12,8 +12,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * nothing.
  *
  * Structural knobs (shelf sizes, page depths, TMDB call budgets) deliberately
- * stay constants in {@code SuggestionService}: they bound cost and layout, not
- * taste, and sweeping them is not what the harness is for.
+ * stay plain constants on the pipeline classes that enforce them: they bound
+ * cost and layout, not taste, and sweeping them is not what the harness is for.
  */
 @ConfigurationProperties(prefix = "suggestions.tuning")
 public class SuggestionTuningProperties {

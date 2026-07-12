@@ -2,26 +2,16 @@ package com.wewatch.api.service;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
 import java.util.Set;
-import java.util.function.IntFunction;
-import java.util.function.ToDoubleFunction;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Async;
@@ -33,14 +23,9 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.wewatch.api.config.SuggestionTuningProperties;
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
-import com.wewatch.api.exception.TmdbApiException;
-import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
-import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbTitleCache;
-import com.wewatch.api.model.User;
-import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.repository.UserRepository;
@@ -48,88 +33,36 @@ import com.wewatch.api.repository.WatchlistEntryRepository;
 import com.wewatch.api.repository.WatchlistMemberRepository;
 import com.wewatch.api.tmdb.TmdbClient;
 
+/**
+ * Builds the per-watchlist suggestion shelves. This class owns the cache and the
+ * order of the pipeline; the stages themselves live in package-private
+ * collaborators ({@link TasteProfileBuilder}, {@link CandidateScorer},
+ * {@link ShelfFiller}, and the four shelf builders), which are constructed here
+ * rather than injected so this constructor stays the single wiring point.
+ *
+ * <p>Stage order is behavior, not style. Shelves are built strongest-first
+ * because they share one dedup set — the earlier a stage runs, the better its
+ * pick of candidates — and they share one day-seeded {@link Random}, so the
+ * sequence of draws determines what every user sees. See {@link SuggestionContext}.
+ */
 @Service
 public class SuggestionService {
 
-	private static final Logger log = LoggerFactory.getLogger(SuggestionService.class);
-	private static final int MAX_SEEDS = 3;
-	private static final int GENRE_GROUP_THRESHOLD = 3;
-	private static final int MAX_GENRES = 3;
-	private static final int MAX_KEYWORDS = 5;
-	private static final int MIN_SHELF_SIZE = 3;
-	private static final int MAX_SHELF_SIZE = 12;
-	// A standalone seed shelf must carry this many fresh (not recency-penalized)
-	// titles (#266) — anything thinner reads as a stub next to full shelves and
-	// exhausts within one penalty window. Shelves under the floor fold their
-	// candidates into the catch-all MORE_PICKS shelf instead.
-	private static final int SEED_SHELF_MIN_FRESH = 6;
-	// Vote-count floor for the rich seed tier (#266): a cheap proxy for whether
-	// TMDB can sustain a full recommendations/similar shelf for the seed. Niche
-	// titles (small docs, festival releases) sit well below it; anything with a
-	// mainstream audience sits well above.
-	private static final int RICH_SEED_VOTE_COUNT_GTE = 300;
-	// Same-genre run cap for feeds with a real genre mix (recommendations/similar/
-	// trending). Discover-backed feeds are exempt (#265): they are filtered to the
-	// user's top genres by construction, so nearly every candidate shares a genre
-	// and the cap would chop a 20-result page to ~4 before the shelf fills.
-	private static final int MAX_PER_GENRE_CLUSTER = 4;
-	private static final int SIMILAR_TOP_UP_THRESHOLD = 5;
-	private static final int DISCOVER_VOTE_COUNT_GTE = 100;
-	// Per-feed page depth (#249). The daily draw rotates a single page within these
-	// bounds — deeper bounds mean the pool the draw can reach before repeating within
-	// the suppression window, not more calls per compute.
-	// Recommendations/similar genuinely run out after a few pages, so seeds stay shallow.
-	private static final int MAX_SEED_FETCH_PAGE = 3;
-	// Discover result sets are deep; pages 1–6 stay relevant with the page-1 fallback.
-	private static final int MAX_DISCOVER_FETCH_PAGE = 6;
-	// Trending/week thins into obscurity fast, so keep its draw shallow.
-	private static final int MAX_TRENDING_FETCH_PAGE = 3;
-	// Hidden gems draw from a mid-deep band so the shelf skips the static top-rated head
-	// (pages 1–3 of vote_average.desc are identical for everyone with the same genres)
-	// without reaching the emptiest deep pages that just trigger the page-1 fallback.
-	private static final int HIDDEN_GEM_MIN_FETCH_PAGE = 4;
-	private static final int HIDDEN_GEM_MAX_FETCH_PAGE = 18;
-	// A single keyword's catalog is far thinner than a genre's — niche themes run
-	// out within a few pages — so the keyword shelf (#271) draws shallow like the
-	// seed feeds; its main rotation lever is which keyword the day picks anyway.
-	private static final int MAX_KEYWORD_FETCH_PAGE = 3;
-	private static final int MAX_FINISHED_SEEDS = 1;
-	private static final int RECENT_FINISHED_POOL = 5;
-	// Exploration shelves (#235) each cost TMDB calls, so only a rotating subset
-	// of the kinds appears on a given day — rotation itself is a freshness lever
-	private static final int MAX_EXPLORATION_SHELVES = 2;
-	private static final int NEW_RELEASE_WINDOW_DAYS = 60;
-	// Recent releases haven't had time to accumulate votes, so the floor is far
-	// below the genre-profile discover floor of 100
-	private static final int NEW_RELEASE_VOTE_COUNT_GTE = 20;
-	// High enough to keep vote_average.desc from surfacing obscure noise, low
-	// enough to reach below the popularity head
-	private static final int HIDDEN_GEM_VOTE_COUNT_GTE = 200;
-	private static final String SORT_POPULARITY = "popularity.desc";
-	private static final String SORT_VOTE_AVERAGE = "vote_average.desc";
-	private static final int MAX_PEOPLE = 5;
-	// One appearance is just a cast list; recurring across the user's titles is
-	// the "you keep watching this person" signal the shelf label claims
-	private static final int PERSON_MIN_TITLE_COUNT = 2;
-	// A filmography includes shorts and bit parts; a modest floor keeps the
-	// person shelf to titles a general audience has actually seen
-	private static final int PERSON_SHELF_VOTE_COUNT_GTE = 50;
 	private final WatchlistEntryRepository watchlistEntryRepository;
 	private final WatchlistMemberRepository watchlistMemberRepository;
-	private final UserRepository userRepository;
 	private final TitleService titleService;
-	private final TmdbClient tmdbClient;
 	private final TmdbTitleCacheRepository tmdbTitleCacheRepository;
 	private final SuggestionImpressionService suggestionImpressionService;
 	private final SuggestionDismissalService suggestionDismissalService;
 	private final TitleRatingService titleRatingService;
 	private final Clock clock;
-	// The hand-tuned taste-profile constants (#288): profile weights, signal
-	// boosts, jitter shape, recency decay, and the positional recency demotion.
-	// Extracted to a @ConfigurationProperties class so the offline tuning
-	// harness (and production config) can inject a different set; defaults are
-	// the historical constant values, so unset properties change nothing.
-	private final SuggestionTuningProperties tuning;
+
+	private final TasteProfileBuilder profileBuilder;
+	private final ProviderContextResolver providerResolver;
+	private final FranchiseShelfBuilder franchiseShelves;
+	private final SeedShelfBuilder seedShelves;
+	private final GenreShelfBuilder genreShelves;
+	private final ExplorationShelfBuilder explorationShelves;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
 	// horizontally, each node caches (and invalidates) independently, so recompute
@@ -147,21 +80,33 @@ public class SuggestionService {
 		SuggestionDismissalService suggestionDismissalService,
 		TitleRatingService titleRatingService,
 		Clock clock,
+		// The hand-tuned taste-profile constants (#288): profile weights, signal
+		// boosts, jitter shape, recency decay, and the positional recency demotion.
+		// Extracted to a @ConfigurationProperties class so the offline tuning
+		// harness (and production config) can inject a different set; defaults are
+		// the historical constant values, so unset properties change nothing.
 		SuggestionTuningProperties tuning,
 		@Value("${suggestions.cache.ttl-minutes}") long cacheTtlMinutes,
 		@Value("${suggestions.cache.max-size}") long cacheMaxSize
 	) {
 		this.watchlistEntryRepository = watchlistEntryRepository;
 		this.watchlistMemberRepository = watchlistMemberRepository;
-		this.userRepository = userRepository;
 		this.titleService = titleService;
-		this.tmdbClient = tmdbClient;
 		this.tmdbTitleCacheRepository = tmdbTitleCacheRepository;
 		this.suggestionImpressionService = suggestionImpressionService;
 		this.suggestionDismissalService = suggestionDismissalService;
 		this.titleRatingService = titleRatingService;
 		this.clock = clock;
-		this.tuning = tuning;
+
+		CandidateScorer scorer = new CandidateScorer(tmdbTitleCacheRepository, tuning);
+		ShelfFiller filler = new ShelfFiller(tuning);
+		this.profileBuilder = new TasteProfileBuilder(clock, tuning);
+		this.providerResolver = new ProviderContextResolver(userRepository, tmdbTitleCacheRepository);
+		this.franchiseShelves = new FranchiseShelfBuilder(tmdbClient, filler);
+		this.seedShelves = new SeedShelfBuilder(tmdbClient, scorer, filler);
+		this.genreShelves = new GenreShelfBuilder(tmdbClient, filler);
+		this.explorationShelves = new ExplorationShelfBuilder(tmdbClient, scorer, filler);
+
 		this.cache = Caffeine.newBuilder()
 			.expireAfterWrite(Duration.ofMinutes(cacheTtlMinutes))
 			.maximumSize(cacheMaxSize)
@@ -187,11 +132,38 @@ public class SuggestionService {
 	}
 
 	private List<SuggestionShelfResponse> compute(Long watchlistId) {
+		SuggestionContext ctx = loadContext(watchlistId);
+		if (ctx == null) return List.of();
+
+		List<SuggestionShelfResponse> shelves = new ArrayList<>();
+
+		// Franchise continuation is the highest-precision suggestion class
+		// available: a remaining part of a series the user already started. Built
+		// first so it gets first pick of the seen-dedup set, ahead of generic
+		// per-seed, genre, and exploration candidates (#272).
+		SuggestionShelfResponse franchise = franchiseShelves.build(ctx);
+		if (franchise != null) shelves.add(franchise);
+
+		shelves.addAll(seedShelves.build(ctx));
+		shelves.addAll(genreShelves.build(ctx));
+		shelves.addAll(explorationShelves.build(ctx));
+
+		// Availability badges (#270): annotate served titles with which of the
+		// members' services carry them, from cached provider data
+		List<SuggestionShelfResponse> badged = providerResolver.attachBadges(shelves, ctx.providers());
+
+		recordImpressions(badged, ctx.memberUserIds());
+		return badged;
+	}
+
+	// Gathers everything the stages read. Returns null for an empty watchlist —
+	// there is nothing to suggest from.
+	private SuggestionContext loadContext(Long watchlistId) {
 		List<WatchlistEntry> allEntries = watchlistEntryRepository
 			.findByWatchlistId(watchlistId, null, Pageable.unpaged())
 			.getContent();
 
-		if (allEntries.isEmpty()) return List.of();
+		if (allEntries.isEmpty()) return null;
 
 		List<Long> titleIds = allEntries.stream().map(WatchlistEntry::getTitleId).toList();
 		Map<Long, Title> titlesById = titleService.findByIds(titleIds);
@@ -201,7 +173,7 @@ public class SuggestionService {
 			.filter(Objects::nonNull)
 			.collect(Collectors.toSet());
 
-		// Load cache entries once for genre + keyword profile building
+		// Load cache entries once for genre + keyword + person profile building
 		Map<String, TmdbTitleCache> cacheByTmdbId = tmdbTitleCacheRepository.findAllById(ownedExternalIds)
 			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
 
@@ -213,50 +185,19 @@ public class SuggestionService {
 
 		LocalDate today = LocalDate.now(clock);
 
-		// Thumbs ratings (#273): the net across members per title (conflicting
-		// up/down cancel to unrated — the documented shared-list choice), keyed
-		// by tmdb id for the cache-row-driven keyword/person builders. The
-		// recency decay (#274) rides the same loop, keyed the same way.
+		// The net thumbs rating across members per title (#273) — conflicting
+		// up/down cancel to unrated, the documented shared-list choice
 		Map<Long, Rating> ratingsByTitleId = titleRatingService.effectiveRatings(memberUserIds, titleIds);
-		Map<String, Rating> ratingsByTmdbId = new HashMap<>();
-		Map<String, Double> decayByTmdbId = new HashMap<>();
-		for (WatchlistEntry e : allEntries) {
-			Title t = titlesById.get(e.getTitleId());
-			if (t == null || t.getExternalId() == null) continue;
-			Rating rating = ratingsByTitleId.get(e.getTitleId());
-			if (rating != null) {
-				ratingsByTmdbId.put(t.getExternalId(), rating);
-			}
-			decayByTmdbId.put(t.getExternalId(), recencyDecay(e, today));
-		}
 
-		Map<Integer, Double> genreProfile = buildGenreProfile(allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
-		// Top keywords across the list: ids boost candidate scores, and the ones
-		// with a cached display name can seed a keyword shelf (#271)
-		List<KeywordAffinity> keywordAffinities = buildKeywordAffinities(cacheByTmdbId.values(), ratingsByTmdbId, decayByTmdbId);
-		Set<Integer> keywordProfile = keywordAffinities.stream()
-			.map(KeywordAffinity::id)
-			.collect(Collectors.toSet());
-		// Recurring cast/directors across the list (#269): ids boost candidate
-		// scores, names label the person-seeded exploration shelf
-		List<PersonAffinity> personProfile = buildPersonProfile(cacheByTmdbId.values(), ratingsByTmdbId, decayByTmdbId);
-		Set<Integer> personIdProfile = personProfile.stream()
-			.map(PersonAffinity::id)
-			.collect(Collectors.toSet());
+		TasteProfile profile =
+			profileBuilder.build(allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
 
-		// Cross-shelf dedup: start from all owned externalIds
-		Set<String> seen = new HashSet<>(ownedExternalIds);
-
-		// Watch-provider context (#270): which streaming services this shelf set
-		// may assume, and in which region. Union across members with a settings
-		// bearing on it; disabled entirely when regions conflict or nobody has
-		// configured services — behavior is then exactly the pre-#270 one.
-		ProviderContext providerCtx = providerContext(memberUserIds);
-
+		// Cross-shelf dedup: start from all owned externalIds.
 		// "Not interested" dismissals (#268) are a hard exclusion, not a penalty:
 		// seeding the dedup set keeps a dismissed title out of every shelf kind at
 		// the one point they all flow through. Union of members, like the recency
-		// penalty above — dismissals are personal but shelves are per-watchlist.
+		// penalty — dismissals are personal but shelves are per-watchlist.
+		Set<String> seen = new HashSet<>(ownedExternalIds);
 		seen.addAll(suggestionDismissalService.dismissedTmdbIds(memberUserIds));
 
 		// Titles shown on previous days within the penalty window sink in the ranking
@@ -265,862 +206,23 @@ public class SuggestionService {
 		// than boomeranging back the day a binary suppression window expires.
 		Map<String, Double> recencyWeights = suggestionImpressionService.recencyWeights(memberUserIds);
 
-		List<SuggestionShelfResponse> shelves = new ArrayList<>();
-
 		// Seeded on (watchlist, calendar day): shelves are stable across recomputes
 		// within a day and rotate at midnight for free (#231)
 		Random rng = new Random(Objects.hash(watchlistId, today.toEpochDay()));
 
-		// ── Franchise-continuation shelf (#272) ───────────────────
-		// Franchise continuation is the highest-precision suggestion class
-		// available: a remaining part of a series the user already started.
-		// Built first so it gets first pick of the seen-dedup set, ahead of
-		// generic per-seed/genre/exploration candidates. Rotates across
-		// qualifying collections daily like the exploration kinds, but isn't
-		// capped by MAX_EXPLORATION_SHELVES or gated by MIN_SHELF_SIZE — even a
-		// single remaining sequel outranks a full shelf of generic candidates.
-		SuggestionShelfResponse franchiseShelf =
-			buildFranchiseShelf(allEntries, titlesById, cacheByTmdbId, seen, rng);
-		if (franchiseShelf != null) {
-			shelves.add(franchiseShelf);
-		}
+		return new SuggestionContext(today, memberUserIds, allEntries, titlesById, cacheByTmdbId,
+			profile, providerResolver.resolve(memberUserIds), seen, recencyWeights, rng);
+	}
 
-		// ── Per-seed shelves ───────────────────────────────────────
-		// Sort by id before shuffling: repository ordering isn't guaranteed, and the
-		// shuffle must see the same input order to be reproducible within a day
-		List<WatchlistEntry> eligibleSeeds = allEntries.stream()
-			.filter(e -> e.getStatus() == WatchStatus.WATCHING || e.getStatus() == WatchStatus.WANT_TO_WATCH)
-			.filter(e -> titlesById.containsKey(e.getTitleId()))
-			.sorted(Comparator.comparing(WatchlistEntry::getId))
-			.toList();
-
-		// Rich-first seed selection (#266): cached vote count proxies how deep a
-		// title's recommendations/similar feeds run — niche seeds yield permanently
-		// thin shelves. Each tier is shuffled with the day-seeded rng, so rich seeds
-		// rotate among themselves rather than pinning to the top-popularity few, and
-		// thin seeds only fill slots the rich tier can't.
-		List<WatchlistEntry> richSeeds = new ArrayList<>();
-		List<WatchlistEntry> thinSeeds = new ArrayList<>();
-		for (WatchlistEntry e : eligibleSeeds) {
-			(isRichSeed(e, titlesById, cacheByTmdbId) ? richSeeds : thinSeeds).add(e);
-		}
-		Collections.shuffle(richSeeds, rng);
-		Collections.shuffle(thinSeeds, rng);
-		List<WatchlistEntry> seeds = new ArrayList<>(richSeeds);
-		seeds.addAll(thinSeeds);
-		seeds = seeds.subList(0, Math.min(MAX_SEEDS, seeds.size()));
-
-		// Candidates from seed shelves that miss the fresh floor pool here for the
-		// catch-all MORE_PICKS shelf (#266)
-		List<TitleSearchResponse> pooledLeftovers = new ArrayList<>();
-
-		for (WatchlistEntry seed : seeds) {
-			Title title = titlesById.get(seed.getTitleId());
-			if (title == null || title.getExternalId() == null) continue;
-
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
-
-			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
-				String label = title.getName() != null
-					? "Because you added " + title.getName()
-					: "Because of your list";
-				shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.PER_SEED));
-			} else {
-				// Too thin to stand alone (#266): release the slots this shelf
-				// claimed so its candidates can compete in the catch-all instead
-				shelf.forEach(r -> seen.remove(r.externalId()));
-				pooledLeftovers.addAll(candidates);
-			}
-		}
-
-		// ── Finished-show seeds (#235) ────────────────────────────
-		// WATCHED entries never get "Because you added X" shelves (#232); instead
-		// the most recent finishes compete for a "Because you finished X" shelf
-		List<WatchlistEntry> finishedPool = allEntries.stream()
-			.filter(e -> e.getStatus() == WatchStatus.WATCHED)
-			.filter(e -> titlesById.containsKey(e.getTitleId()))
-			.sorted(Comparator.comparing(WatchlistEntry::getUpdatedAt,
-					Comparator.nullsLast(Comparator.reverseOrder()))
-				.thenComparing(WatchlistEntry::getId))
-			.limit(RECENT_FINISHED_POOL)
-			.collect(Collectors.toCollection(ArrayList::new));
-		Collections.shuffle(finishedPool, rng);
-
-		for (WatchlistEntry seed : finishedPool.subList(0, Math.min(MAX_FINISHED_SEEDS, finishedPool.size()))) {
-			Title title = titlesById.get(seed.getTitleId());
-			if (title == null || title.getExternalId() == null) continue;
-
-			List<TitleSearchResponse> candidates = fetchScoredCandidates(title.getType(), title.getExternalId(), genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
-			List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, true);
-
-			if (freshCount(shelf, recencyWeights) >= SEED_SHELF_MIN_FRESH) {
-				String label = title.getName() != null
-					? "Because you finished " + title.getName()
-					: "Because you finished a title";
-				shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.FINISHED_SEED));
-			} else {
-				shelf.forEach(r -> seen.remove(r.externalId()));
-				pooledLeftovers.addAll(candidates);
-			}
-		}
-
-		// ── Catch-all shelf (#266) ────────────────────────────────
-		// Seed feeds too thin for a standalone shelf pool their candidates into one
-		// "More picks for you" shelf, re-ranked as a single taste-profile-scored
-		// pool — a handful of full shelves plus one aggregate instead of a row of
-		// 3–4 tile stubs
-		if (!pooledLeftovers.isEmpty()) {
-			List<TitleSearchResponse> pooled = rankByTasteProfile(pooledLeftovers, genreProfile, keywordProfile, personIdProfile, providerCtx, rng);
-			List<TitleSearchResponse> shelf = fillShelf(pooled, seen, recencyWeights, true);
-			if (shelf.size() >= MIN_SHELF_SIZE) {
-				shelves.add(new SuggestionShelfResponse("More picks for you", shelf, SuggestionShelfResponse.ShelfKind.MORE_PICKS));
-			}
-		}
-
-		// ── Genre-profile shelves (conditional, per media type) ───
-		for (TitleType type : List.of(TitleType.TV, TitleType.MOVIE)) {
-			List<WatchlistEntry> group = allEntries.stream()
-				.filter(e -> {
-					Title t = titlesById.get(e.getTitleId());
-					return t != null && t.getType() == type;
-				})
-				.toList();
-
-			if (group.size() < GENRE_GROUP_THRESHOLD) continue;
-
-			List<Integer> topGenres = topGenresFor(type, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
-			if (topGenres.isEmpty()) continue;
-
-			// Type-scoped keywords to avoid cross-namespace contamination
-			List<Integer> typeKeywords = group.stream()
-				.map(e -> titlesById.get(e.getTitleId()))
-				.filter(Objects::nonNull)
-				.map(t -> cacheByTmdbId.get(t.getExternalId()))
-				.filter(Objects::nonNull)
-				.flatMap(c -> c.getKeywordIds() != null ? c.getKeywordIds().stream() : java.util.stream.Stream.empty())
-				.collect(Collectors.groupingBy(k -> k, Collectors.summingInt(k -> 1)))
-				.entrySet().stream()
-				.sorted(Map.Entry.<Integer, Integer>comparingByValue().reversed())
-				.limit(MAX_KEYWORDS)
-				.map(Map.Entry::getKey)
-				.toList();
-
-			String label = type == TitleType.TV ? "More like your shows" : "More like your movies";
-			int discoverPage = 1 + rng.nextInt(MAX_DISCOVER_FETCH_PAGE);
-			try {
-				// Discover takes TMDB's provider filter directly (#270): with a
-				// provider context, everything on this shelf is streamable on the
-				// members' services
-				List<TitleSearchResponse> discovered = fetchPageWithFallback(
-					p -> tmdbClient.discover(type, topGenres, typeKeywords, DISCOVER_VOTE_COUNT_GTE,
-						SORT_POPULARITY, null, null, providerCtx.region(), providerCtx.providerIdList(), p), discoverPage);
-				// No genre diversification (#265): this feed is filtered to topGenres
-				List<TitleSearchResponse> shelf = fillShelf(discovered, seen, recencyWeights, false);
-				if (shelf.size() >= MIN_SHELF_SIZE) {
-					shelves.add(new SuggestionShelfResponse(label, shelf, SuggestionShelfResponse.ShelfKind.GENRE_PROFILE, providerCtx.enabled()));
-				}
-			} catch (TmdbApiException e) {
-				log.warn("Discover failed for {} genres {}: {}", type, topGenres, e.getMessage());
-			}
-		}
-
-		// ── Exploration shelves (#235) ────────────────────────────
-		// Try the kinds in a daily-rotated order and keep the first
-		// MAX_EXPLORATION_SHELVES that fill — a kind that can't fill (no genre
-		// data, empty TMDB response) yields its slot to the next one
-		TitleType dominantType = dominantType(allEntries, titlesById);
-		List<Integer> dominantGenres = topGenresFor(dominantType, allEntries, titlesById, cacheByTmdbId, ratingsByTitleId, today);
-
-		List<SuggestionShelfResponse.ShelfKind> explorationOrder = new ArrayList<>(List.of(
-			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
-			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
-			SuggestionShelfResponse.ShelfKind.TRENDING,
-			SuggestionShelfResponse.ShelfKind.PERSON,
-			SuggestionShelfResponse.ShelfKind.KEYWORD));
-		Collections.shuffle(explorationOrder, rng);
-
-		int explorationCount = 0;
-		for (SuggestionShelfResponse.ShelfKind kind : explorationOrder) {
-			if (explorationCount >= MAX_EXPLORATION_SHELVES) break;
-			SuggestionShelfResponse shelf = buildExplorationShelf(kind, dominantType, dominantGenres, genreProfile, personProfile, keywordAffinities, providerCtx, seen, recencyWeights, rng);
-			if (shelf != null) {
-				shelves.add(shelf);
-				explorationCount++;
-			}
-		}
-
-		// Availability badges (#270): annotate served titles with which of the
-		// members' services carry them, from cached provider data
-		List<SuggestionShelfResponse> badged = attachProviderBadges(shelves, providerCtx);
-
-		// Record everything we're about to serve so tomorrow's compute penalizes it
-		// (#264). Re-served titles are recorded too — safe under a continuous penalty,
-		// they just start sinking again, where the binary window needed re-records
-		// excluded to keep top-ups from being trapped forever (#246).
-		Set<String> shownIds = badged.stream()
+	// Record everything we're about to serve so tomorrow's compute penalizes it
+	// (#264). Re-served titles are recorded too — safe under a continuous penalty,
+	// they just start sinking again, where the binary window needed re-records
+	// excluded to keep top-ups from being trapped forever (#246).
+	private void recordImpressions(List<SuggestionShelfResponse> shelves, List<Long> memberUserIds) {
+		Set<String> shownIds = shelves.stream()
 			.flatMap(s -> s.titles().stream())
 			.map(TitleSearchResponse::externalId)
 			.collect(Collectors.toSet());
 		suggestionImpressionService.recordShown(memberUserIds, shownIds);
-
-		return badged;
-	}
-
-	// The provider context a shelf set answers to (#270): the union of member
-	// services, valid only when every configured member agrees on a region.
-	// Availability is region-scoped, and TMDB's discover filter takes exactly
-	// one watch_region — with members in different regions there is no single
-	// truthful answer, so provider-awareness turns off for that list (documented
-	// shared-list simplification; per-member shelves would be the real fix).
-	private record ProviderContext(String region, Set<Integer> providerIds) {
-		static final ProviderContext DISABLED = new ProviderContext(null, Set.of());
-
-		boolean enabled() {
-			return region != null && !providerIds.isEmpty();
-		}
-
-		// Discover wants a list (ordered, joinable); null when disabled so the
-		// TMDB client skips the filter entirely
-		List<Integer> providerIdList() {
-			return enabled() ? List.copyOf(providerIds) : null;
-		}
-	}
-
-	private ProviderContext providerContext(List<Long> memberUserIds) {
-		List<User> configured = userRepository.findAllById(memberUserIds).stream()
-			.filter(u -> u.getWatchRegion() != null
-				&& u.getWatchProviderIds() != null && !u.getWatchProviderIds().isEmpty())
-			.toList();
-		if (configured.isEmpty()) return ProviderContext.DISABLED;
-
-		Set<String> regions = configured.stream().map(User::getWatchRegion).collect(Collectors.toSet());
-		if (regions.size() > 1) return ProviderContext.DISABLED;
-
-		Set<Integer> union = configured.stream()
-			.flatMap(u -> u.getWatchProviderIds().stream())
-			.collect(Collectors.toSet());
-		return new ProviderContext(regions.iterator().next(), union);
-	}
-
-	// Rewrites served titles with the intersection of their cached flatrate
-	// providers (context region) and the members' services (#270). One batch
-	// cache read for all shelves. Coverage is partial by design — candidates
-	// without a tmdb_title_cache row keep a null providerIds ("unknown"), the
-	// same tradeoff as the keyword/person boosts; the title detail page fills
-	// the gap with live data.
-	private List<SuggestionShelfResponse> attachProviderBadges(List<SuggestionShelfResponse> shelves, ProviderContext ctx) {
-		if (!ctx.enabled() || shelves.isEmpty()) return shelves;
-
-		List<String> ids = shelves.stream()
-			.flatMap(s -> s.titles().stream())
-			.map(TitleSearchResponse::externalId)
-			.distinct()
-			.toList();
-		Map<String, List<Integer>> badgesById = new HashMap<>();
-		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
-			List<Integer> mine = streamableOn(cached, ctx);
-			if (!mine.isEmpty()) badgesById.put(cached.getTmdbId(), mine);
-		}
-		if (badgesById.isEmpty()) return shelves;
-
-		return shelves.stream()
-			.map(s -> new SuggestionShelfResponse(
-				s.reason(),
-				s.titles().stream()
-					.map(t -> badgesById.containsKey(t.externalId())
-						? new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),
-							t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), badgesById.get(t.externalId()))
-						: t)
-					.toList(),
-				s.kind(),
-				s.providerFiltered()))
-			.toList();
-	}
-
-	// The members' services carrying this cached title in the context region;
-	// empty when unknown (no cache row data) or streamable nowhere relevant
-	private List<Integer> streamableOn(TmdbTitleCache cached, ProviderContext ctx) {
-		Map<String, List<Integer>> providers = cached.getWatchProviders();
-		List<Integer> regionIds = providers != null ? providers.get(ctx.region()) : null;
-		if (regionIds == null) return List.of();
-		return regionIds.stream().filter(ctx.providerIds()::contains).toList();
-	}
-
-	// Exploration shelves (#235) trade similarity for discovery: recent releases,
-	// well-rated titles outside the popularity head, and this week's trending —
-	// still deduped and recency-demoted like every other shelf. Returns null when
-	// the kind can't produce a shelf so the caller can try the next kind.
-	private SuggestionShelfResponse buildExplorationShelf(
-		SuggestionShelfResponse.ShelfKind kind,
-		TitleType type,
-		List<Integer> topGenres,
-		Map<Integer, Double> genreProfile,
-		List<PersonAffinity> personProfile,
-		List<KeywordAffinity> keywordAffinities,
-		ProviderContext providerCtx,
-		Set<String> seen,
-		Map<String, Double> recencyWeights,
-		Random rng
-	) {
-		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
-		// draws from a mid-deep band, trending stays shallow, PERSON spends its draw
-		// picking the person instead of a page, and KEYWORD draws a keyword plus a
-		// shallow page. A fixed draw count per kind either way, so daily
-		// reproducibility (#231/#248) is preserved.
-		List<TitleSearchResponse> candidates;
-		String label;
-		// Discover-backed kinds take TMDB's provider filter (#270); trending and
-		// person feeds don't support it and stay unfiltered
-		boolean providerFiltered = providerCtx.enabled()
-			&& (kind == SuggestionShelfResponse.ShelfKind.NEW_RELEASES
-				|| kind == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS
-				|| kind == SuggestionShelfResponse.ShelfKind.KEYWORD);
-		try {
-			switch (kind) {
-				case NEW_RELEASES -> {
-					if (topGenres.isEmpty()) return null;
-					int page = 1 + rng.nextInt(MAX_DISCOVER_FETCH_PAGE);
-					LocalDate today = LocalDate.now(clock);
-					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
-						type, topGenres, List.of(), NEW_RELEASE_VOTE_COUNT_GTE,
-						SORT_POPULARITY, today.minusDays(NEW_RELEASE_WINDOW_DAYS), today,
-						providerCtx.region(), providerCtx.providerIdList(), p), page);
-					label = "New in your genres";
-				}
-				case HIDDEN_GEMS -> {
-					if (topGenres.isEmpty()) return null;
-					int page = HIDDEN_GEM_MIN_FETCH_PAGE
-						+ rng.nextInt(HIDDEN_GEM_MAX_FETCH_PAGE - HIDDEN_GEM_MIN_FETCH_PAGE + 1);
-					candidates = fetchPageWithFallback(p -> tmdbClient.discover(
-						type, topGenres, List.of(), HIDDEN_GEM_VOTE_COUNT_GTE,
-						SORT_VOTE_AVERAGE, null, null,
-						providerCtx.region(), providerCtx.providerIdList(), p), page);
-					label = "Hidden gems";
-				}
-				case PERSON -> {
-					// Movie-only (TMDB's TV discover has no people filter) and always
-					// page 1 — a filmography is shallow; the daily rotation comes from
-					// which recurring person the rng draws, not from page depth (#269)
-					if (personProfile.isEmpty()) return null;
-					PersonAffinity person = personProfile.get(rng.nextInt(personProfile.size()));
-					candidates = tmdbClient.discoverByPerson(person.id(), PERSON_SHELF_VOTE_COUNT_GTE, 1);
-					label = person.director()
-						? "Directed by " + person.name()
-						: "More with " + person.name();
-				}
-				case KEYWORD -> {
-					// Only keywords with a cached display name qualify — the label
-					// is the whole point (#271); rows cached before V20 contribute
-					// scoring ids but no shelf until the TTL refresh backfills names
-					List<KeywordAffinity> named = keywordAffinities.stream()
-						.filter(k -> k.name() != null && !k.name().isBlank())
-						.toList();
-					if (named.isEmpty()) return null;
-					KeywordAffinity keyword = named.get(rng.nextInt(named.size()));
-					int page = 1 + rng.nextInt(MAX_KEYWORD_FETCH_PAGE);
-					candidates = fetchPageWithFallback(p -> tmdbClient.discoverByKeyword(
-						type, keyword.id(), DISCOVER_VOTE_COUNT_GTE,
-						providerCtx.region(), providerCtx.providerIdList(), p), page);
-					label = keywordLabel(keyword.name(), type);
-				}
-				case TRENDING -> {
-					int page = 1 + rng.nextInt(MAX_TRENDING_FETCH_PAGE);
-					// Rank the raw popularity feed by taste-profile affinity plus
-					// day-seeded score-proportional jitter (#248/#267) so the order
-					// rotates daily beyond ties; with no genre profile the floor
-					// amplitude degrades the sort to stable-per-day random
-					List<TitleSearchResponse> trending = new ArrayList<>(
-						fetchPageWithFallback(p -> tmdbClient.getTrending(type, p), page));
-					Map<String, Double> jitter = jitterByCandidate(trending, r -> genreScore(r, genreProfile), rng);
-					trending.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
-						genreScore(r, genreProfile) + jitter.getOrDefault(r.externalId(), 0.0)).reversed());
-					candidates = trending;
-					label = "Trending now";
-				}
-				default -> {
-					return null;
-				}
-			}
-		} catch (TmdbApiException e) {
-			log.warn("Exploration shelf {} failed for {}: {}", kind, type, e.getMessage());
-			return null;
-		}
-
-		// Only trending carries a real genre mix worth diversifying; the discover-backed
-		// kinds are genre-filtered by construction and are exempt from the cap (#265).
-		// PERSON and KEYWORD are exempt too: the person or theme is the shelf's
-		// coherence axis, and a same-genre run is the point, not a lack of variety.
-		boolean diversify = kind == SuggestionShelfResponse.ShelfKind.TRENDING;
-		List<TitleSearchResponse> shelf = fillShelf(candidates, seen, recencyWeights, diversify);
-		return shelf.size() >= MIN_SHELF_SIZE ? new SuggestionShelfResponse(label, shelf, kind, providerFiltered) : null;
-	}
-
-	// Exploration shelves are built once per compute, for the medium the list
-	// leans toward, to bound TMDB call count; ties go to TV
-	private TitleType dominantType(List<WatchlistEntry> entries, Map<Long, Title> titlesById) {
-		long movies = entries.stream()
-			.map(e -> titlesById.get(e.getTitleId()))
-			.filter(t -> t != null && t.getType() == TitleType.MOVIE)
-			.count();
-		long shows = entries.stream()
-			.map(e -> titlesById.get(e.getTitleId()))
-			.filter(t -> t != null && t.getType() == TitleType.TV)
-			.count();
-		return movies > shows ? TitleType.MOVIE : TitleType.TV;
-	}
-
-	// Rating-weighted (#273): a rated-up title counts double toward its genres
-	// making the discover filter cut, a rated-down title counts against them,
-	// and a genre with non-positive weighted frequency can't qualify at all —
-	// unrated entries keep the old 1-per-title counting exactly.
-	// Recency-decayed (#274): an old entry's vote fades toward the floor, so
-	// the filter cut tracks what the user watches now.
-	private List<Integer> topGenresFor(
-		TitleType type,
-		List<WatchlistEntry> entries,
-		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId,
-		Map<Long, Rating> ratingsByTitleId,
-		LocalDate today
-	) {
-		Map<Integer, Double> genreFreq = new HashMap<>();
-		for (WatchlistEntry e : entries) {
-			Title t = titlesById.get(e.getTitleId());
-			if (t == null || t.getType() != type || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
-			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = signalWeight(ratingsByTitleId.get(e.getTitleId())) * recencyDecay(e, today);
-			for (int genreId : cached.getGenreIds()) {
-				genreFreq.merge(genreId, weight, Double::sum);
-			}
-		}
-		return genreFreq.entrySet().stream()
-			.filter(en -> en.getValue() > 0)
-			.sorted(Map.Entry.<Integer, Double>comparingByValue().reversed()
-				.thenComparing(Map.Entry::getKey))
-			.limit(MAX_GENRES)
-			.map(Map.Entry::getKey)
-			.toList();
-	}
-
-	// Fetch candidates from recommendations + similar top-up, then score by genre
-	// affinity plus a boost per shared keyword and per shared person (#269).
-	// These endpoints take no provider filter, so streamability enters as a
-	// score boost instead (#270).
-	private List<TitleSearchResponse> fetchScoredCandidates(TitleType type, String tmdbId, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx, Random rng) {
-		// One page draw per seed, shared by recommendations and similar, so RNG
-		// consumption doesn't depend on how many results TMDB happens to return
-		int page = 1 + rng.nextInt(MAX_SEED_FETCH_PAGE);
-		List<TitleSearchResponse> results = new ArrayList<>();
-		try {
-			results.addAll(fetchPageWithFallback(p -> tmdbClient.getRecommendations(type, tmdbId, p), page));
-		} catch (TmdbApiException e) {
-			log.warn("Recommendations failed for {}: {}", tmdbId, e.getMessage());
-		}
-		if (results.size() < SIMILAR_TOP_UP_THRESHOLD) {
-			try {
-				results.addAll(fetchPageWithFallback(p -> tmdbClient.getSimilar(type, tmdbId, p), page));
-			} catch (TmdbApiException e) {
-				log.warn("Similar failed for {}: {}", tmdbId, e.getMessage());
-			}
-		}
-		return rankByTasteProfile(results, genreProfile, keywordProfile, personProfile, providerCtx, rng);
-	}
-
-	// Dedupe by externalId, then sort by taste-profile score: genre affinity plus
-	// keyword boost plus day-seeded score jitter (#248) — a score-proportional ±
-	// offset per candidate (#267) that rotates the ranking of near-peers daily
-	// beyond exact ties, so stable high-affinity candidates don't float to the top
-	// of a shelf every single day. Applied even with no genre/keyword signal, where
-	// the floor amplitude degrades the sort to a stable-per-day random order. Also
-	// ranks the pooled catch-all shelf (#266).
-	private List<TitleSearchResponse> rankByTasteProfile(List<TitleSearchResponse> results, Map<Integer, Double> genreProfile, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx, Random rng) {
-		Set<String> seen = new HashSet<>();
-		List<TitleSearchResponse> deduped = results.stream()
-			.filter(r -> seen.add(r.externalId()))
-			.collect(Collectors.toCollection(ArrayList::new));
-
-		Map<String, Double> cacheBoosts = cacheSignalBoosts(deduped, keywordProfile, personProfile, providerCtx);
-		ToDoubleFunction<TitleSearchResponse> baseScore = r ->
-			genreScore(r, genreProfile) + cacheBoosts.getOrDefault(r.externalId(), 0.0);
-		Map<String, Double> jitter = jitterByCandidate(deduped, baseScore, rng);
-
-		deduped.sort(Comparator.comparingDouble((TitleSearchResponse r) ->
-			baseScore.applyAsDouble(r)
-			+ jitter.getOrDefault(r.externalId(), 0.0)).reversed());
-		return deduped;
-	}
-
-	// Fresh = not recency-penalized: the shelf titles the user hasn't been shown
-	// within the penalty window. The standalone floor counts only these (#266),
-	// so a shelf padded out with re-served titles still folds into the catch-all.
-	private long freshCount(List<TitleSearchResponse> shelf, Map<String, Double> recencyWeights) {
-		return shelf.stream()
-			.filter(r -> recencyWeights.getOrDefault(r.externalId(), 0.0) == 0.0)
-			.count();
-	}
-
-	// Uncached seeds (no tmdb_title_cache row yet, or a pre-#266 row without a
-	// vote count) rank as thin until the cache refreshes — a conservative default
-	private boolean isRichSeed(WatchlistEntry entry, Map<Long, Title> titlesById, Map<String, TmdbTitleCache> cacheByTmdbId) {
-		Title title = titlesById.get(entry.getTitleId());
-		if (title == null || title.getExternalId() == null) return false;
-		TmdbTitleCache cached = cacheByTmdbId.get(title.getExternalId());
-		return cached != null && cached.getVoteCount() != null
-			&& cached.getVoteCount() >= RICH_SEED_VOTE_COUNT_GTE;
-	}
-
-	// Day-seeded per-candidate score offset (#248). Draws from the shared day-seeded
-	// rng in list order, so the assignment is reproducible within a day (identical
-	// shelves across recomputes) and rotates at midnight. Keyed by externalId, one
-	// draw per distinct id so duplicates don't desync the rng stream. The amplitude
-	// is proportional to the candidate's base score with an absolute floor (#267);
-	// scaling happens after the draw, so amplitude never affects rng consumption.
-	private Map<String, Double> jitterByCandidate(
-		List<TitleSearchResponse> candidates,
-		ToDoubleFunction<TitleSearchResponse> baseScore,
-		Random rng
-	) {
-		Map<String, Double> jitter = new HashMap<>();
-		for (TitleSearchResponse c : candidates) {
-			jitter.computeIfAbsent(c.externalId(), id -> {
-				double amplitude = Math.max(tuning.getScoreJitterFloor(),
-					tuning.getScoreJitterFraction() * baseScore.applyAsDouble(c));
-				return (rng.nextDouble() * 2 - 1) * amplitude;
-			});
-		}
-		return jitter;
-	}
-
-	// TMDB recommendations/similar responses carry no keywords, credits, or
-	// provider data, so the keyword (#232), person (#269), and streamability
-	// (#270) boosts all come from tmdb_title_cache in one batch read: candidates
-	// without a cache row get none — a partial signal, but one DB read instead
-	// of a TMDB call per candidate
-	private Map<String, Double> cacheSignalBoosts(List<TitleSearchResponse> candidates, Set<Integer> keywordProfile, Set<Integer> personProfile, ProviderContext providerCtx) {
-		if ((keywordProfile.isEmpty() && personProfile.isEmpty() && !providerCtx.enabled()) || candidates.isEmpty()) return Map.of();
-		List<String> ids = candidates.stream().map(TitleSearchResponse::externalId).toList();
-		Map<String, Double> boosts = new HashMap<>();
-		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
-			double boost = 0.0;
-			if (cached.getKeywordIds() != null) {
-				boost += tuning.getKeywordMatchWeight()
-					* cached.getKeywordIds().stream().filter(keywordProfile::contains).count();
-			}
-			// Set-union of cast and director ids: acting in and directing the same
-			// title is one shared person, not two
-			boost += tuning.getPersonMatchWeight()
-				* cachedPersonIds(cached).stream().filter(personProfile::contains).count();
-			// Flat, not per-service (#270): being on two of the user's services
-			// doesn't make a title more watchable than being on one
-			if (providerCtx.enabled() && !streamableOn(cached, providerCtx).isEmpty()) {
-				boost += tuning.getStreamableBoost();
-			}
-			if (boost > 0) boosts.put(cached.getTmdbId(), boost);
-		}
-		return boosts;
-	}
-
-	private Set<Integer> cachedPersonIds(TmdbTitleCache cached) {
-		Set<Integer> ids = new HashSet<>();
-		if (cached.getTopCast() != null) cached.getTopCast().forEach(p -> ids.add(p.id()));
-		if (cached.getDirectors() != null) cached.getDirectors().forEach(p -> ids.add(p.id()));
-		return ids;
-	}
-
-	// Deeper pages can be empty (few recommendations, thin discover results) — fall
-	// back to page 1 rather than dropping the shelf for falling under MIN_SHELF_SIZE
-	private List<TitleSearchResponse> fetchPageWithFallback(IntFunction<List<TitleSearchResponse>> fetch, int page) {
-		List<TitleSearchResponse> results = fetch.apply(page);
-		return results.isEmpty() && page > 1 ? fetch.apply(1) : results;
-	}
-
-	// Fill a shelf, optionally diversified: with diversify on, a candidate is skipped
-	// once every genre it carries is at MAX_PER_GENRE_CLUSTER — keyed on the full
-	// genre set, not TMDB's arbitrary first genre id (#265), so a title bringing any
-	// fresh genre still enters.
-	// Recently shown candidates (#264) are demoted, not held back: a stable re-sort
-	// pushes each one down by RECENCY_DEMOTION positions scaled by its recency weight
-	// (1.0 = shown yesterday, decaying to 1/window at the window edge). Shown-yesterday
-	// sinks past a full shelf and resurfaces only when the pool is thin, so shelves
-	// fill toward MAX_SHELF_SIZE instead of pinning at a suppression floor, while a
-	// title near the window edge recovers most of its rank.
-	private List<TitleSearchResponse> fillShelf(List<TitleSearchResponse> candidates, Set<String> seen, Map<String, Double> recencyWeights, boolean diversify) {
-		List<TitleSearchResponse> ranked = IntStream.range(0, candidates.size()).boxed()
-			.sorted(Comparator.comparingDouble((Integer i) ->
-				i + tuning.getRecencyDemotion() * recencyWeights.getOrDefault(candidates.get(i).externalId(), 0.0)))
-			.map(candidates::get)
-			.toList();
-		Map<Integer, Integer> genreCount = new HashMap<>();
-		List<TitleSearchResponse> shelf = new ArrayList<>();
-		for (TitleSearchResponse r : ranked) {
-			if (!seen.add(r.externalId())) continue;
-			List<Integer> genres = r.genreIds() != null ? r.genreIds() : List.of();
-			if (diversify && allGenresSaturated(genres, genreCount)) continue;
-			shelf.add(r);
-			if (diversify) genres.forEach(g -> genreCount.merge(g, 1, Integer::sum));
-			if (shelf.size() >= MAX_SHELF_SIZE) break;
-		}
-		return shelf;
-	}
-
-	// Genre-less candidates are never capped, matching the old primary-genre rule
-	private boolean allGenresSaturated(List<Integer> genres, Map<Integer, Integer> genreCount) {
-		return !genres.isEmpty()
-			&& genres.stream().allMatch(g -> genreCount.getOrDefault(g, 0) >= MAX_PER_GENRE_CLUSTER);
-	}
-
-	private double genreScore(TitleSearchResponse candidate, Map<Integer, Double> genreProfile) {
-		List<Integer> genres = candidate.genreIds();
-		if (genres == null || genres.isEmpty()) return 0.0;
-		return genres.stream().mapToDouble(id -> genreProfile.getOrDefault(id, 0.0)).sum();
-	}
-
-	// Recency-decayed (#274): a show added two years ago no longer shapes the
-	// profile as much as one added this week — current taste dominates, while
-	// the decay floor keeps history counting for something.
-	private Map<Integer, Double> buildGenreProfile(
-		List<WatchlistEntry> entries,
-		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId,
-		Map<Long, Rating> ratingsByTitleId,
-		LocalDate today
-	) {
-		Map<Integer, Double> profile = new HashMap<>();
-		for (WatchlistEntry e : entries) {
-			Title t = titlesById.get(e.getTitleId());
-			if (t == null || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
-			if (cached == null || cached.getGenreIds() == null) continue;
-			double weight = profileWeight(e.getStatus(), ratingsByTitleId.get(e.getTitleId()))
-				* recencyDecay(e, today);
-			for (int genreId : cached.getGenreIds()) {
-				profile.merge(genreId, weight, Double::sum);
-			}
-		}
-		return profile;
-	}
-
-	// A recurring person across the user's titles (#269). director flags which
-	// label the shelf gets ("Directed by" vs "More with") when the same person
-	// does both; score drives the top-N cut like keyword frequency does.
-	private record PersonAffinity(int id, String name, double score, boolean director) {}
-
-	// Frequency-weighted like the keyword profile, but floored at
-	// PERSON_MIN_TITLE_COUNT: keywords are meaningful once, a person only through
-	// recurrence. Ties break by id so the profile is stable across recomputes —
-	// the daily rng never touches profile construction (#231).
-	// Rating-weighted (#273): appearances in rated-up titles count double toward
-	// the ranking and rated-down appearances count against it, but the recurrence
-	// floor stays a plain appearance count over non-down-rated titles — one loved
-	// title still isn't "you keep watching this person", and a person carried
-	// only by disliked titles (score ≤ 0) drops out of the profile entirely.
-	// Recency-decayed (#274) via the entry-derived per-title factor, like the
-	// keyword profile; the recurrence floor stays an undecayed count for the
-	// same reason it ignores rating weight — recurrence is about how often,
-	// not how recently.
-	private List<PersonAffinity> buildPersonProfile(
-		Collection<TmdbTitleCache> caches,
-		Map<String, Rating> ratingsByTmdbId,
-		Map<String, Double> decayByTmdbId
-	) {
-		Map<Integer, String> names = new HashMap<>();
-		Map<Integer, Integer> castCounts = new HashMap<>();
-		Map<Integer, Integer> directorCounts = new HashMap<>();
-		Map<Integer, Integer> positiveCounts = new HashMap<>();
-		Map<Integer, Double> scores = new HashMap<>();
-		for (TmdbTitleCache c : caches) {
-			Rating rating = ratingsByTmdbId.get(c.getTmdbId());
-			double weight = signalWeight(rating) * decayByTmdbId.getOrDefault(c.getTmdbId(), 1.0);
-			if (c.getTopCast() != null) {
-				for (CachedPerson p : c.getTopCast()) {
-					castCounts.merge(p.id(), 1, Integer::sum);
-					scores.merge(p.id(), weight, Double::sum);
-					if (rating != Rating.DOWN) positiveCounts.merge(p.id(), 1, Integer::sum);
-					names.putIfAbsent(p.id(), p.name());
-				}
-			}
-			if (c.getDirectors() != null) {
-				for (CachedPerson p : c.getDirectors()) {
-					directorCounts.merge(p.id(), 1, Integer::sum);
-					scores.merge(p.id(), weight, Double::sum);
-					if (rating != Rating.DOWN) positiveCounts.merge(p.id(), 1, Integer::sum);
-					names.putIfAbsent(p.id(), p.name());
-				}
-			}
-		}
-		return names.keySet().stream()
-			.map(id -> {
-				int cast = castCounts.getOrDefault(id, 0);
-				int directed = directorCounts.getOrDefault(id, 0);
-				return new PersonAffinity(id, names.get(id), scores.getOrDefault(id, 0.0),
-					directed > 0 && directed >= cast);
-			})
-			.filter(p -> positiveCounts.getOrDefault(p.id(), 0) >= PERSON_MIN_TITLE_COUNT
-				&& p.score() > 0)
-			.sorted(Comparator.comparingDouble(PersonAffinity::score).reversed()
-				.thenComparing(PersonAffinity::id))
-			.limit(MAX_PEOPLE)
-			.toList();
-	}
-
-	// A top keyword across the list (#271). name labels the keyword-seeded shelf
-	// and is null on rows cached before names were stored — such keywords still
-	// boost scoring but can't seed a shelf until the cache TTL backfills them.
-	private record KeywordAffinity(int id, String name) {}
-
-	// Frequency counting stays on the flat keyword_ids column (every row has it);
-	// names come from the keywords JSON where present. Ties break by id so the
-	// profile is stable across recomputes — the daily rng never touches profile
-	// construction (#231). Rating-weighted (#273): a rated-down title's keywords
-	// count negatively, so a keyword carried only by disliked titles can't make
-	// the profile, and one shared with liked titles ranks lower.
-	// Recency-decayed (#274): a keyword riding only old entries fades out of
-	// the top-N cut as fresher titles bring their own.
-	private List<KeywordAffinity> buildKeywordAffinities(
-		Collection<TmdbTitleCache> caches,
-		Map<String, Rating> ratingsByTmdbId,
-		Map<String, Double> decayByTmdbId
-	) {
-		Map<Integer, Double> freq = new HashMap<>();
-		Map<Integer, String> names = new HashMap<>();
-		for (TmdbTitleCache c : caches) {
-			if (c.getKeywordIds() == null) continue;
-			double weight = signalWeight(ratingsByTmdbId.get(c.getTmdbId()))
-				* decayByTmdbId.getOrDefault(c.getTmdbId(), 1.0);
-			for (int kw : c.getKeywordIds()) freq.merge(kw, weight, Double::sum);
-			if (c.getKeywords() != null) {
-				c.getKeywords().forEach(k -> names.putIfAbsent(k.id(), k.name()));
-			}
-		}
-		return freq.entrySet().stream()
-			.filter(e -> e.getValue() > 0)
-			.sorted(Map.Entry.<Integer, Double>comparingByValue().reversed()
-				.thenComparing(Map.Entry::getKey))
-			.limit(MAX_KEYWORDS)
-			.map(e -> new KeywordAffinity(e.getKey(), names.get(e.getKey())))
-			.toList();
-	}
-
-	// A TMDB collection the user has started (#272): id feeds the /collection/{id}
-	// call, name labels the shelf.
-	private record FranchiseCandidate(int collectionId, String collectionName) {}
-
-	// WATCHED/WATCHING movie entries with a cached collection id (#272).
-	// WANT_TO_WATCH is excluded — franchise continuation is a completed-interest
-	// signal, not a taste-profile one. Ties break by id so the daily rng never
-	// touches candidate construction (#231), matching the person/keyword profiles.
-	private List<FranchiseCandidate> buildFranchiseCandidates(
-		List<WatchlistEntry> entries,
-		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId
-	) {
-		Map<Integer, String> collections = new HashMap<>();
-		for (WatchlistEntry e : entries) {
-			if (e.getStatus() != WatchStatus.WATCHED && e.getStatus() != WatchStatus.WATCHING) continue;
-			Title t = titlesById.get(e.getTitleId());
-			if (t == null || t.getType() != TitleType.MOVIE || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
-			if (cached == null || cached.getCollectionId() == null) continue;
-			collections.putIfAbsent(cached.getCollectionId(), cached.getCollectionName());
-		}
-		return collections.entrySet().stream()
-			.map(en -> new FranchiseCandidate(en.getKey(), en.getValue()))
-			.sorted(Comparator.comparingInt(FranchiseCandidate::collectionId))
-			.toList();
-	}
-
-	// One TMDB call when a qualifying collection exists, none otherwise (#272's
-	// call-budget requirement). Parts are ordered by release date — the
-	// franchise itself is the coherence axis, so no genre diversification and
-	// no taste-profile re-ranking, just chronology. Owned parts fall out via the
-	// shared seen-dedup set in fillShelf; no MIN_SHELF_SIZE floor, since a
-	// single remaining sequel is still the single best suggestion available.
-	// Exempt from the recency penalty (the issue's "a sequel staying visible is
-	// a feature, not staleness"): the demotion could only reorder this shelf,
-	// never shrink it, and a part shown recently on some other shelf sinking
-	// below a later one would break the release-order contract — so fillShelf
-	// gets an empty weight map. Impressions are still recorded on serve.
-	private SuggestionShelfResponse buildFranchiseShelf(
-		List<WatchlistEntry> allEntries,
-		Map<Long, Title> titlesById,
-		Map<String, TmdbTitleCache> cacheByTmdbId,
-		Set<String> seen,
-		Random rng
-	) {
-		List<FranchiseCandidate> candidates = buildFranchiseCandidates(allEntries, titlesById, cacheByTmdbId);
-		if (candidates.isEmpty()) return null;
-
-		FranchiseCandidate franchise = candidates.get(rng.nextInt(candidates.size()));
-		List<TitleSearchResponse> parts;
-		try {
-			parts = tmdbClient.getCollectionParts(franchise.collectionId());
-		} catch (TmdbApiException e) {
-			log.warn("Franchise shelf failed for collection {}: {}", franchise.collectionId(), e.getMessage());
-			return null;
-		}
-
-		// Unreleased parts are excluded rather than badged (#272 scope choice):
-		// an announced sequel the user can't press play on isn't a suggestion.
-		// A null release date on a collection part means unannounced/undated —
-		// unwatchable either way, so it counts as unreleased (unlike #239's
-		// null-means-aired episode rule, where blocking would strand progress).
-		LocalDate today = LocalDate.now(clock);
-		List<TitleSearchResponse> released = parts.stream()
-			.filter(p -> p.releaseDate() != null && !p.releaseDate().isAfter(today))
-			.sorted(Comparator.comparing(TitleSearchResponse::releaseDate))
-			.toList();
-		List<TitleSearchResponse> shelf = fillShelf(released, seen, Map.of(), false);
-		if (shelf.isEmpty()) return null;
-
-		String name = franchise.collectionName() != null ? franchise.collectionName() : "this series";
-		return new SuggestionShelfResponse("Next in the " + name, shelf, SuggestionShelfResponse.ShelfKind.FRANCHISE);
-	}
-
-	// "space race" → "Space race stories" / "heist" → "Heist movies": TMDB keyword
-	// names are lowercase phrases, so capitalize and suffix by media type
-	private String keywordLabel(String name, TitleType type) {
-		String display = name.substring(0, 1).toUpperCase() + name.substring(1);
-		return display + (type == TitleType.MOVIE ? " movies" : " stories");
-	}
-
-	// Taste-profile weights only. Seed eligibility is a separate filter in compute
-	// (WATCHING / WANT_TO_WATCH): finished titles shape the profile — finishing is
-	// the strongest completed-interest signal — but don't get per-seed shelves.
-	// An explicit thumbs rating (#273) overrides the status inference entirely:
-	// up elevates above any status weight, down goes negative regardless of
-	// status (finishing a show you hated is not an endorsement of its genres).
-	private double profileWeight(WatchStatus status, Rating rating) {
-		if (rating == Rating.UP) return tuning.getRatedUpProfileWeight();
-		if (rating == Rating.DOWN) return tuning.getRatedDownProfileWeight();
-		return switch (status) {
-			case WATCHING, WATCHED -> tuning.getWatchedProfileWeight();
-			case WANT_TO_WATCH -> tuning.getWantToWatchProfileWeight();
-		};
-	}
-
-	// Recency decay for the taste profile (#274): taste drifts, so an entry's
-	// vote halves every configured half-life from its last touch (updated_at
-	// covers both adding and status changes; added_at is the legacy fallback).
-	// Day-granular off the injected clock so profiles are stable within a day,
-	// preserving same-day shelf reproducibility (#231) the way the recency-
-	// penalty reads do. The floor keeps old entries counting — history still
-	// matters, just less than last month's watching.
-	private double recencyDecay(WatchlistEntry entry, LocalDate today) {
-		Instant touched = entry.getUpdatedAt() != null ? entry.getUpdatedAt() : entry.getAddedAt();
-		if (touched == null) return 1.0;
-		long ageDays = Math.max(0,
-			today.toEpochDay() - LocalDate.ofInstant(touched, clock.getZone()).toEpochDay());
-		return Math.max(tuning.getDecayFloor(), Math.pow(0.5, ageDays / tuning.getHalfLifeDays()));
-	}
-
-	// Per-title multiplier for the frequency-counted profiles (keyword, person,
-	// top-genre cut), where the unrated baseline is 1 per title regardless of
-	// status — unrated behavior stays exactly as before (#273)
-	private double signalWeight(Rating rating) {
-		if (rating == Rating.UP) return tuning.getRatedUpSignalWeight();
-		if (rating == Rating.DOWN) return tuning.getRatedDownSignalWeight();
-		return tuning.getUnratedSignalWeight();
 	}
 }

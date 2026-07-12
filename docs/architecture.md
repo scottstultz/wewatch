@@ -133,6 +133,43 @@ cache (`suggestions.cache.ttl-minutes` / `suggestions.cache.max-size`, defaults 
 and recomputed asynchronously on entry changes — this is a single-node assumption; horizontal
 scaling would need a shared cache store.
 
+### Class layout (#319)
+
+`SuggestionService` owns the cache and the order of the pipeline; each stage lives in a
+package-private collaborator alongside it in `com.wewatch.api.service`. The collaborators are
+constructed in the `SuggestionService` constructor rather than injected as beans, so the service
+stays the single wiring point and its constructor stays the single thing tests and the tuning
+harness build.
+
+| Class | Responsibility |
+|---|---|
+| `SuggestionService` | Caffeine cache, `topPicks` / `recompute` / `evictForUser`, loads the inputs, runs the stages, records impressions |
+| `SuggestionContext` | The per-compute bundle every stage reads: entries, cached rows, taste profile, provider context, the dedup set, recency weights, the day-seeded `Random` |
+| `TasteProfileBuilder` → `TasteProfile` | Genre affinities, top keywords (`KeywordAffinity`), recurring people (`PersonAffinity`), top genres per medium, dominant medium |
+| `ProviderContextResolver` → `ProviderContext` | The member-service union and region (#270), and the availability badges attached to served titles |
+| `CandidateScorer` | Taste-profile ranking: genre score, keyword/person/streamability cache boosts, day-seeded jitter |
+| `ShelfFiller` | Ranked candidates → a shelf: cross-shelf dedup, recency demotion (#264), genre diversification (#265) |
+| `FranchiseShelfBuilder` | `FRANCHISE` (#272) |
+| `SeedShelfBuilder` | `PER_SEED` (#232), `FINISHED_SEED` (#235), and the `MORE_PICKS` catch-all (#266) — one class because they share the leftover pool |
+| `GenreShelfBuilder` | `GENRE_PROFILE`, one shelf per medium |
+| `ExplorationShelfBuilder` | `NEW_RELEASES`, `HIDDEN_GEMS`, `TRENDING`, `PERSON`, `KEYWORD` and their daily rotation (#235) |
+| `DiscoverPolicy` | The discover page depth, vote floor, and sort orders the genre and exploration builders must agree on |
+| `TmdbPaging` | The day-seeded page draw's empty-deep-page fallback to page 1 (#249) |
+
+**Stage order is behavior, not style.** The stages share two pieces of mutable state, and both
+make the order they run in load-bearing:
+
+- The **dedup set** (`SuggestionContext.seen`) is seeded with owned and dismissed titles and
+  added to by every shelf as it fills, which is what keeps a title to at most one appearance
+  across the whole set. Earlier stages therefore get first pick — franchise first (#272),
+  exploration last.
+- The **day-seeded `Random`** is one shared stream. What each stage draws, and in what order,
+  determines what every user sees. Reordering stages, adding a draw, or drawing before an early
+  return that used to happen first (an empty person profile, no named keywords) silently changes
+  every user's shelves without failing an obvious assertion. The offline tuning harness below is
+  the check for this: it renders full shelf sets for the fixture watchlists, so a diff of its
+  reports before and after a pipeline change is a byte-level no-behavior-change proof.
+
 ### Daily rotation
 
 Shelves rotate daily (#231) but are stable within a day: a `Random` seeded with
@@ -257,7 +294,7 @@ flows through, which is why cross-cutting shelf policy lives here rather than in
 "Not interested" (#268, `suggestion_dismissals`, one row per `(user_id, tmdb_id)`) is permanent
 and explicit-intent, unlike the impressions table's time-windowed, continuously-recorded
 penalty above — it's undoable but doesn't decay. Dismissed ids seed the cross-shelf `seen` dedup
-set at the start of `compute`, so a dismissal excludes a title from every shelf kind at the one
+set before any shelf is built, so a dismissal excludes a title from every shelf kind at the one
 point they all flow through, and a dismissed title can never re-enter via the thin-shelf
 `seen.remove` release (that release only touches ids that actually made it into a shelf).
 Dismissals are user-scoped like impressions (union over a shared list's members).
@@ -265,7 +302,7 @@ Dismissals are user-scoped like impressions (union over a shared list's members)
 ### Specialty shelves
 
 **Franchise continuation** (#272, `FRANCHISE`) is structurally different from every other
-shelf: it's built in `compute` *before* the per-seed loop, not inside the daily-rotated
+shelf: `FranchiseShelfBuilder` runs *before* the seed shelves, and not inside the daily-rotated
 exploration switch, so it isn't capped by `MAX_EXPLORATION_SHELVES` and isn't gated by
 `MIN_SHELF_SIZE` — a single remaining sequel is still the single best suggestion. It gets first
 pick of the `seen` dedup set so a sequel can't be crowded out by a generic candidate. Candidates
@@ -296,7 +333,7 @@ the person directs at least as often as they act, "More with X" otherwise.
 ### Watch providers (#270)
 
 Users record their streaming services (`users.watch_region` + `users.watch_provider_ids`, edited
-via `PATCH /api/users/{id}`). `SuggestionService.compute` resolves a `ProviderContext` from the
+via `PATCH /api/users/{id}`). `ProviderContextResolver` resolves a `ProviderContext` from the
 union of configured members' provider ids — but only enables provider-awareness when every
 configured member shares one watch region. Conflicting regions disable it for that list. This is
 a deliberate simplification, not an oversight: TMDB's discover endpoint takes exactly one
