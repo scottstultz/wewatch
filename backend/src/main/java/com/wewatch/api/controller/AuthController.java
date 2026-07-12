@@ -19,6 +19,7 @@ import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
+import com.wewatch.api.security.ClientIpResolver;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
@@ -44,16 +45,19 @@ public class AuthController {
 	private final ObjectMapper objectMapper;
 	private final AllowedEmailRepository allowedEmailRepository;
 	private final LoginAttemptService loginAttemptService;
+	private final ClientIpResolver clientIpResolver;
 
 	public AuthController(GoogleTokenValidator googleTokenValidator, UserService userService,
 			JwtTokenService jwtTokenService, ObjectMapper objectMapper,
-			AllowedEmailRepository allowedEmailRepository, LoginAttemptService loginAttemptService) {
+			AllowedEmailRepository allowedEmailRepository, LoginAttemptService loginAttemptService,
+			ClientIpResolver clientIpResolver) {
 		this.googleTokenValidator = googleTokenValidator;
 		this.userService = userService;
 		this.jwtTokenService = jwtTokenService;
 		this.objectMapper = objectMapper;
 		this.allowedEmailRepository = allowedEmailRepository;
 		this.loginAttemptService = loginAttemptService;
+		this.clientIpResolver = clientIpResolver;
 	}
 
 	@PostMapping("/token")
@@ -69,7 +73,7 @@ public class AuthController {
 	})
 	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request,
 			HttpServletRequest httpRequest) {
-		String ip = clientIp(httpRequest);
+		String ip = clientIpResolver.resolve(httpRequest);
 		loginAttemptService.checkIp(ip);
 
 		User user;
@@ -115,7 +119,7 @@ public class AuthController {
 	})
 	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request,
 			HttpServletRequest httpRequest) {
-		String ip = clientIp(httpRequest);
+		String ip = clientIpResolver.resolve(httpRequest);
 		loginAttemptService.checkIp(ip);
 		try {
 			requireAllowedEmail(request.email());
@@ -133,13 +137,6 @@ public class AuthController {
 		if (!allowedEmailRepository.existsByEmailIgnoreCase(email)) {
 			throw new RegistrationNotAllowedException();
 		}
-	}
-
-	// Client IP for per-IP throttling. Behind a reverse proxy this is the proxy address;
-	// trust X-Forwarded-For only from a known proxy (naive trust lets a caller spoof the
-	// bucket key) — deferred until a proxy is actually in front of this service.
-	private String clientIp(HttpServletRequest request) {
-		return request.getRemoteAddr();
 	}
 
 	private record EmailCredential(String email, String password) {}

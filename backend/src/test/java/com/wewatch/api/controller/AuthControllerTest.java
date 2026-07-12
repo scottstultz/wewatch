@@ -24,6 +24,7 @@ import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
+import com.wewatch.api.security.ClientIpResolver;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
@@ -34,9 +35,12 @@ import com.wewatch.api.service.UserService;
 
 @WebMvcTest(value = AuthController.class, properties = {
 	"app.auth.throttle.email-max-attempts=3",
-	"app.auth.throttle.ip-max-attempts=4"
+	"app.auth.throttle.ip-max-attempts=4",
+	// One specific proxy, so the 10.0.0.x addresses the other tests use as distinct
+	// clients stay untrusted and keep keying on their own peer address.
+	"app.auth.throttle.trusted-proxies=10.9.9.9"
 })
-@Import({ SecurityConfig.class, LoginAttemptService.class })
+@Import({ SecurityConfig.class, LoginAttemptService.class, ClientIpResolver.class })
 @ActiveProfiles("local")
 class AuthControllerTest {
 
@@ -422,6 +426,44 @@ class AuthControllerTest {
 		}
 	}
 
+	@Test
+	void throttlingOneClientBehindTheProxyDoesNotLockOutAnother() throws Exception {
+		when(userService.authenticateWithPassword(any(), any()))
+			.thenThrow(new InvalidCredentialsException());
+
+		// Every request arrives from the nginx container's address; only X-Forwarded-For
+		// distinguishes the two clients. Before #336 the peer was the bucket key, so the
+		// attacker's four failures locked out the whole world.
+		for (int i = 0; i < 4; i++) {
+			mockMvc.perform(emailSignIn("attacker" + i + "@example.com", "wrongpass").with(proxiedFrom("203.0.113.7")))
+				.andExpect(status().isUnauthorized());
+		}
+		mockMvc.perform(emailSignIn("attacker@example.com", "wrongpass").with(proxiedFrom("203.0.113.7")))
+			.andExpect(status().isTooManyRequests());
+
+		// A different client through the same proxy still gets to fail on its own merits.
+		mockMvc.perform(emailSignIn("bystander@example.com", "wrongpass").with(proxiedFrom("198.51.100.9")))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void aSpoofedForwardedForFromAnUntrustedPeerCannotDodgeTheIpBucket() throws Exception {
+		when(userService.authenticateWithPassword(any(), any()))
+			.thenThrow(new InvalidCredentialsException());
+
+		// 203.0.113.7 is not a trusted proxy, so its header is ignored and all five requests
+		// key on the peer — rotating the claimed client IP buys nothing.
+		for (int i = 0; i < 4; i++) {
+			mockMvc.perform(emailSignIn("user" + i + "@example.com", "wrongpass")
+					.with(spoofedFrom("203.0.113.7", "198.51.100." + i)))
+				.andExpect(status().isUnauthorized());
+		}
+
+		mockMvc.perform(emailSignIn("user5@example.com", "wrongpass")
+				.with(spoofedFrom("203.0.113.7", "198.51.100.99")))
+			.andExpect(status().isTooManyRequests());
+	}
+
 	private static org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder emailSignIn(
 			String email, String password) {
 		String credential = "{\\\"email\\\":\\\"" + email + "\\\",\\\"password\\\":\\\"" + password + "\\\"}";
@@ -432,6 +474,25 @@ class AuthControllerTest {
 	private static org.springframework.test.web.servlet.request.RequestPostProcessor remoteAddr(int n) {
 		return request -> {
 			request.setRemoteAddr("10.0.0." + n);
+			return request;
+		};
+	}
+
+	/** A request as nginx delivers it: proxy peer, real client in X-Forwarded-For. */
+	private static org.springframework.test.web.servlet.request.RequestPostProcessor proxiedFrom(String clientIp) {
+		return request -> {
+			request.setRemoteAddr("10.9.9.9");
+			request.addHeader("X-Forwarded-For", clientIp);
+			return request;
+		};
+	}
+
+	/** A direct caller inventing a client IP it isn't entitled to claim. */
+	private static org.springframework.test.web.servlet.request.RequestPostProcessor spoofedFrom(
+			String peer, String claimedIp) {
+		return request -> {
+			request.setRemoteAddr(peer);
+			request.addHeader("X-Forwarded-For", claimedIp);
 			return request;
 		};
 	}
