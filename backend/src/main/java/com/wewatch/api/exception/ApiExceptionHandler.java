@@ -5,6 +5,7 @@ import java.util.NoSuchElementException;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -79,6 +80,23 @@ public class ApiExceptionHandler {
 		HttpServletRequest request
 	) {
 		return buildErrorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request.getRequestURI());
+	}
+
+	@ExceptionHandler(TooManyAttemptsException.class)
+	public ResponseEntity<ApiErrorResponse> handleTooManyAttempts(
+		TooManyAttemptsException exception,
+		HttpServletRequest request
+	) {
+		HttpStatus status = HttpStatus.TOO_MANY_REQUESTS;
+		return ResponseEntity.status(status)
+			.header(HttpHeaders.RETRY_AFTER, Long.toString(exception.getRetryAfterSeconds()))
+			.body(new ApiErrorResponse(
+				Instant.now(),
+				status.value(),
+				status.getReasonPhrase(),
+				exception.getMessage(),
+				request.getRequestURI()
+			));
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

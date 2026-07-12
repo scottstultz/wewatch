@@ -68,7 +68,7 @@ public class SecurityConfig {
 		config.setAllowedOrigins(Arrays.asList(allowedOrigins.split(",")));
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
 		config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id"));
-		config.setExposedHeaders(List.of("X-Request-Id", TokenRefreshFilter.REFRESHED_TOKEN_HEADER));
+		config.setExposedHeaders(List.of("X-Request-Id", "Retry-After", TokenRefreshFilter.REFRESHED_TOKEN_HEADER));
 		UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
 		source.registerCorsConfiguration("/api/**", config);
 		return source;
