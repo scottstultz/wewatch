@@ -2197,6 +2197,14 @@ a {
   color: #64748b;
 }
 
+/* "Returning this week" air date on a Home tile (#321) */
+.title-row-subtitle {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
 /* ── Flip a coin ──────────────────────────────────────────── */
 
 .flip-fab {

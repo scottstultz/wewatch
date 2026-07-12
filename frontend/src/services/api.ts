@@ -2,6 +2,7 @@ import type {
   EpisodeProgress,
   MemberRole,
   PersonDetailResponse,
+  ReturningEpisode,
   SeasonDetail,
   SeasonSummary,
   SuggestionShelf,
@@ -345,6 +346,14 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
         method: 'DELETE',
       })
       if (!response.ok) throw new Error(`Failed to clear title rating: ${response.status}`)
+    },
+
+    // ── Returning this week (#321) ───────────────────────────
+
+    async getReturningEpisodes(watchlistId: number, days = 7): Promise<ReturningEpisode[]> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/returning?days=${days}`)
+      if (!response.ok) throw new Error(`Failed to fetch returning episodes: ${response.status}`)
+      return response.json() as Promise<ReturningEpisode[]>
     },
 
     // ── Suggestions ──────────────────────────────────────────

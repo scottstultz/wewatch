@@ -94,6 +94,24 @@ export interface WatchlistEntryResponse {
   myRating: TitleRating | null
 }
 
+// ── Returning this week (#321) ──────────────────────────────
+
+// A show whose next episode airs soon. Note this is independent of watch progress —
+// unlike EpisodeProgressSummary.nextAirDate, which is the next *unwatched* episode and
+// so sits in the past for anyone behind on a returning show.
+export interface ReturningEpisode {
+  entryId: number
+  externalId: string
+  externalSource: string
+  showName: string
+  posterUrl: string | null
+  seasonNumber: number
+  episodeNumber: number
+  episodeName: string | null
+  airDate: string
+  runtimeMinutes: number | null
+}
+
 // ── Season / Episode types ──────────────────────────────────
 
 export interface SeasonSummary {

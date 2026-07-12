@@ -428,3 +428,57 @@ yourself is a real role, which TMDB credits under the person's own name rather t
 Keanu Reeves in *Always Be My Maybe* survives. Documentaries (genre 99) are also kept, since
 filtering them would drop legitimate documentary work; the cost is that promo series like
 "HBO First Look" can still appear, far down the list.
+
+## Returning This Week (#321)
+
+`GET /api/watchlists/{watchlistId}/returning?days=7` (`ReturningEpisodeController` →
+`ReturningEpisodeService`) lists the watchlist's `WATCHING` TV entries whose next episode airs
+within the window, soonest first, one row per show. It reads only `tmdb_episode_cache`, so it
+adds no TMDB traffic per page load. The frontend renders it as a "Returning this week" panel on
+Home, ahead of "Continue watching".
+
+**Why not reuse `episodeProgress.nextAirDate`.** Every library entry already carries a
+`nextAirDate` from `EpisodeProgressSummaryService`, which makes the whole feature look like a
+client-side filter over data already in hand. It isn't. That field is the air date of the next
+*unwatched* episode — for anyone behind on a returning show it is a date in the **past**, so
+filtering on it would hide exactly the shows the feature exists to surface. The query here asks
+a different question of the same table: what airs next, regardless of what you have seen. The
+two fields look interchangeable and are not; don't collapse them.
+
+**The window lives in Java, not in SQL.** The native query takes explicit `from`/`to` bounds
+(`BETWEEN`, inclusive at both ends — an episode airing today and one airing exactly seven days
+out both count, and null air dates drop out for free) and returns *every* matching episode; the
+service computes the bounds from the injected `Clock` and keeps the first row per entry. The
+obvious alternative — a `ROW_NUMBER()` CTE doing the per-show pick in SQL, as
+`EpisodeProgressRepository.findNextEpisodeByEntryIds` does — was rejected because **no test in
+this project executes SQL**: there is no `@DataJpaTest`, no Testcontainers, no `@SpringBootTest`,
+and every repository is mocked. Logic pushed into that CTE would be logic no test could reach,
+and the issue's acceptance criteria are specifically about window boundaries. Keeping the bounds
+and the pick in Java makes them assertable from `ReturningEpisodeServiceTest` with a fixed
+`Clock`. The SQL itself is still only verified by hand against local Postgres — same standard
+`findNextEpisodeByEntryIds` is held to. If a DB-integration layer is ever added, this is the
+first query that should get one.
+
+`V23` adds `idx_tmdb_episode_cache_air_date`; the table's only prior index was the unique
+`(tmdb_id, season_number, episode_number)`, useless for a date-range predicate.
+
+### Nightly episode-cache refresh
+
+`EpisodeCacheRefreshJob` (`@Scheduled`, `app.episode-cache.refresh-cron`, default 03:30 daily)
+re-prewarms every TV show someone has in `WATCHING` (`TitleRepository.findWatchingTvExternalIds`).
+This is not an optimization — it is what makes the feature *true*. The cache is otherwise written
+only when a title is added, at startup backfill, or when someone opens a season, so a season
+announced after a show's last prewarm is simply **absent from the cache**, and "Returning this
+week" would confidently report nothing for precisely the show that just came back. The issue's
+"no extra TMDB traffic" criterion forbids traffic *per page load*, which a nightly job is not.
+
+Cost is `1 + seasons` TMDB calls per watching show, once a night — tens of titles for a
+household, trivially inside TMDB's limits. It reuses `TmdbCacheService.prewarmShow`, which is
+already `@Async` and already swallows per-show failures, so one unreachable show doesn't cost the
+rest of the run. `@EnableScheduling` had to be added to `WewatchApiApplication` (only
+`@EnableAsync` was present); without it `@Scheduled` is silently inert. Set the cron to `-` to
+disable — worth doing in local dev, where the job just burns TMDB quota.
+
+Single-instance: every node would run its own refresh. Harmless today (the writes are idempotent
+upserts), but it becomes duplicate TMDB traffic under horizontal scaling — move to a leader-elected
+or externally-triggered job before adding a second instance.

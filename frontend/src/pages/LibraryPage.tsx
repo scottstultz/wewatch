@@ -7,6 +7,7 @@ import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal, { MIN_PICKS } from '../components/RollTheDiceModal'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import ThumbsRating from '../components/ThumbsRating'
+import { formatUpcomingDate } from '../utils/episodeLabels'
 import type { TitleRating, WatchlistEntryResponse, WatchStatus } from '../types/api'
 
 const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
@@ -30,15 +31,6 @@ function isFutureDate(dateStr: string | null): boolean {
     return new Date(dateStr + 'T00:00:00') > new Date()
   } catch {
     return false
-  }
-}
-
-function formatUpcomingDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr + 'T00:00:00')
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  } catch {
-    return dateStr
   }
 }
 
