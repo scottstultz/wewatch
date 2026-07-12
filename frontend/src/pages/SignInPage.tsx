@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { exchangeToken, registerUser } from '../services/api'
 
@@ -9,7 +9,12 @@ type AuthMode = 'signin' | 'register'
 function SignInPage() {
   const { token, sessionExpired, handleCredential } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const buttonRef = useRef<HTMLDivElement>(null)
+
+  // The route the user originally requested before being bounced here (#308);
+  // falls back to /home for a plain sign-in with no redirect.
+  const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? '/home'
 
   const [mode, setMode] = useState<AuthMode>('signin')
   const [email, setEmail] = useState('')
@@ -22,7 +27,7 @@ function SignInPage() {
 
   useEffect(() => {
     if (token) {
-      navigate('/home', { replace: true })
+      navigate(from, { replace: true })
       return
     }
 
@@ -34,7 +39,7 @@ function SignInPage() {
           try {
             const weWatchToken = await exchangeToken('google', response.credential)
             handleCredential(weWatchToken)
-            navigate('/home', { replace: true })
+            navigate(from, { replace: true })
           } catch {
             setError('Sign-in failed. Please try again.')
           }
@@ -58,7 +63,7 @@ function SignInPage() {
       script?.addEventListener('load', initGsi)
       return () => script?.removeEventListener('load', initGsi)
     }
-  }, [token, handleCredential, navigate])
+  }, [token, handleCredential, navigate, from])
 
   function switchMode(newMode: AuthMode) {
     setMode(newMode)
@@ -79,7 +84,7 @@ function SignInPage() {
       const credential = JSON.stringify({ email, password })
       const weWatchToken = await exchangeToken('email', credential)
       handleCredential(weWatchToken)
-      navigate('/home', { replace: true })
+      navigate(from, { replace: true })
     } catch (err) {
       const status = (err as Error & { status?: number }).status
       if (status === 401) {
@@ -111,7 +116,7 @@ function SignInPage() {
     try {
       const weWatchToken = await registerUser(email, displayName, password)
       handleCredential(weWatchToken)
-      navigate('/home', { replace: true })
+      navigate(from, { replace: true })
     } catch (err) {
       const status = (err as Error & { status?: number }).status
       if (status === 409) {
