@@ -1,4 +1,4 @@
-import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
 import AppLayout from './components/AppLayout'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -14,7 +14,10 @@ import SignInPage from './pages/SignInPage'
 
 function ProtectedRoute() {
   const { token } = useAuth()
-  return token ? <Outlet /> : <Navigate to="/sign-in" replace />
+  const location = useLocation()
+  // Carry the attempted location so SignInPage can return the user there after
+  // they sign in, instead of dumping everyone on /home (#308).
+  return token ? <Outlet /> : <Navigate to="/sign-in" state={{ from: location }} replace />
 }
 
 function App() {

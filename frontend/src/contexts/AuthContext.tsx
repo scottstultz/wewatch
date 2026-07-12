@@ -30,7 +30,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(null)
+  // Seed synchronously from storage so the very first render already knows the
+  // user is signed in. Reading it in an effect instead let ProtectedRoute see a
+  // null token on a cold load of a deep link and bounce to /sign-in (#308).
+  // Validate here too: seeding a raw expired token would look authenticated.
+  const [token, setToken] = useState<string | null>(() => {
+    const stored = getStoredToken()
+    return stored && isTokenValid(stored) ? stored : null
+  })
   const [user, setUser] = useState<User | null>(null)
   const [sessionExpired, setSessionExpired] = useState(false)
 
