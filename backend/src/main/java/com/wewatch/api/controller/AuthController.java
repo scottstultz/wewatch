@@ -3,6 +3,7 @@ package com.wewatch.api.controller;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,12 +15,15 @@ import org.springframework.web.bind.annotation.RestController;
 import com.wewatch.api.dto.RegisterRequest;
 import com.wewatch.api.dto.TokenRequest;
 import com.wewatch.api.dto.TokenResponse;
+import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
+import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
 import com.wewatch.api.security.JwtTokenService;
+import com.wewatch.api.security.LoginAttemptService;
 import com.wewatch.api.service.UserService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -39,15 +43,17 @@ public class AuthController {
 	private final JwtTokenService jwtTokenService;
 	private final ObjectMapper objectMapper;
 	private final AllowedEmailRepository allowedEmailRepository;
+	private final LoginAttemptService loginAttemptService;
 
 	public AuthController(GoogleTokenValidator googleTokenValidator, UserService userService,
 			JwtTokenService jwtTokenService, ObjectMapper objectMapper,
-			AllowedEmailRepository allowedEmailRepository) {
+			AllowedEmailRepository allowedEmailRepository, LoginAttemptService loginAttemptService) {
 		this.googleTokenValidator = googleTokenValidator;
 		this.userService = userService;
 		this.jwtTokenService = jwtTokenService;
 		this.objectMapper = objectMapper;
 		this.allowedEmailRepository = allowedEmailRepository;
+		this.loginAttemptService = loginAttemptService;
 	}
 
 	@PostMapping("/token")
@@ -58,19 +64,37 @@ public class AuthController {
 		@ApiResponse(responseCode = "200", description = "Credential accepted; JWT issued"),
 		@ApiResponse(responseCode = "400", description = "Unrecognized provider"),
 		@ApiResponse(responseCode = "401", description = "Invalid credential"),
-		@ApiResponse(responseCode = "403", description = "Email not in the allowlist")
+		@ApiResponse(responseCode = "403", description = "Email not in the allowlist"),
+		@ApiResponse(responseCode = "429", description = "Too many attempts; throttled")
 	})
-	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request) {
+	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request,
+			HttpServletRequest httpRequest) {
+		String ip = clientIp(httpRequest);
+		loginAttemptService.checkIp(ip);
+
 		User user;
 		if ("google".equals(request.provider())) {
-			GoogleIdentity identity = googleTokenValidator.validate(request.credential());
-			requireAllowedEmail(identity.email());
-			user = userService.findOrCreateByProviderIdentity(
-				request.provider(), identity.sub(), identity.email(), identity.name());
+			try {
+				GoogleIdentity identity = googleTokenValidator.validate(request.credential());
+				requireAllowedEmail(identity.email());
+				user = userService.findOrCreateByProviderIdentity(
+					request.provider(), identity.sub(), identity.email(), identity.name());
+			} catch (InvalidCredentialException | RegistrationNotAllowedException e) {
+				loginAttemptService.recordIpFailure(ip);
+				throw e;
+			}
 		} else if ("email".equals(request.provider())) {
 			EmailCredential cred = parseEmailCredential(request.credential());
-			requireAllowedEmail(cred.email());
-			user = userService.authenticateWithPassword(cred.email(), cred.password());
+			loginAttemptService.checkEmail(cred.email());
+			try {
+				requireAllowedEmail(cred.email());
+				user = userService.authenticateWithPassword(cred.email(), cred.password());
+			} catch (InvalidCredentialsException | RegistrationNotAllowedException e) {
+				loginAttemptService.recordEmailFailure(cred.email());
+				loginAttemptService.recordIpFailure(ip);
+				throw e;
+			}
+			loginAttemptService.resetEmail(cred.email());
 		} else {
 			return ResponseEntity.badRequest().build();
 		}
@@ -86,10 +110,19 @@ public class AuthController {
 		@ApiResponse(responseCode = "201", description = "Account created; JWT issued"),
 		@ApiResponse(responseCode = "400", description = "Validation failed"),
 		@ApiResponse(responseCode = "403", description = "Email not in the allowlist"),
-		@ApiResponse(responseCode = "409", description = "Email already registered")
+		@ApiResponse(responseCode = "409", description = "Email already registered"),
+		@ApiResponse(responseCode = "429", description = "Too many attempts; throttled")
 	})
-	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request) {
-		requireAllowedEmail(request.email());
+	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request,
+			HttpServletRequest httpRequest) {
+		String ip = clientIp(httpRequest);
+		loginAttemptService.checkIp(ip);
+		try {
+			requireAllowedEmail(request.email());
+		} catch (RegistrationNotAllowedException e) {
+			loginAttemptService.recordIpFailure(ip);
+			throw e;
+		}
 		User user = userService.registerWithPassword(
 			request.email(), request.displayName(), request.password());
 		String token = jwtTokenService.generateToken(user);
@@ -100,6 +133,13 @@ public class AuthController {
 		if (!allowedEmailRepository.existsByEmailIgnoreCase(email)) {
 			throw new RegistrationNotAllowedException();
 		}
+	}
+
+	// Client IP for per-IP throttling. Behind a reverse proxy this is the proxy address;
+	// trust X-Forwarded-For only from a known proxy (naive trust lets a caller spoof the
+	// bucket key) — deferred until a proxy is actually in front of this service.
+	private String clientIp(HttpServletRequest request) {
+		return request.getRemoteAddr();
 	}
 
 	private record EmailCredential(String email, String password) {}

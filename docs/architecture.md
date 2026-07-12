@@ -62,6 +62,31 @@ server-side refresh token** — which also enables real logout and "sign out all
 then, keep the lifetime bounded (don't push it to days) and treat `JWT_SECRET` rotation as the
 only blunt-instrument way to invalidate all outstanding tokens.
 
+### Auth attempt throttling (#318)
+
+The `/api/auth/**` endpoints are `permitAll`, so password sign-in accepted unlimited attempts.
+Registration is allowlist-gated, but an allowlisted user's password could still be brute-forced —
+BCrypt slows each guess but nothing capped the stream. This pairs badly with the #293 trade-off:
+a guessed credential is a 24h stateless session with no kill switch. Throttling closes that
+cheapest attack path without revisiting the token design.
+
+`LoginAttemptService` (in-memory, Caffeine-backed) enforces two independent fixed-window buckets on
+failed attempts: **per-email** (`app.auth.throttle.email-max-attempts`, default 5) and **per-IP**
+(`app.auth.throttle.ip-max-attempts`, default 20), each over `app.auth.throttle.window-seconds`
+(default 900). The IP limit is deliberately higher than the email limit so a shared household IP
+among allowlisted users isn't falsely locked out. `AuthController` checks both buckets on every
+auth flow (token exchange, registration, Google), records a failure on invalid-credential and
+allowlist-rejection paths, and clears the email bucket on a successful sign-in. Over the threshold,
+requests get **429** with a `Retry-After` header (via `ApiExceptionHandler`, standard
+`ApiErrorResponse` shape). Caffeine's `expireAfterWrite` evicts stale keys and `maximumSize` bounds
+memory against distinct-key flooding.
+
+**Single-instance constraint:** the buckets are per-node in-memory state, so a horizontally scaled
+deployment would throttle independently per node — move to a shared store (e.g. Redis) before
+scaling out. Client IP is `getRemoteAddr()`; behind a reverse proxy that's the proxy address, so
+trust `X-Forwarded-For` only from a known proxy (naive trust lets a caller spoof the bucket key) —
+deferred until a proxy actually fronts the service.
+
 ### Tab-restore resilience (#242)
 
 Mobile browsers freeze or bfcache a backgrounded tab instead of reloading it, so neither the
