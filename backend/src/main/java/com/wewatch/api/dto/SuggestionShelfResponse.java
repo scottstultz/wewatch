@@ -29,6 +29,7 @@ public record SuggestionShelfResponse(
 		+ "(recent discover releases), HIDDEN_GEMS (highly rated but lower-visibility discover "
 		+ "results), TRENDING (TMDB trending/week), PERSON (cast/director affinity), KEYWORD "
 		+ "(a keyword from the taste profile), FRANCHISE (next unreleased/unwatched entry in a "
-		+ "collection the members finished)")
-	public enum ShelfKind { PER_SEED, FINISHED_SEED, MORE_PICKS, GENRE_PROFILE, NEW_RELEASES, HIDDEN_GEMS, TRENDING, PERSON, KEYWORD, FRANCHISE }
+		+ "collection the members finished), BOTH_WATCH (streamable on a service every member of a "
+		+ "shared list has)")
+	public enum ShelfKind { PER_SEED, FINISHED_SEED, MORE_PICKS, GENRE_PROFILE, NEW_RELEASES, HIDDEN_GEMS, TRENDING, PERSON, KEYWORD, FRANCHISE, BOTH_WATCH }
 }

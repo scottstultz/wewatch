@@ -15,6 +15,10 @@ const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
 // outranks everything else. Similarity shelves next, the pooled catch-all
 // after them (#266), exploration shelves last (#235); ties keep backend order
 const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
+  // Built after FRANCHISE (which has the more precise claim on the dedup set) but
+  // shown before it: "what can we both watch" is the question a household opens
+  // the app with, so it leads (#322)
+  BOTH_WATCH: -2,
   FRANCHISE: -1,
   GENRE_PROFILE: 0,
   PER_SEED: 1,
@@ -419,7 +423,11 @@ function DiscoverPage() {
                     <p className="suggestion-shelf-heading">
                       {shelf.reason}
                       {shelf.providerFiltered && (
-                        <span className="shelf-provider-chip">On your services</span>
+                        <span className="shelf-provider-chip">
+                          {shelf.kind === 'BOTH_WATCH'
+                            ? 'On services you share'
+                            : 'On your services'}
+                        </span>
                       )}
                     </p>
                     <ShelfRow

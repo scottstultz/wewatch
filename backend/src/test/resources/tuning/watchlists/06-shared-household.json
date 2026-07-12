@@ -1,0 +1,54 @@
+{
+  "name": "shared-household",
+  "description": "The two-person household #322 was built for: both members configured, same region, each with three services of which two (8, 350) are shared. Exercises the both-watch shelf — the {8, 350} provider intersection against the {8, 9, 337, 350} union every other shelf discovers and badges against — plus its first-pick claim on the dedup set. TV and movie entries both carry genre signal, so the shelf draws from both media.",
+  "watchlistId": 1006,
+  "members": [
+    { "userId": 6, "region": "US", "providerIds": [8, 9, 350] },
+    { "userId": 7, "region": "US", "providerIds": [8, 337, 350] }
+  ],
+  "entries": [
+    {
+      "titleId": 10601, "tmdbId": "w6-t1", "type": "TV", "name": "Hollow Signal",
+      "status": "WATCHING", "ageDays": 4, "rating": "UP",
+      "genreIds": [18, 128], "keywordIds": [128, 112],
+      "castIds": [901, 904, 905], "directorIds": [931],
+      "voteCount": 1400, "providerIds": [8], "releaseDate": "2024-09-12"
+    },
+    {
+      "titleId": 10602, "tmdbId": "w6-t2", "type": "TV", "name": "The Amber Circuit",
+      "status": "WATCHING", "ageDays": 11, "rating": null,
+      "genreIds": [18, 53], "keywordIds": [112, 121],
+      "castIds": [902, 906, 909], "directorIds": [932],
+      "voteCount": 900, "providerIds": [350], "releaseDate": "2023-03-27"
+    },
+    {
+      "titleId": 10603, "tmdbId": "w6-t3", "type": "TV", "name": "Quiet Harbor",
+      "status": "WANT_TO_WATCH", "ageDays": 20, "rating": null,
+      "genreIds": [18, 35], "keywordIds": [106, 128],
+      "castIds": [903, 907, 910], "directorIds": [933],
+      "voteCount": 480, "providerIds": [9], "releaseDate": "2022-11-04"
+    },
+    {
+      "titleId": 10604, "tmdbId": "w6-m1", "type": "MOVIE", "name": "Iron Vespers",
+      "status": "WATCHING", "ageDays": 8, "rating": null,
+      "genreIds": [878, 28], "keywordIds": [126, 132],
+      "castIds": [940, 912, 916], "directorIds": [934],
+      "voteCount": 3400, "providerIds": [8, 337], "releaseDate": "2024-06-21"
+    },
+    {
+      "titleId": 10605, "tmdbId": "w6-m2", "type": "MOVIE", "name": "The Pale Ascent",
+      "status": "WATCHED", "ageDays": 26, "rating": "UP",
+      "genreIds": [878, 12], "keywordIds": [126, 139],
+      "castIds": [940, 913, 917], "directorIds": [935],
+      "voteCount": 2100, "providerIds": [350], "releaseDate": "2021-09-17"
+    },
+    {
+      "titleId": 10606, "tmdbId": "w6-m3", "type": "MOVIE", "name": "Distant Cargo",
+      "status": "WANT_TO_WATCH", "ageDays": 33, "rating": "DOWN",
+      "genreIds": [28, 12], "keywordIds": [132, 133],
+      "castIds": [914, 918, 921], "directorIds": [936],
+      "voteCount": 1200, "providerIds": [337], "releaseDate": "2020-07-10"
+    }
+  ],
+  "dismissed": []
+}

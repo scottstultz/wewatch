@@ -162,3 +162,43 @@ describe('DiscoverPage suggestion dismissal (#268)', () => {
     expect(mockApi.dismissSuggestion).toHaveBeenCalledWith('101')
   })
 })
+
+describe('DiscoverPage "what can we both watch" shelf (#322)', () => {
+  const bothWatch: SuggestionShelf = {
+    reason: 'What you can both watch',
+    titles: [makeTitle('201', 'The Bear')],
+    kind: 'BOTH_WATCH',
+    providerFiltered: true,
+  }
+
+  it('leads the page, ahead of shelves the backend built first', async () => {
+    // The backend builds BOTH_WATCH after FRANCHISE and returns it in build order;
+    // the page is what puts the household's question at the top
+    const franchise: SuggestionShelf = {
+      reason: 'Next in the Dune Collection',
+      titles: [makeTitle('301', 'Dune: Part Two')],
+      kind: 'FRANCHISE',
+      providerFiltered: false,
+    }
+    mockApi.getSuggestions.mockResolvedValue([franchise, bothWatch, shelf])
+
+    renderPage()
+    await screen.findByText('The Bear')
+
+    const headings = screen
+      .getAllByText(/What you can both watch|Next in the Dune Collection|Because you like Sci-Fi/)
+      .map(el => el.textContent)
+    expect(headings[0]).toContain('What you can both watch')
+    expect(headings[1]).toContain('Next in the Dune Collection')
+  })
+
+  it('says the titles are on shared services, not "your" services', async () => {
+    mockApi.getSuggestions.mockResolvedValue([bothWatch, shelf])
+
+    renderPage()
+    await screen.findByText('The Bear')
+
+    expect(screen.getByText('On services you share')).toBeInTheDocument()
+    expect(screen.queryByText('On your services')).not.toBeInTheDocument()
+  })
+})

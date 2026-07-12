@@ -146,10 +146,11 @@ harness build.
 | `SuggestionService` | Caffeine cache, `topPicks` / `recompute` / `evictForUser`, loads the inputs, runs the stages, records impressions |
 | `SuggestionContext` | The per-compute bundle every stage reads: entries, cached rows, taste profile, provider context, the dedup set, recency weights, the day-seeded `Random` |
 | `TasteProfileBuilder` → `TasteProfile` | Genre affinities, top keywords (`KeywordAffinity`), recurring people (`PersonAffinity`), top genres per medium, dominant medium |
-| `ProviderContextResolver` → `ProviderContext` | The member-service union and region (#270), and the availability badges attached to served titles |
+| `ProviderContextResolver` → `ProviderContext` | The member-service union and region (#270), the member-service *intersection* (#322), and the availability badges attached to served titles |
 | `CandidateScorer` | Taste-profile ranking: genre score, keyword/person/streamability cache boosts, day-seeded jitter |
 | `ShelfFiller` | Ranked candidates → a shelf: cross-shelf dedup, recency demotion (#264), genre diversification (#265) |
 | `FranchiseShelfBuilder` | `FRANCHISE` (#272) |
+| `BothWatchShelfBuilder` | `BOTH_WATCH` (#322) — mixed TV + movie discover against the members' shared services |
 | `SeedShelfBuilder` | `PER_SEED` (#232), `FINISHED_SEED` (#235), and the `MORE_PICKS` catch-all (#266) — one class because they share the leftover pool |
 | `GenreShelfBuilder` | `GENRE_PROFILE`, one shelf per medium |
 | `ExplorationShelfBuilder` | `NEW_RELEASES`, `HIDDEN_GEMS`, `TRENDING`, `PERSON`, `KEYWORD` and their daily rotation (#235) |
@@ -162,7 +163,7 @@ make the order they run in load-bearing:
 - The **dedup set** (`SuggestionContext.seen`) is seeded with owned and dismissed titles and
   added to by every shelf as it fills, which is what keeps a title to at most one appearance
   across the whole set. Earlier stages therefore get first pick — franchise first (#272),
-  exploration last.
+  both-watch second (#322), exploration last.
 - The **day-seeded `Random`** is one shared stream. What each stage draws, and in what order,
   determines what every user sees. Reordering stages, adding a draw, or drawing before an early
   return that used to happen first (an empty person profile, no named keywords) silently changes
@@ -289,7 +290,7 @@ flows through, which is why cross-cutting shelf policy lives here rather than in
   seeds or repeat-heavy feeds — their best candidates now surface in the aggregate instead of
   rendering a nearly-empty shelf of their own.
 
-### Dismissals
+### Dismissals and thumbs-down vetoes
 
 "Not interested" (#268, `suggestion_dismissals`, one row per `(user_id, tmdb_id)`) is permanent
 and explicit-intent, unlike the impressions table's time-windowed, continuously-recorded
@@ -298,6 +299,21 @@ set before any shelf is built, so a dismissal excludes a title from every shelf 
 point they all flow through, and a dismissed title can never re-enter via the thin-shelf
 `seen.remove` release (that release only touches ids that actually made it into a shelf).
 Dismissals are user-scoped like impressions (union over a shared list's members).
+
+A **thumbs-down** (#273) now seeds `seen` the same way (#322,
+`TitleRatingService.downRatedExternalIds`). It previously only steered the taste profile through
+a negative `profileWeight`, which meant a title a member had explicitly rejected could still be
+suggested back to the list — the gap only stayed invisible because a rated title is usually
+already on the watchlist, and therefore already in `seen` as an owned id. The exclusion reaches
+titles rated on *any* of the user's lists, since ratings are user-scoped.
+
+Note the deliberate asymmetry with `TitleRatingService.effectiveRatings`, which still **nets** a
+shared list's ratings (one member's UP and another's DOWN cancel to unrated). Blending what the
+members *like* is a fair way to score candidates; there is no fair way to *show* someone a title
+they said no to. So scoring nets, and exclusion vetoes — the same rule dismissals already
+followed. Ratings are keyed on the internal `titles.id` while the dedup set works in TMDB
+external ids, so `TitleRatingRepository.findDownRatedExternalIds` bridges the two with an
+explicit entity join (there is no JPA association between `TitleRating` and `Title`).
 
 ### Specialty shelves
 
@@ -346,6 +362,46 @@ above, since those endpoints have no provider filter to push down to TMDB. Serve
 `providerIds` badges from the cached region-scoped data; a null badge means the cache hasn't
 seen that title/region pair yet, not that it's unavailable — the title detail page fills that
 gap with a live call.
+
+### What can we both watch (#322)
+
+The provider context above answers *"can one of us stream this"* — a union. For a shared list
+that's the wrong question. `BOTH_WATCH` answers the one a household actually opens WeWatch with:
+what's on a service **all** of us have.
+
+`ProviderContextResolver.resolveShared` intersects the members' provider ids into a second
+`ProviderContext`, carried alongside the union one on `SuggestionContext`. TMDB's
+`with_watch_providers` is an OR over the ids passed, so handing discover the *intersected* set is
+exactly "streamable on a service all of you have" — the TMDB client needed no change, only a
+different set. `BothWatchShelfBuilder` runs one discover per medium (TV and movie, mixed into a
+single shelf — "what do we watch tonight" shouldn't have to pre-commit to a medium), ranks the
+merged pool on the existing blended taste profile, and diversifies on fill.
+
+The gate is strict: 2+ members, **every** one of them with a region and providers configured, a
+single shared region, and a non-empty intersection. Anything else disables the shelf. The union
+can safely ignore an unconfigured member because they add nothing to it; an intersection can't,
+or the shelf would be promising a service nobody confirmed. An empty intersection is a real
+answer ("nothing you can both stream") and the honest way to deliver it is to show no shelf, not
+to quietly widen the filter.
+
+Two consequences worth knowing:
+
+- **Badges are context-dependent.** `attachBadges` takes both contexts and badges `BOTH_WATCH`
+  from the intersection while every other shelf badges from the union — otherwise a both-watch
+  tile could advertise a service only one member subscribes to, contradicting its own shelf.
+- **The stage sits second, after franchise.** A remaining part of a series someone already
+  started is still the more precise call, and a collection shelf barely competes for candidates;
+  everything generic comes after. The frontend then *displays* it first
+  (`SHELF_KIND_ORDER.BOTH_WATCH = -2`) — build order and display order have always been separate.
+
+The builder draws nothing from the day-seeded `Random` when the gate fails, which is what let it
+be inserted mid-pipeline without moving anyone's shelves: every tuning fixture that existed
+before #322 is single-member, so the harness baseline came back byte-identical. The
+`shared-household` fixture covers the qualifying case.
+
+**Known limitation:** correctness rests on TMDB's discover filter, not on our own provider cache
+— a candidate with no `tmdb_title_cache` row still belongs on the shelf (TMDB said it's
+streamable there) but will render without badges until the cache warms.
 
 ### Tuning surface (#288)
 

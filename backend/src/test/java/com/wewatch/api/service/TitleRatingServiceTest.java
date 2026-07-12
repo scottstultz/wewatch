@@ -101,6 +101,23 @@ class TitleRatingServiceTest {
 		verify(titleRatingRepository, never()).findByUserIdsAndTitleIds(any(), any());
 	}
 
+	@Test
+	void downRatedExternalIdsVetoRatherThanNet() {
+		// Note the contrast with effectiveRatings above: scoring a shared list blends
+		// the members' opinions, but a title *any* member rejected is excluded outright
+		// (#322) — the suggestion dedup set works in external ids, hence the join
+		when(titleRatingRepository.findDownRatedExternalIds(List.of(7L, 8L)))
+			.thenReturn(List.of("tmdb-99"));
+
+		assertThat(service().downRatedExternalIds(List.of(7L, 8L))).containsExactly("tmdb-99");
+	}
+
+	@Test
+	void downRatedExternalIdsWithNoUsersSkipsTheQuery() {
+		assertThat(service().downRatedExternalIds(List.of())).isEmpty();
+		verify(titleRatingRepository, never()).findDownRatedExternalIds(any());
+	}
+
 	private TitleRating rating(Long userId, Long titleId, Rating value) {
 		TitleRating r = new TitleRating();
 		r.setUserId(userId);
