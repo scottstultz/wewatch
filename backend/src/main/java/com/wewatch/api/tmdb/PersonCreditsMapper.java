@@ -45,6 +45,7 @@ public final class PersonCreditsMapper {
 			.filter(credit -> credit.posterPath() != null)
 			.filter(credit -> !isTalkShow(credit.genreIds()))
 			.filter(credit -> !isSelfAppearance(credit.character()))
+			.filter(credit -> !isUncredited(credit.character()))
 			.sorted(Comparator.comparing(TmdbPersonCredit::popularity,
 				Comparator.nullsLast(Comparator.reverseOrder())))
 			.toList();
@@ -88,6 +89,15 @@ public final class PersonCreditsMapper {
 		String normalized = character.trim().toLowerCase(Locale.ROOT);
 		return SELF_ALIASES.stream()
 			.anyMatch(alias -> normalized.equals(alias) || normalized.startsWith(alias + " "));
+	}
+
+	// TMDB tags cameo and background appearances "(uncredited)" in the character text
+	// (Keanu's voice cameo in "Severance"). Voice work itself is not the signal — Duke
+	// Caboom (Toy Story 4) and Shadow (Sonic 3) are "(voice)" starring roles that belong
+	// on the page — so this keys on "(uncredited)" only.
+	private static boolean isUncredited(String character) {
+		return character != null
+			&& character.toLowerCase(Locale.ROOT).contains("(uncredited)");
 	}
 
 	private static TitleSearchResponse toResponse(TmdbPersonCredit credit) {
