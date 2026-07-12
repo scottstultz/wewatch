@@ -90,7 +90,7 @@ TMDB caching, and the suggestion pipeline.
 ### Prerequisites
 
 - [Git](https://git-scm.com/)
-- [Node.js](https://nodejs.org/) 25+ with `npm`
+- [Node.js](https://nodejs.org/) 24+ (LTS) with `npm`
 - Java 21+
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine with Compose
 - [Doppler CLI](https://docs.doppler.com/docs/install-cli) for secrets injection
