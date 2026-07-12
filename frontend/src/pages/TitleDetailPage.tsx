@@ -6,6 +6,7 @@ import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import JustWatchAttribution from '../components/JustWatchAttribution'
 import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
+import { formatRuntime } from '../utils/formatDuration'
 import type { TitleDetailResponse, TitleRating, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
 type AddState = 'idle' | 'loading' | 'error'
@@ -19,15 +20,6 @@ function yearOf(dateStr: string | null): string | null {
   if (!dateStr) return null
   const d = new Date(dateStr)
   return Number.isNaN(d.getTime()) ? null : String(d.getFullYear())
-}
-
-// Movie runtime as "2h 16m" / "58m"; null when TMDB has no runtime
-function formatRuntime(minutes: number | null | undefined): string | null {
-  if (!minutes || minutes <= 0) return null
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours === 0) return `${mins}m`
-  return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`
 }
 
 function TitleDetailPage() {

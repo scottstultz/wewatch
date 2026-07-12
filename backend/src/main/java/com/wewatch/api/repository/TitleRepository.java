@@ -11,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.repository.projection.WatchlistTitle;
 
 public interface TitleRepository extends JpaRepository<Title, Long> {
 
@@ -34,4 +35,24 @@ public interface TitleRepository extends JpaRepository<Title, Long> {
 		WHERE t.type = 'TV' AND we.status = 'WATCHING'
 		""")
 	List<String> findWatchingTvExternalIds();
+
+	/**
+	 * Every entry on a watchlist as (title, medium, status) — the input to the stats page (#323).
+	 * Native for the same reason as {@link #findWatchingTvExternalIds}: {@code WatchlistEntry}
+	 * holds a bare {@code titleId} column with no association to join across in JPQL.
+	 *
+	 * <p>Returns raw rows, not counts. The WATCHED filter and the movie/show split live in
+	 * {@code StatsService} so they are reachable by tests — this suite mocks every repository and
+	 * no test executes SQL, so aggregating here would put the arithmetic somewhere nothing can
+	 * check it.
+	 */
+	@Query(nativeQuery = true, value = """
+		SELECT t.external_id AS externalId,
+		       t.type AS type,
+		       we.status AS status
+		FROM watchlist_entries we
+		JOIN titles t ON t.id = we.title_id
+		WHERE we.watchlist_id = :watchlistId
+		""")
+	List<WatchlistTitle> findWatchlistTitles(@Param("watchlistId") Long watchlistId);
 }

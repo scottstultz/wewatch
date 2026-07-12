@@ -220,7 +220,8 @@ a {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /* One column per entry in AppLayout's navigationItems — 5 since Stats (#323). */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
   padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(148, 163, 184, 0.16);
@@ -2687,4 +2688,70 @@ a {
 .settings-save-note {
   font-size: 0.8125rem;
   color: #34d399;
+}
+
+/* ── Stats page (#323) ──────────────────────────────────────────────────── */
+
+.genre-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Name / bar / value. The bar takes the slack so every row's value column lines
+   up, and the name column is wide enough for "Action & Adventure" unwrapped. */
+.genre-row {
+  display: grid;
+  grid-template-columns: minmax(0, 8.5rem) 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.genre-name {
+  font-size: 0.875rem;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.genre-track {
+  height: 6px;
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.genre-bar {
+  height: 100%;
+  background: #7dd3fc;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* The bar is a bare div, so the value beside it is what actually carries the
+   number — not a decoration. */
+.genre-value {
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+.genre-footnote,
+.stats-caveat {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.genre-footnote {
+  margin: 16px 0 0;
+}
+
+@media (max-width: 520px) {
+  .genre-row {
+    grid-template-columns: minmax(0, 6rem) 1fr auto;
+    gap: 8px;
+  }
 }

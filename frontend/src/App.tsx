@@ -10,6 +10,7 @@ import PersonPage from './pages/PersonPage'
 import ShowDetailPage from './pages/ShowDetailPage'
 import TitleDetailPage from './pages/TitleDetailPage'
 import ProfilePage from './pages/ProfilePage'
+import StatsPage from './pages/StatsPage'
 import SignInPage from './pages/SignInPage'
 
 function ProtectedRoute() {
@@ -41,6 +42,7 @@ function App() {
             <Route path="/title/:type/:source/:externalId" element={<TitleDetailPage />} />
             {/* Reached from a cast tile, not the nav bar (#305) */}
             <Route path="/person/:personId" element={<PersonPage />} />
+            <Route path="/stats" element={<StatsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
           </Route>
         </Route>

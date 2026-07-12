@@ -5,6 +5,7 @@ import type {
   ReturningEpisode,
   SeasonDetail,
   SeasonSummary,
+  Stats,
   SuggestionShelf,
   TitleDetailResponse,
   TitleRating,
@@ -354,6 +355,14 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/returning?days=${days}`)
       if (!response.ok) throw new Error(`Failed to fetch returning episodes: ${response.status}`)
       return response.json() as Promise<ReturningEpisode[]>
+    },
+
+    // ── Stats (#323) ────────────────────────────────────────
+
+    async getStats(watchlistId: number): Promise<Stats> {
+      const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/stats`)
+      if (!response.ok) throw new Error(`Failed to fetch stats: ${response.status}`)
+      return response.json() as Promise<Stats>
     },
 
     // ── Suggestions ──────────────────────────────────────────
