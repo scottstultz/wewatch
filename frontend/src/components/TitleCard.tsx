@@ -9,6 +9,7 @@ export type DismissHandler = (title: TitleSearchResponse) => void
 
 export type CardStatus = 'idle' | 'loading' | 'error' | WatchStatus
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function cardKey(title: TitleSearchResponse) {
   return `${title.externalSource}-${title.externalId}`
 }

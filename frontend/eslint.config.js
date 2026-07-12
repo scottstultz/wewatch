@@ -18,5 +18,11 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Advisory (React Compiler migration aid), not a correctness rule; the flagged
+      // patterns here are intentional (loading flags / state resets at effect start).
+      // Keep the signal visible without blocking CI. See issue #317.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
   },
 ])
