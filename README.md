@@ -275,8 +275,8 @@ Shipped work is listed below; the live backlog is tracked in
 - "What can we both watch" — shelf of titles on the streaming services every member of a shared
   watchlist has, ranked by their blended taste profile
 - Stats page — watch time, movies/shows/episodes finished, and a genre breakdown per watchlist
+- Installable on mobile — web app manifest, home-screen icons, standalone launch (no offline support)
 
 ### Planned
-- PWA manifest — make WeWatch installable on mobile (#324)
 - Advanced filtering and sorting
 - Written reviews

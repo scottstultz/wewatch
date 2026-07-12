@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="WeWatch">
+  <!-- Full-bleed: Android crops this to a circle/squircle, so no rounded corners here.
+       The mark is scaled to 0.78 about the centre to stay inside the maskable safe zone
+       (a centred circle of radius 204.8 = 40% of the canvas). -->
+  <rect width="512" height="512" fill="#0f1720"/>
+  <g transform="translate(256 256) scale(0.78) translate(-256 -256)">
+    <path d="M88 152 L176 360 L256 232 L336 360 L424 152"
+          fill="none"
+          stroke="#22B6B0"
+          stroke-width="52"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="WeWatch">
+  <!-- Square and opaque: iOS applies its own squircle mask and renders any transparency as black. -->
+  <rect width="512" height="512" fill="#0f1720"/>
+  <path d="M88 152 L176 360 L256 232 L336 360 L424 152"
+        fill="none"
+        stroke="#22B6B0"
+        stroke-width="52"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

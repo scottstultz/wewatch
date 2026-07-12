@@ -12,6 +12,14 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
+    # nginx's stock mime.types has no mapping for .webmanifest, so without this the manifest
+    # is served as application/octet-stream. An exact-match location also keeps it out of the
+    # SPA fallback below, which would otherwise answer a missing manifest with 200 + index.html.
+    # The types block is scoped to this location, so it does not shadow the global type map.
+    location = /manifest.webmanifest {
+        types { application/manifest+json webmanifest; }
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
