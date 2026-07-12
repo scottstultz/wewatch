@@ -13,6 +13,7 @@ import com.wewatch.api.model.EpisodeProgress;
 import com.wewatch.api.repository.projection.EpisodeProgressCounts;
 import com.wewatch.api.repository.projection.LastWatchedEpisode;
 import com.wewatch.api.repository.projection.NextEpisode;
+import com.wewatch.api.repository.projection.WatchedEpisodeRuntime;
 
 public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress, Long> {
 
@@ -72,6 +73,35 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		WHERE eo.pos = lw.max_pos + 1
 		""")
 	List<NextEpisode> findNextEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
+
+	/**
+	 * One row per watched episode on a watchlist: the show's TMDB id and that episode's runtime
+	 * (#323). Feeds both the "episodes finished" count and the TV half of watch time.
+	 *
+	 * <p>The join to the episode cache is a LEFT JOIN on purpose. An episode the user has ticked
+	 * but that has no cached row — a show prewarmed before the episode aired, a gap in the cache —
+	 * still produces a row, with a null runtime. It therefore counts as watched and contributes
+	 * nothing to the time total, which is exactly the behaviour the issue asks for. An inner join
+	 * would drop it from both, under-reporting the count.
+	 *
+	 * <p>Not filtered on entry status: 40 episodes into a show you are still WATCHING is 40
+	 * episodes watched. Only entry-level completion (a finished movie, a finished show) cares
+	 * about status, and that is counted from {@code findWatchlistTitles} instead.
+	 */
+	@Query(nativeQuery = true, value = """
+		SELECT t.external_id AS externalId,
+		       ec.runtime_minutes AS runtimeMinutes
+		FROM episode_progress ep
+		JOIN watchlist_entries we ON we.id = ep.watchlist_entry_id
+		JOIN titles t ON t.id = we.title_id
+		LEFT JOIN tmdb_episode_cache ec
+		    ON ec.tmdb_id = t.external_id
+		   AND ec.season_number = ep.season_number
+		   AND ec.episode_number = ep.episode_number
+		WHERE we.watchlist_id = :watchlistId
+		  AND ep.watched = true
+		""")
+	List<WatchedEpisodeRuntime> findWatchedEpisodeRuntimes(@Param("watchlistId") Long watchlistId);
 
 	@Modifying
 	@Query("UPDATE EpisodeProgress ep SET ep.watched = :watched, ep.watchedAt = :watchedAt " +

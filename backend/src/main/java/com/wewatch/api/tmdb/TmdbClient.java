@@ -239,6 +239,23 @@ public class TmdbClient {
 		}
 	}
 
+	// The genre catalog for a media type (#323). Titles carry bare genre ids
+	// everywhere else in TMDB's API — this endpoint is the only source of the names,
+	// which the stats page's genre breakdown needs. The catalog changes on the order
+	// of years; GenreCatalogService caches it in-process.
+	public List<TmdbGenre> getGenres(TitleType type) {
+		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
+		try {
+			TmdbGenreListResponse response = restClient.get()
+				.uri("/3/genre/{mediaType}/list?language=en-US", mediaType)
+				.retrieve()
+				.body(TmdbGenreListResponse.class);
+			return response != null && response.genres() != null ? response.genres() : List.of();
+		} catch (RestClientException e) {
+			throw new TmdbApiException("TMDB genre list failed: " + e.getMessage(), e);
+		}
+	}
+
 	public List<TmdbWatchRegion> getWatchRegions() {
 		try {
 			TmdbWatchRegionListResponse response = restClient.get()

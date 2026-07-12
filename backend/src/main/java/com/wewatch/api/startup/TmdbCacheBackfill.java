@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.repository.TitleRepository;
+import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.service.TmdbCacheService;
 
 @Component
@@ -18,10 +19,16 @@ public class TmdbCacheBackfill {
 	private static final Logger log = LoggerFactory.getLogger(TmdbCacheBackfill.class);
 
 	private final TitleRepository titleRepository;
+	private final TmdbTitleCacheRepository titleCacheRepository;
 	private final TmdbCacheService tmdbCacheService;
 
-	public TmdbCacheBackfill(TitleRepository titleRepository, TmdbCacheService tmdbCacheService) {
+	public TmdbCacheBackfill(
+		TitleRepository titleRepository,
+		TmdbTitleCacheRepository titleCacheRepository,
+		TmdbCacheService tmdbCacheService
+	) {
 		this.titleRepository = titleRepository;
+		this.titleCacheRepository = titleCacheRepository;
 		this.tmdbCacheService = tmdbCacheService;
 	}
 
@@ -39,6 +46,18 @@ public class TmdbCacheBackfill {
 		if (!uncachedMovies.isEmpty()) {
 			log.info("Backfilling TMDB metadata cache for {} movie(s) not yet cached", uncachedMovies.size());
 			for (String tmdbId : uncachedMovies) {
+				tmdbCacheService.prewarmMovie(tmdbId);
+			}
+		}
+
+		// Movies cached before #323 have no runtime, and nothing else would ever fetch it:
+		// unlike TV, a movie cache row is never TTL-refreshed. Without this pass the stats
+		// page would report a watch time of zero minutes for every movie in the library.
+		// Re-prewarming rewrites the whole row, runtime included.
+		List<String> moviesMissingRuntime = titleCacheRepository.findMovieIdsMissingRuntime();
+		if (!moviesMissingRuntime.isEmpty()) {
+			log.info("Backfilling runtime for {} cached movie(s) missing it", moviesMissingRuntime.size());
+			for (String tmdbId : moviesMissingRuntime) {
 				tmdbCacheService.prewarmMovie(tmdbId);
 			}
 		}

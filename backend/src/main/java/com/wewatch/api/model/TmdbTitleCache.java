@@ -58,6 +58,14 @@ public class TmdbTitleCache {
 	@Column(name = "vote_count")
 	private Integer voteCount;
 
+	// Movie runtime in minutes (#323), for the stats page's watch-time sum. Movies
+	// only: a show's runtime lives per-episode in tmdb_episode_cache, so TV rows
+	// leave this null. null also means "not fetched since #323" on an old movie row —
+	// TmdbCacheBackfill re-prewarms those at startup, since movie rows have no TTL
+	// refresh path of their own.
+	@Column(name = "runtime_minutes")
+	private Integer runtimeMinutes;
+
 	@Convert(converter = CachedPersonListConverter.class)
 	@Column(name = "top_cast", columnDefinition = "TEXT")
 	private List<CachedPerson> topCast;
@@ -122,6 +130,9 @@ public class TmdbTitleCache {
 
 	public Integer getVoteCount() { return voteCount; }
 	public void setVoteCount(Integer voteCount) { this.voteCount = voteCount; }
+
+	public Integer getRuntimeMinutes() { return runtimeMinutes; }
+	public void setRuntimeMinutes(Integer runtimeMinutes) { this.runtimeMinutes = runtimeMinutes; }
 
 	public List<CachedPerson> getTopCast() { return topCast; }
 	public void setTopCast(List<CachedPerson> topCast) { this.topCast = topCast; }

@@ -538,3 +538,78 @@ disable — worth doing in local dev, where the job just burns TMDB quota.
 Single-instance: every node would run its own refresh. Harmless today (the writes are idempotent
 upserts), but it becomes duplicate TMDB traffic under horizontal scaling — move to a leader-elected
 or externally-triggered job before adding a second instance.
+
+## Stats (#323)
+
+`GET /api/watchlists/{id}/stats` → `StatsController` → `StatsService`. Counts, watch time and a
+genre breakdown for one watchlist.
+
+**Scoped to the watchlist, not the caller.** `watchlist_entries` is keyed on watchlist, and
+`episode_progress` has no `user_id` — a progress row belongs to an *entry*, so on a shared list two
+members write to the same row. "My stats" is therefore not representable today, and pretending
+otherwise (a `/api/stats` union over the caller's watchlists) would have dressed the household's
+numbers up as one person's while also double-counting any title sitting on two lists. The page
+follows the watchlist switcher instead, like Home and Discover. Per-member attribution needs a
+`user_id` on `episode_progress` first.
+
+### The two things the data model didn't have
+
+The issue assumed "runtimes and cached genre metadata are all already stored". Two-thirds true:
+
+- **Movie runtime was not stored anywhere.** `TmdbMovieDetail.runtime` was fetched on every movie
+  detail call and discarded — `upsertMovieCache` never persisted it. V24 adds
+  `tmdb_title_cache.runtime_minutes`.
+- **Genre *names* were not stored.** Titles cache bare TMDB genre ids (`genre_ids`); the names
+  existed only transiently on live detail calls, and `TmdbClient` had no genre-list method.
+
+⚠️ **A new column on `tmdb_title_cache` does not fill itself for movies.** TV rows are TTL-refreshed
+on read (`getSeasons`/`getSeasonDetail`), so a new TV field backfills for free — which is how
+`keywords` and `watch_providers` were introduced. **Movie rows have no such path: nothing ever
+re-fetches them.** `TmdbCacheBackfill` only prewarmed titles with *no cache row at all*, so every
+already-cached movie would have kept `runtime_minutes = NULL` forever and the headline watch time
+would have silently been TV-only. Hence the startup pass over
+`TmdbTitleCacheRepository.findMovieIdsMissingRuntime()`, which re-prewarms those rows and is
+self-limiting once they're populated. Any future *movie* field on this table needs the same
+treatment — don't assume the TTL will save you.
+
+`GenreCatalogService` resolves ids to names: Caffeine, 24h TTL, modelled on `WatchProviderService`
+(same shape, same reasoning — a ~40-entry list that changes on the order of years). The movie and TV
+catalogs merge into one flat map; their ids overlap only where the names agree (16 Animation, 18
+Drama, 35 Comedy), and TV's own ids (10759 "Action & Adventure", 10765 "Sci-Fi & Fantasy") carry
+their own names, so callers never need to know a title's medium to label it. A TMDB outage returns
+an empty map rather than throwing — the numbers all come from our own tables, so losing the genre
+bars must not cost the page its stats. The mapping function returns `null` on failure so Caffeine
+records nothing and retries, rather than caching the outage for the whole TTL window.
+
+### What counts
+
+Entry status and episode progress answer different questions, and the split is deliberate:
+
+- **Movies / shows finished** come from entry status (`WATCHED`).
+- **Episodes watched** come from `episode_progress`, *regardless of entry status*. Being 40 episodes
+  into a show you're still `WATCHING` is 40 episodes watched — and in practice this matters more
+  than it sounds: the dev database has a show with 155 watched episodes sitting in `WANT_TO_WATCH`.
+- A show flipped straight to `WATCHED` without ticking episodes writes no progress rows, so it
+  counts as a show finished and adds no time. That is honest, not a bug: we have nothing to sum.
+
+⚠️ **`findWatchedEpisodeRuntimes` joins the episode cache with a LEFT JOIN on purpose.** An episode
+that's been ticked but has no cached row still yields a row, with a null runtime — so it counts
+toward "episodes finished" and contributes nothing to the time. An inner join would drop it from
+both, under-reporting the number users are proudest of. `itemsMissingRuntime` reports how many such
+items there are, which is what makes the watch time legible as a floor rather than a fact.
+
+**Genre breakdown is watch time, and a title counts in every genre it carries.** So the parts sum to
+more than `totalMinutes` — it is a shape, not a partition. That is why the response is minutes and
+the bars are scaled against the top genre: a percentage-of-total bar would imply a sum-to-100 that
+isn't true, and would render >100% widths. The page says so in a footnote rather than hiding it.
+Attributing by watch time (rather than by title count) also means an unfinished 60-episode show
+shows up for what it is: 40 hours of drama is 40 hours of drama whether or not you finished it.
+
+### Testing
+
+All aggregation lives in `StatsService`, not in SQL — the same call `ReturningEpisodeService` makes,
+for the same reason: **no test in this suite executes SQL** (every repository is mocked; there is no
+`@DataJpaTest`/Testcontainers anywhere), so a `SUM`/`GROUP BY` in the query would be arithmetic
+nothing could check. The two native queries are dumb row fetches, verified by hand against local
+Postgres. `TmdbCacheBackfillTest` exists specifically because the runtime backfill is the kind of
+thing that can silently do nothing and take every movie's watch time to zero with it.

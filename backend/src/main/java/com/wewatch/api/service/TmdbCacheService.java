@@ -227,6 +227,11 @@ public class TmdbCacheService {
 			row.setGenreIds(detail.genres().stream().map(TmdbGenre::id).toList());
 		}
 		row.setVoteCount(detail.voteCount());
+		// Stats watch time (#323). TMDB reports "no runtime" as either null or 0;
+		// normalize both to null so a zero can't masquerade as a known-zero-minute
+		// movie and quietly drag the average down.
+		row.setRuntimeMinutes(
+			detail.runtime() != null && detail.runtime() > 0 ? detail.runtime() : null);
 		applyCredits(row, detail.credits());
 		applyWatchProviders(row, detail.watchProviders());
 		applyCollection(row, detail.belongsToCollection());

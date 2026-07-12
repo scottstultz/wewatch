@@ -112,6 +112,32 @@ export interface ReturningEpisode {
   runtimeMinutes: number | null
 }
 
+// ── Stats (#323) ────────────────────────────────────────────
+
+// Watch stats for a watchlist, not for the signed-in user: episode progress is stored
+// per entry and has no user column, so on a shared list these are the household's numbers.
+export interface Stats {
+  moviesFinished: number
+  showsFinished: number
+  episodesFinished: number
+  totalMinutes: number
+  movieMinutes: number
+  episodeMinutes: number
+  // Watched movies/episodes with no cached runtime: counted above, but contributing no
+  // minutes. Says how far the time totals can be trusted.
+  itemsMissingRuntime: number
+  genres: GenreStat[]
+}
+
+// A title counts in every genre it carries, so these sum to more than totalMinutes —
+// a shape, not a partition. Hence minutes rather than percentages.
+export interface GenreStat {
+  genreId: number
+  name: string
+  minutes: number
+  titleCount: number
+}
+
 // ── Season / Episode types ──────────────────────────────────
 
 export interface SeasonSummary {

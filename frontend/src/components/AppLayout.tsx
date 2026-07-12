@@ -3,10 +3,13 @@ import { useAuth } from '../contexts/AuthContext'
 import TmdbAttribution from './TmdbAttribution'
 import WeWatchLogo from './WeWatchLogo'
 
+// Drives both the desktop sidebar and the mobile bottom bar. The bottom bar's column
+// count is hard-coded in index.css (.mobile-nav) — keep the two in step.
 const navigationItems = [
   { to: '/home', label: 'Home' },
   { to: '/discover', label: 'Discover' },
   { to: '/library', label: 'Library' },
+  { to: '/stats', label: 'Stats' },
   { to: '/profile', label: 'Profile' },
 ]
 
