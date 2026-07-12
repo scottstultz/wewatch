@@ -46,7 +46,7 @@ TMDB caching, and the suggestion pipeline.
 ### Authentication
 - Google Sign-In (OAuth2 ID token exchange)
 - Email + password registration and sign-in (BCrypt)
-- Provider-agnostic self-issued JWT (HS256, 1-hour expiry) with sliding session refresh
+- Provider-agnostic self-issued JWT (HS256, 24-hour expiry) with sliding session refresh
 - Email allowlist restricts registration to approved users
 - Sign-out from sidebar (desktop) and header (mobile); graceful sign-out on expiry,
   resilient to mobile tab freeze/restore
@@ -178,9 +178,14 @@ Use three terminals:
 ```bash
 cd backend
 ./mvnw test        # Doppler not required — tests use mocks and property defaults
+
+cd frontend
+npm test           # Vitest + React Testing Library (jsdom); npm run test:watch for watch mode
 ```
 
-440 tests, all passing. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
+Backend: 463 tests. Tests use Mockito; controller tests use `@WebMvcTest` with `MockMvc`.
+Frontend: 51 tests, colocated as `<name>.test.ts(x)` — conventions in
+[`frontend/README.md`](frontend/README.md).
 
 ---
 
@@ -262,6 +267,7 @@ PRs follow a four-section format: **Summary**, **Changes**, **Why**, **Testing**
 - "Roll the dice" random picker
 - Frontend unit/component tests (Vitest + React Testing Library)
 - Interactive API documentation (Swagger UI + OpenAPI spec, see [`docs/api.md`](docs/api.md))
+- Cast sections on title details and person filmography pages
 
 ### Planned
 - Advanced filtering and sorting
