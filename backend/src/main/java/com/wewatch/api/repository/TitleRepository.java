@@ -21,4 +21,17 @@ public interface TitleRepository extends JpaRepository<Title, Long> {
 
 	@Query("SELECT DISTINCT t.externalId FROM Title t WHERE t.type = :type AND t.externalId NOT IN (SELECT c.tmdbId FROM TmdbTitleCache c)")
 	List<String> findExternalIdsByTypeNotInCache(@Param("type") TitleType type);
+
+	/**
+	 * TMDB ids of every TV show someone is actively watching — the set the nightly
+	 * episode-cache refresh keeps current (#321). Native because WatchlistEntry holds a
+	 * bare titleId column with no association to join across in JPQL.
+	 */
+	@Query(nativeQuery = true, value = """
+		SELECT DISTINCT t.external_id
+		FROM titles t
+		JOIN watchlist_entries we ON we.title_id = t.id
+		WHERE t.type = 'TV' AND we.status = 'WATCHING'
+		""")
+	List<String> findWatchingTvExternalIds();
 }

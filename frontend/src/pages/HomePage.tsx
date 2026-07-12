@@ -2,15 +2,17 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
-import type { WatchlistEntryResponse } from '../types/api'
+import { formatEpisodeCode, formatUpcomingDate } from '../utils/episodeLabels'
+import type { ReturningEpisode, WatchlistEntryResponse } from '../types/api'
 
 interface TileRowProps {
   entry: WatchlistEntryResponse
   onClick: () => void
   showStatusBadge?: boolean
+  subtitle?: string
 }
 
-function TileRow({ entry, onClick, showStatusBadge }: TileRowProps) {
+function TileRow({ entry, onClick, showStatusBadge, subtitle }: TileRowProps) {
   return (
     <li
       className="title-row title-row-clickable"
@@ -29,6 +31,7 @@ function TileRow({ entry, onClick, showStatusBadge }: TileRowProps) {
           {entry.type === 'MOVIE' ? 'Movie' : entry.type === 'TV' ? 'TV Show' : ''}
         </span>
         <p className="title-name">{entry.name}</p>
+        {subtitle && <span className="title-row-subtitle">{subtitle}</span>}
         {showStatusBadge && (
           <span className={`title-status-badge${entry.status === 'WATCHING' ? ' title-status-badge-watching' : entry.status === 'WATCHED' ? ' title-status-badge-watched' : ''}`}>
             {entry.status === 'WANT_TO_WATCH' ? 'Want to Watch' : entry.status === 'WATCHING' ? 'Watching' : 'Watched'}
@@ -44,6 +47,7 @@ function HomePage() {
   const { selectedWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
+  const [returning, setReturning] = useState<ReturningEpisode[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,8 +58,17 @@ function HomePage() {
     setIsLoading(true)
     setError(null)
 
-    api.getWatchlistEntries(selectedWatchlist.id)
-      .then(data => { if (!cancelled) setEntries(data) })
+    Promise.all([
+      api.getWatchlistEntries(selectedWatchlist.id),
+      // "Returning this week" is an extra, not the page: if it fails, drop the panel
+      // rather than failing Home along with it.
+      api.getReturningEpisodes(selectedWatchlist.id).catch(() => [] as ReturningEpisode[]),
+    ])
+      .then(([data, upcoming]) => {
+        if (cancelled) return
+        setEntries(data)
+        setReturning(upcoming)
+      })
       .catch(() => { if (!cancelled) setError('Failed to load watchlist data.') })
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
@@ -74,6 +87,12 @@ function HomePage() {
   const recentlyAdded = [...entries]
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
     .slice(0, 4)
+
+  // The backend already scoped this to WATCHING TV entries inside the window; pair each
+  // row with its entry so the tiles and the click-through match the rest of the page.
+  const returningRows = returning
+    .map(episode => ({ episode, entry: entries.find(e => e.id === episode.entryId) }))
+    .filter((row): row is { episode: ReturningEpisode; entry: WatchlistEntryResponse } => row.entry != null)
 
   const statValue = (n: number) => isLoading ? '–' : String(n)
 
@@ -110,6 +129,24 @@ function HomePage() {
       </section>
 
       <section className="content-grid">
+        {/* No empty state: an empty "Returning this week" is noise on the landing page,
+            unlike the two panels below, whose emptiness is itself worth saying. */}
+        {returningRows.length > 0 && (
+          <article className="panel">
+            <h3>Returning this week</h3>
+            <ul className="title-row-list">
+              {returningRows.map(({ episode, entry }) => (
+                <TileRow
+                  key={episode.entryId}
+                  entry={entry}
+                  onClick={() => handleTileClick(entry)}
+                  subtitle={`${formatEpisodeCode(episode.seasonNumber, episode.episodeNumber)} · ${formatUpcomingDate(episode.airDate)}`}
+                />
+              ))}
+            </ul>
+          </article>
+        )}
+
         <article className="panel">
           <h3>Continue watching</h3>
           {isLoading ? (
