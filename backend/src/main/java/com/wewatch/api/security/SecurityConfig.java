@@ -36,6 +36,13 @@ public class SecurityConfig {
 	@Value("${app.cors.allowed-origins}")
 	private String allowedOrigins;
 
+	// springdoc's own enable flag, so the docs paths are only permitAll when the docs
+	// beans actually register — one switch, and the two can't drift apart (#343). The
+	// :false default is the point: an unresolvable property fails closed. Gating on
+	// api-docs alone is deliberate; Swagger UI is useless without the spec.
+	@Value("${springdoc.api-docs.enabled:false}")
+	private boolean apiDocsEnabled;
+
 	@Bean
 	public SecurityFilterChain filterChain(HttpSecurity http, WeWatchJwtAuthenticationConverter converter,
 			RequestCorrelationFilter requestCorrelationFilter, TokenRefreshFilter tokenRefreshFilter)
@@ -46,11 +53,16 @@ public class SecurityConfig {
 			.addFilterBefore(requestCorrelationFilter, UsernamePasswordAuthenticationFilter.class)
 			.addFilterAfter(tokenRefreshFilter, BearerTokenAuthenticationFilter.class)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-			.authorizeHttpRequests(auth -> auth
-				.requestMatchers("/api/health", "/api/auth/**").permitAll()
-				.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-				.anyRequest().authenticated()
-			)
+			.authorizeHttpRequests(auth -> {
+				auth.requestMatchers("/api/health", "/api/auth/**").permitAll();
+				if (apiDocsEnabled) {
+					// /v3/api-docs.yaml is a sibling path, not under /v3/api-docs/**.
+					// Swagger UI's webjar assets are served under /swagger-ui/**.
+					auth.requestMatchers("/v3/api-docs/**", "/v3/api-docs.yaml",
+						"/swagger-ui/**", "/swagger-ui.html").permitAll();
+				}
+				auth.anyRequest().authenticated();
+			})
 			.exceptionHandling(ex -> ex
 				.authenticationEntryPoint(this::sendUnauthorized)
 				.accessDeniedHandler(this::sendForbidden)

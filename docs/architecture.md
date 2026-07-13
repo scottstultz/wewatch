@@ -496,19 +496,38 @@ is what powers Swagger UI's "Authorize" button against the app's self-issued JWT
 controllers (`HealthController`, `AuthController`) override it with an empty
 `@SecurityRequirements` so Swagger UI reflects that they don't need a token.
 
-`SecurityConfig` permits `/v3/api-docs/**`, `/swagger-ui/**`, and `/swagger-ui.html` alongside the
-existing `/api/health` and `/api/auth/**` matchers — otherwise `anyRequest().authenticated()`
-would block Swagger UI itself before a caller could authenticate. Swagger UI is served directly
-from the backend, not proxied through the Vite dev server, so no CORS changes were needed.
+When the docs are enabled, `SecurityConfig` permits `/v3/api-docs/**`, `/v3/api-docs.yaml` (a
+sibling path the `/**` pattern does not match), `/swagger-ui/**`, and `/swagger-ui.html` alongside
+the existing `/api/health` and `/api/auth/**` matchers — otherwise `anyRequest().authenticated()`
+would block Swagger UI itself before a caller could authenticate. The docs endpoints are
+unauthenticated *when enabled* by necessity: a caller needs the spec before they have a token.
+Swagger UI is served directly from the backend, not proxied through the Vite dev server, so no
+CORS changes were needed. Its webjar assets are served under `/swagger-ui/**` (via
+webjars-locator-lite), so no extra matcher is needed for them.
 
-**Local-only exposure:** `springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` are set to
-`false` in `application-prod.properties` only. There's no Actuator or other admin surface in this
-app to model the gating on, so this follows the existing per-profile `.properties` split (CORS
-origins, datasource credentials) instead. The API is allowlist-gated but the docs endpoints
-themselves are unauthenticated by necessity (a caller needs the spec before they have a token),
-so disabling them in prod avoids exposing the full internal API shape — every route, DTO field,
-and error code — to the public internet with no corresponding benefit, since the only consumer is
-the first-party frontend. See [`docs/api.md`](api.md) for how to reach Swagger UI locally.
+**Opt-in exposure (#297, hardened by #343):** springdoc is disabled in the base
+`application.properties` (`springdoc.api-docs.enabled` / `springdoc.swagger-ui.enabled` = `false`)
+and switched on only by the `local` profile; `application-prod.properties` keeps an explicit
+`false` pair as the record of the prod decision. #297 originally disabled the docs in the prod
+profile only, which failed open — springdoc's own default is *enabled*, so any future profile, or
+a deployment that forgot to set a profile at all, would have published the full API surface
+(every route, DTO field, and error code) anonymously, and only the one prod file remembered to
+say no. The API is allowlist-gated and the docs' only consumer is the first-party frontend
+developer, so there is no benefit to offset that exposure.
+
+`SecurityConfig` reads the same `springdoc.api-docs.enabled` key (with a fail-closed `:false`
+default) to decide whether the docs matchers are `permitAll` at all — reusing springdoc's own
+switch rather than minting an `app.docs.*` one means the security rule cannot drift apart from
+whether the docs beans actually register. Gating on `api-docs.enabled` alone is deliberate:
+Swagger UI is useless without the spec, so a config that enables the UI but not the spec gets
+401s on the UI paths, which is fine. With the matchers gone the paths fall through to
+`anyRequest().authenticated()` and answer 401 rather than 404 — prod no longer confirms the paths
+are unmapped, and (because springdoc's controllers never load under `@WebMvcTest`) it is also
+what makes the gate assertable in the security slice: `OpenApiDisabledByDefaultTest` pins the
+no-profile default (the only test in the suite without `@ActiveProfiles`, on purpose — a typo in
+the base properties would reopen the docs without failing any other test), `OpenApiProdSecurityTest`
+pins the prod profile, and `OpenApiSecurityTest` remains the dev-side expectation. See
+[`docs/api.md`](api.md) for how to reach Swagger UI locally.
 
 ## Person Endpoint (#304)
 
