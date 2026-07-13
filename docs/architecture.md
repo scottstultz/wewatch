@@ -805,3 +805,47 @@ copy of each header on a proxied `/api/` response. Then headless Chrome against 
 with the real client id — the sign-in page (GIS script, its button iframe, Google Fonts) produced zero
 CSP violations, and a probe page on the same origin confirmed the remaining directives: a TMDB poster
 loads, a `/api` fetch reaches the backend, and an inline `style` width applies.
+
+## Trailer Links (#340)
+
+`GET /api/titles/detail` carries a nullable `trailerUrl` — a ready-to-open
+`https://www.youtube.com/watch?v=<key>` — and both detail pages (`TitleDetailPage`, and
+`ShowDetailPage` for a library TV entry, which already calls the same endpoint) render a
+"▶ Watch trailer" link when it is non-null. Like `posterUrl`, the backend hands over a finished URL
+and the frontend stays dumb.
+
+**The data is free.** `videos` joins `credits` (#269) and `watch/providers` (#270) on the existing
+`append_to_response` of `getMovieDetail` / `getTvDetail` — same request, bigger payload. No
+`tmdb_title_cache` column, no migration, no backfill: title detail is served live from `TmdbClient`,
+so none of the #323 movie-rows-never-refresh problem applies.
+
+**Link out, don't embed.** An inline `youtube-nocookie.com` iframe would need a `frame-src` carve-out
+in the #337 CSP and would pull YouTube's player JS and tracking into every detail view. A plain
+`youtube.com/watch` link needs **no CSP change at all** — the policy sets no `navigate-to`, so
+top-level link navigation is ungoverned — and on mobile it hands off to the YouTube app, which is
+what the PWA (#324, no service worker, no in-app player) wants anyway. Do not add `frame-src` or an
+`i.ytimg.com` `img-src` entry unless someone actually builds an embed or a thumbnail.
+
+**Trailer buttons on `TitleCard` tiles are out of scope** for the same reason: a tile has no live
+detail call behind it, so the video key would have to be cached, which reintroduces the #323 trap.
+
+⚠️ **The pick lives in `TrailerPicker`, not in a private `TitleController` helper.** It is the only
+real logic in the feature, and a private controller method is reachable only through
+`@WebMvcTest`/`MockMvc` — a clumsy way to assert a dozen selection cases. Same reasoning as the #321
+"keep the date window in Java so a test can see it" note. `TrailerPickerTest` covers the ranking, the
+site and type filters, the tiebreak, and every null shape.
+
+⚠️ **"Most recent" alone picks the wrong video.** TMDB returns a large mixed bag — 29 videos on The
+Matrix at time of writing — and the *newest* entries are Featurettes and Behind-the-Scenes clips
+(the 2026 ones postdate every trailer by years). So the type filter is what does the work: only
+`Trailer` and `Teaser` on `site == "YouTube"` survive, ranked official-trailer > trailer >
+official-teaser > teaser, and only then does the most recent `published_at` break the tie. Dropping
+the type filter and taking the newest video would have linked The Matrix to a featurette.
+
+`published_at` is compared as a raw ISO-8601 string — lexicographic order on that format *is*
+chronological, and an undated video sorts below a dated one, which is the behavior we want anyway.
+
+**Verified end-to-end against live TMDB and a running backend** (the pick logic is the part mocks
+cannot validate): The Matrix resolves to its official 25th-anniversary trailer, Game of Thrones to
+its show trailer, and a title whose `videos.results` is empty (TMDB 55555) returns `trailerUrl: null`
+so no link renders.

@@ -201,6 +201,8 @@ export interface TitleDetailResponse {
   myRating: TitleRating | null
   // Top-billed cast in TMDB billing order (#295); empty when TMDB has no credits
   cast: CastMember[] | null
+  // A ready-to-open YouTube URL for the trailer (#340); null when TMDB has none
+  trailerUrl: string | null
 }
 
 // ── People (#305) ──────────────────────────────────────────

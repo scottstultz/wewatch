@@ -19,5 +19,7 @@ public record TmdbTvDetail(
 	@JsonProperty("vote_average") Double voteAverage,
 	@JsonProperty("vote_count") Integer voteCount,
 	TmdbCredits credits,
-	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders
+	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders,
+	// Trailers and teasers (#340); null when TMDB has no videos for the title
+	TmdbVideos videos
 ) {}

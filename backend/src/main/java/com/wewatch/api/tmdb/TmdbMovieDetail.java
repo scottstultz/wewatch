@@ -20,5 +20,7 @@ public record TmdbMovieDetail(
 	@JsonProperty("watch/providers") TmdbWatchProviders watchProviders,
 	@JsonProperty("belongs_to_collection") TmdbCollectionRef belongsToCollection,
 	// Total runtime in minutes; null or 0 for titles TMDB has no runtime for
-	Integer runtime
+	Integer runtime,
+	// Trailers and teasers (#340); null when TMDB has no videos for the title
+	TmdbVideos videos
 ) {}

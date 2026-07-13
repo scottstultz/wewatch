@@ -646,4 +646,65 @@ class TmdbClientTest {
 			.hasMessageContaining("TMDB get person detail failed");
 	}
 
+	// ─── videos (#340) ───────────────────────────────────────────────────────
+
+	private static final String VIDEOS_JSON = """
+		  "videos": {
+		    "results": [
+		      {
+		        "key": "YoHD9XEInc0",
+		        "site": "YouTube",
+		        "type": "Trailer",
+		        "official": true,
+		        "published_at": "2013-11-07T13:21:00.000Z"
+		      }
+		    ]
+		  }
+		""";
+
+	@Test
+	void getMovieDetailRequestsAndParsesAppendedVideos() {
+		server.expect(requestTo(allOf(
+			containsString("/3/movie/603"),
+			containsString("append_to_response=credits,watch/providers,videos"))))
+			.andRespond(withSuccess("""
+				{
+				  "id": 603,
+				  "title": "The Matrix",
+				""" + VIDEOS_JSON + "}", MediaType.APPLICATION_JSON));
+
+		TmdbVideos videos = tmdbClient.getMovieDetail("603").videos();
+
+		assertThat(videos.results()).containsExactly(
+			new TmdbVideo("YoHD9XEInc0", "YouTube", "Trailer", true, "2013-11-07T13:21:00.000Z"));
+	}
+
+	@Test
+	void getTvDetailRequestsAndParsesAppendedVideos() {
+		server.expect(requestTo(allOf(
+			containsString("/3/tv/1399"),
+			containsString("append_to_response=credits,watch/providers,videos"))))
+			.andRespond(withSuccess("""
+				{
+				  "id": 1399,
+				  "name": "Game of Thrones",
+				""" + VIDEOS_JSON + "}", MediaType.APPLICATION_JSON));
+
+		TmdbVideos videos = tmdbClient.getTvDetail("1399").videos();
+
+		assertThat(videos.results()).hasSize(1);
+		assertThat(videos.results().get(0).key()).isEqualTo("YoHD9XEInc0");
+	}
+
+	// A title TMDB has no videos for — the field is simply absent from the payload
+	@Test
+	void getMovieDetailLeavesVideosNullWhenTmdbSendsNone() {
+		server.expect(requestTo(containsString("/3/movie/27205")))
+			.andRespond(withSuccess("""
+				{ "id": 27205, "title": "Inception" }
+				""", MediaType.APPLICATION_JSON));
+
+		assertThat(tmdbClient.getMovieDetail("27205").videos()).isNull();
+	}
+
 }

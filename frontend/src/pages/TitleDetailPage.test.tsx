@@ -50,6 +50,7 @@ function makeDetail(overrides: Partial<TitleDetailResponse> = {}): TitleDetailRe
     titleId: null,
     myRating: null,
     cast: [],
+    trailerUrl: null,
     ...overrides,
   }
 }
@@ -95,5 +96,30 @@ describe('TitleDetailPage runtime (#311)', () => {
     expect(await screen.findByRole('heading', { name: 'The Matrix' })).toBeInTheDocument()
     expect(screen.queryByText(/\dh/)).not.toBeInTheDocument()
     expect(screen.queryByText(/\dm$/)).not.toBeInTheDocument()
+  })
+})
+
+describe('TitleDetailPage trailer link (#340)', () => {
+  it('links out to the trailer in a new tab', async () => {
+    mockApi.getTitleDetail.mockResolvedValue(
+      makeDetail({ trailerUrl: 'https://www.youtube.com/watch?v=m8e-FF8MsqU' }),
+    )
+    renderPage()
+
+    const link = await screen.findByRole('link', { name: /watch trailer/i })
+    expect(link).toHaveAttribute('href', 'https://www.youtube.com/watch?v=m8e-FF8MsqU')
+    expect(link).toHaveAttribute('target', '_blank')
+    // Without noopener the opened tab gets a handle back to this one
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+
+  it('renders no link when TMDB has no trailer', async () => {
+    mockApi.getTitleDetail.mockResolvedValue(makeDetail({ trailerUrl: null }))
+    renderPage()
+
+    // Wait for the detail to land, then confirm there is no dead affordance
+    expect(await screen.findByRole('heading', { name: 'The Matrix' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /watch trailer/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/watch trailer/i)).not.toBeInTheDocument()
   })
 })

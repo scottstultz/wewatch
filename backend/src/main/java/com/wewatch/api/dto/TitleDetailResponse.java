@@ -49,6 +49,10 @@ public record TitleDetailResponse(
 	Rating myRating,
 	// Top-billed cast in TMDB billing order (#295); empty when TMDB has no
 	// credits for the title
-	List<CastMemberResponse> cast
+	List<CastMemberResponse> cast,
+	// A ready-to-open YouTube URL for the title's trailer (#340), like posterUrl
+	// — null when TMDB has no trailer or teaser, and the link is then not rendered
+	@Schema(description = "YouTube watch URL for the title's trailer; null when TMDB has none (#340)")
+	String trailerUrl
 ) {
 }

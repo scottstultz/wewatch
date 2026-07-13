@@ -705,6 +705,26 @@ a {
   color: #cbd5e1;
 }
 
+/* "Watch trailer" link (#340) — a column flex child, so it has to opt out of
+   stretching to the full width of the info panel. */
+.title-detail-trailer {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 5px 12px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #7dd3fc;
+  text-decoration: none;
+}
+
+.title-detail-trailer:hover {
+  border-color: rgba(125, 211, 252, 0.6);
+  background: rgba(125, 211, 252, 0.1);
+  color: #bae6fd;
+}
+
 .title-detail-season-list {
   list-style: none;
   margin: 0;
