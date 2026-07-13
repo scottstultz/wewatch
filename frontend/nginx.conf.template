@@ -1,8 +1,48 @@
+# Railway terminates TLS at its edge and forwards plain HTTP to this container, so the request
+# nginx sees is never https and HSTS cannot key off $scheme. The edge tells us what the browser
+# hop was via X-Forwarded-Proto; nginx skips an add_header whose value is empty, so a local
+# docker compose run (http://localhost:3000) sends no HSTS at all.
+#
+# $hsts_header and $http_x_forwarded_proto survive the Dockerfile's envsubst only because it is
+# given an explicit variable list (envsubst '$BACKEND_URL'). Dropping that list would blank both.
+map $http_x_forwarded_proto $hsts_header {
+    https   "max-age=31536000; includeSubDomains";
+    default "";
+}
+
 server {
     listen 80;
 
     root /usr/share/nginx/html;
     index index.html;
+
+    # The JWT lives in localStorage and is a 24h stateless token with no revocation (#293), so an
+    # XSS foothold would mean a day-long session nobody can kill. The CSP is the mitigation for
+    # that trade-off. Every source below is something the app actually loads:
+    #   script-src   accounts.google.com/gsi/client -- the GIS script in index.html. No
+    #                'unsafe-inline': Vite emits an external module bundle, no inline scripts.
+    #   style-src    fonts.googleapis.com (the Nunito stylesheet) and gsi/style (styles GIS
+    #                injects into our page). 'unsafe-inline' is unavoidable -- CSP governs inline
+    #                style *attributes*, and the progress/genre bars compute their width at render
+    #                time (style={{ width: `${pct}%` }}), so they can be neither nonced nor hashed.
+    #   font-src     fonts.gstatic.com -- the font files that stylesheet pulls.
+    #   img-src      image.tmdb.org (every poster, still, profile photo and provider logo comes
+    #                from TmdbClient) plus data: for the inline chevron SVG in index.css.
+    #   connect-src  'self' for /api/, gsi/ for the sign-in button's own XHRs.
+    #   frame-src    gsi/ -- the Google button is an iframe, and it only mounts when signed out.
+    #
+    # Keep the CSP on one physical line: nginx allows a quoted string to span lines, but the
+    # newline ends up inside the header value.
+    #
+    # These live in `server` on purpose. A `location` that declares its own add_header *replaces*
+    # the inherited set rather than merging with it -- so adding, say, an add_header Cache-Control
+    # to the manifest location below would silently strip every header here from that response.
+    # `always` so they ride on error responses too, not just 2xx/3xx.
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://image.tmdb.org; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security $hsts_header always;
 
     location /api/ {
         proxy_pass ${BACKEND_URL}/api/;
@@ -10,6 +50,11 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Spring Security sends both of these by default and add_header appends rather than
+        # replaces, so without this every API response would carry each header twice.
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header X-Frame-Options;
     }
 
     # nginx's stock mime.types has no mapping for .webmanifest, so without this the manifest

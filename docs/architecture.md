@@ -722,3 +722,86 @@ device toolbar. `apple-mobile-web-app-status-bar-style` is omitted for the same 
 seeds the JWT for the #308 cold-load path — does not carry over from Safari, so each member signs in
 once more inside the installed app. Expected, not a regression. Everything else about #242
 tab-restore and #308 deep-linking is unaffected: same origin, same `BrowserRouter`, no `basename`.
+
+---
+
+## Security Headers (#337)
+
+`frontend/nginx.conf.template` previously sent no security headers at all. The one that earns its
+keep here is the **Content-Security-Policy**: the WeWatch JWT lives in `localStorage` and is a 24h
+stateless token with no revocation (the accepted trade-off in "Session lifetime & hardening (#293)"),
+so an XSS foothold would hand an attacker a day-long session nobody can kill. There is no known XSS
+sink today — no `dangerouslySetInnerHTML` anywhere, React escaping throughout — so this is
+defense-in-depth for a trade-off already made, not a fix for a live hole.
+
+Alongside it: `X-Content-Type-Options: nosniff`, `frame-ancestors 'none'` (plus `X-Frame-Options:
+DENY` for browsers predating it), `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS.
+
+### The CSP is an inventory of what the app actually loads
+
+Every source in the policy is there because something breaks without it. The list is longer than it
+looks like it should be, because two of the origins are easy to forget:
+
+| Source | Directive | Why |
+|---|---|---|
+| `accounts.google.com/gsi/client` | `script-src` | the GIS script tag in `index.html` |
+| `accounts.google.com/gsi/` | `frame-src`, `connect-src` | the Google button is an iframe, and it makes its own calls |
+| `accounts.google.com/gsi/style` | `style-src` | styles GIS injects into our page |
+| `fonts.googleapis.com` | `style-src` | the Nunito stylesheet, linked from `index.html` |
+| `fonts.gstatic.com` | `font-src` | the font files that stylesheet then pulls |
+| `image.tmdb.org` | `img-src` | every poster, still, cast photo and provider logo — `TmdbClient` hands the frontend absolute URLs |
+| `data:` | `img-src` | the inline chevron SVG background in `index.css` |
+| `'self'` | `connect-src` | the API: `services/api.ts` uses `const BASE_URL = '/api'`, same origin via the nginx proxy |
+
+Google Fonts is the one most likely to be missed — the issue that filed this work didn't list it, and
+omitting it doesn't error loudly, it just silently renders the app in a fallback font.
+
+⚠️ **`style-src` needs `'unsafe-inline'` and cannot be rescued.** CSP governs inline *style
+attributes*, and `WeWatchLogo`, `ShowDetailPage` (episode progress bar) and `StatsPage` (genre bars)
+set `style={{ width: `${pct}%` }}` — a value computed at render time, so it can be neither hashed nor
+nonced (nonces don't apply to attributes at all). The exposure is CSS injection, not script
+execution. **`script-src` stays strict** and that is the directive doing the real work: Vite emits an
+external module bundle and the built `dist/index.html` contains no inline script, so no
+`'unsafe-inline'` or `'unsafe-eval'` is needed there. Keep it that way — a test asserts it.
+
+### Two traps in the nginx config itself
+
+⚠️ **`add_header` in a `location` block silently drops every header declared in `server`.** nginx
+*replaces* the inherited set rather than merging with it, the moment a location adds one of its own.
+All five headers therefore live in `server`. `location = /manifest.webmanifest` is safe as written
+(a `types` block doesn't reset headers), but adding, say, an `add_header Cache-Control` there would
+strip the CSP from the manifest response and nothing would fail visibly. `src/security-headers.test.ts`
+fails CI if any location block declares an `add_header`. All headers carry `always` so they also ride
+on error responses, not just 2xx/3xx.
+
+⚠️ **HSTS is gated on `X-Forwarded-Proto`, not `$scheme`.** Railway terminates TLS at its edge and
+forwards plain HTTP to the container, so `$scheme` is *always* `http` here and would never fire. An
+http-context `map` sets `$hsts_header` only when the edge reports the browser hop was HTTPS; nginx
+omits an `add_header` whose value is empty, so a local `docker compose` run on `http://localhost:3000`
+sends no HSTS at all. This survives `envsubst` only because the Dockerfile passes an explicit variable
+list (`envsubst '$BACKEND_URL'`) — dropping that list would blank `$hsts_header` and
+`$http_x_forwarded_proto` and emit an empty header. The coupling is invisible from the template, so
+it is commented in both files.
+
+The `/api/` location adds `proxy_hide_header` for `X-Content-Type-Options` and `X-Frame-Options`:
+Spring Security sends both by default (verified against the running backend — 401s carry them), and
+`add_header` appends rather than replaces, so without this every API response would ship each header
+twice. `proxy_hide_header` does *not* reset `add_header` inheritance — only a nested `add_header` does.
+
+### Testing
+
+`src/security-headers.test.ts` is the second file-on-disk test after `manifest.test.ts` (#324), and
+registered the same way — `exclude`d from `tsconfig.app.json`, compiled by `tsconfig.node.json`,
+because it reads `node:fs`. It exists because **a blocked resource fails only in the built container**:
+`npm run dev` serves no CSP at all, so a new third-party `<script>` or `<link>` in `index.html` would
+sail through CI and every local run, then break in production. The test cross-checks `index.html`'s
+external origins against the policy, and pins the directives an XSS foothold would need
+(`default-src`/`frame-ancestors`/`object-src`/`base-uri`, and no `'unsafe-*'` in `script-src`).
+
+The template itself is never executed by any test, so the policy was verified against the real
+container: headers present on `/`, on an SPA-fallback route, on `/manifest.webmanifest` and on a
+missing asset; HSTS absent over plain http and present with `X-Forwarded-Proto: https`; exactly one
+copy of each header on a proxied `/api/` response. Then headless Chrome against the running container
+with the real client id — the sign-in page (GIS script, its button iframe, Google Fonts) produced zero
+CSP violations, and a probe page on the same origin confirmed the remaining directives: a TMDB poster
+loads, a `/api` fetch reaches the backend, and an inline `style` width applies.
