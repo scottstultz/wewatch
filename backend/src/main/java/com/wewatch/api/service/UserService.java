@@ -71,7 +71,7 @@ public class UserService {
 
 	public User findByEmail(String email) {
 		return userRepository.findByEmail(email)
-			.orElseThrow(() -> new NoSuchElementException("User not found with email: " + email));
+			.orElseThrow(() -> new NoSuchElementException("No user is registered with that email"));
 	}
 
 	public User update(Long id, String email, String displayName) {

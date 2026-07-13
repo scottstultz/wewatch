@@ -849,3 +849,39 @@ chronological, and an undated video sorts below a dated one, which is the behavi
 cannot validate): The Matrix resolves to its official 25th-anniversary trailer, Game of Thrones to
 its show trailer, and a title whose `videos.results` is empty (TMDB 55555) returns `trailerUrl: null`
 so no link renders.
+
+## Authorization before lookup in addMember (#344)
+
+`WatchlistController.addMember` resolved the target email *before* any authorization ran, and the
+lookup's failure mode was observable: an unregistered address threw `NoSuchElementException` → 404
+(echoing the address back), a registered one fell through to `addMember`'s `requireOwner` → 403, or
+to 409 if already a member. Status alone told an unauthorized caller whether an address was
+registered. The fix hoists `watchlistService.requireOwner(watchlistId, caller.getId())` above the
+`findByEmail`, and `UserService.findByEmail` no longer reflects the probed address
+("No user is registered with that email").
+
+**The check is deliberately duplicated.** `WatchlistService.addMember` still calls `requireOwner`
+itself. The controller's call is the ordering fix; the service's is the invariant, and it must stay
+so that any future caller is safe by construction. The cost is one extra membership read on a rare,
+non-hot path.
+
+⚠️ **The fix could not live in `WatchlistService`.** The natural shape — `addMemberByEmail(watchlistId,
+email, caller)` — is impossible: `UserService` already injects `WatchlistService` (it provisions the
+personal watchlist on user creation), so the reverse dependency is a cycle. The controller is the only
+seam where both services are in scope, which is *why* the ordering was expressible as a bug in the
+first place.
+
+⚠️ **This narrows the oracle; it does not close it.** Every user owns an auto-provisioned PERSONAL
+watchlist, and `addMember` has no watchlist-type guard (the only `WatchlistType.PERSONAL` check in the
+backend is on `delete`). So an authenticated attacker can still enumerate by probing against a
+watchlist they legitimately own — they now merely have to use their own list instead of anyone's. What
+actually bounds the exposure is that sign-in is **allowlist-gated** (#318), so the enumerable
+population is a small, already-known set of addresses; the per-IP/per-email throttle raises the cost of
+sweeping it. Closing the oracle properly means making the response indistinguishable for registered and
+unregistered targets — i.e. invitation semantics, where adding an unknown address succeeds and sends an
+invite rather than 404ing. That is a feature, not a bug fix, and is not in #344. **If WeWatch ever drops
+the allowlist, build that before opening sign-up.**
+
+`WatchlistControllerTest` covers the AC path (non-owner + unregistered email → 403, not 404) and
+asserts `findByEmail` is never reached; the old ordering fails both new assertions, which is the point
+of them.

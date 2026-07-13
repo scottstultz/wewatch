@@ -1,9 +1,13 @@
 package com.wewatch.api.controller;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -436,7 +440,7 @@ class WatchlistControllerTest {
 	@Test
 	void addMemberReturnsNotFoundWhenUserNotFound() throws Exception {
 		when(userService.findByEmail("missing@example.com"))
-			.thenThrow(new NoSuchElementException("User not found with email: missing@example.com"));
+			.thenThrow(new NoSuchElementException("No user is registered with that email"));
 
 		mockMvc.perform(
 			post("/api/watchlists/1/members")
@@ -449,7 +453,9 @@ class WatchlistControllerTest {
 					""")
 		)
 			.andExpect(status().isNotFound())
-			.andExpect(jsonPath("$.message").value("User not found with email: missing@example.com"));
+			.andExpect(jsonPath("$.message").value("No user is registered with that email"))
+			// The probed address is not reflected back to the caller (#344).
+			.andExpect(content().string(not(containsString("missing@example.com"))));
 	}
 
 	@Test
@@ -474,10 +480,8 @@ class WatchlistControllerTest {
 
 	@Test
 	void addMemberReturnsForbiddenWhenNotOwner() throws Exception {
-		User newUser = new User(20L, "new@example.com", "New Member", EPOCH, EPOCH, "google", "sub-456");
-		when(userService.findByEmail("new@example.com")).thenReturn(newUser);
 		doThrow(new ForbiddenException("Owner role required"))
-			.when(watchlistService).addMember(1L, 20L, 10L);
+			.when(watchlistService).requireOwner(1L, 10L);
 
 		mockMvc.perform(
 			post("/api/watchlists/1/members")
@@ -491,6 +495,36 @@ class WatchlistControllerTest {
 		)
 			.andExpect(status().isForbidden())
 			.andExpect(jsonPath("$.message").value("Owner role required"));
+
+		// #344: authorization precedes the lookup, so a registered target is never resolved.
+		verify(userService, never()).findByEmail(anyString());
+	}
+
+	@Test
+	void addMemberReturnsForbiddenNotNotFoundWhenNonOwnerProbesUnknownEmail() throws Exception {
+		// #344: a non-owner must not be able to distinguish a registered address from an
+		// unregistered one. The owner check runs first, so the email is never resolved and
+		// the response is identical to the registered-target case above — 403, not 404.
+		doThrow(new ForbiddenException("Owner role required"))
+			.when(watchlistService).requireOwner(1L, 10L);
+		when(userService.findByEmail(anyString()))
+			.thenThrow(new NoSuchElementException("No user is registered with that email"));
+
+		mockMvc.perform(
+			post("/api/watchlists/1/members")
+				.with(asUser(TEST_USER))
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+					  "email": "probe@example.com"
+					}
+					""")
+		)
+			.andExpect(status().isForbidden())
+			.andExpect(jsonPath("$.message").value("Owner role required"));
+
+		verify(userService, never()).findByEmail(anyString());
+		verify(watchlistService, never()).addMember(any(), any(), any());
 	}
 
 	// ─── PATCH /api/watchlists/{watchlistId}/members/{userId}/role ───────────
