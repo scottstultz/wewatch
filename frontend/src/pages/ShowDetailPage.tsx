@@ -419,6 +419,17 @@ function ShowDetailPage() {
                 </div>
               )}
 
+              {detail?.trailerUrl && (
+                <a
+                  className="title-detail-trailer"
+                  href={detail.trailerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  ▶ Watch trailer
+                </a>
+              )}
+
               <ThumbsRating rating={entry.myRating} onRate={handleRate} />
 
               {!isLoadingSeasons && totalEpisodes > 0 && (

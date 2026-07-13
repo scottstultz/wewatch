@@ -54,13 +54,13 @@ public class TmdbClient {
 
 	public TmdbTvDetail getTvDetail(String tmdbId) {
 		try {
-			// Credits (#269) and watch providers (#270) ride along for free —
-			// one call still, bigger payload
+			// Credits (#269), watch providers (#270) and videos (#340) ride along
+			// for free — one call still, bigger payload
 			TmdbTvDetail detail = restClient.get()
-				.uri("/3/tv/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
+				.uri("/3/tv/{id}?language=en-US&append_to_response=credits,watch/providers,videos", tmdbId)
 				.retrieve()
 				.body(TmdbTvDetail.class);
-			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null, null, null);
+			return detail != null ? detail : new TmdbTvDetail(0L, 0, null, null, List.of(), null, null, null, List.of(), null, null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get TV detail failed: " + e.getMessage(), e);
 		}
@@ -111,13 +111,13 @@ public class TmdbClient {
 
 	public TmdbMovieDetail getMovieDetail(String tmdbId) {
 		try {
-			// Credits (#269) and watch providers (#270) ride along for free —
-			// one call still, bigger payload
+			// Credits (#269), watch providers (#270) and videos (#340) ride along
+			// for free — one call still, bigger payload
 			TmdbMovieDetail detail = restClient.get()
-				.uri("/3/movie/{id}?language=en-US&append_to_response=credits,watch/providers", tmdbId)
+				.uri("/3/movie/{id}?language=en-US&append_to_response=credits,watch/providers,videos", tmdbId)
 				.retrieve()
 				.body(TmdbMovieDetail.class);
-			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null, null, null);
+			return detail != null ? detail : new TmdbMovieDetail(0L, null, null, null, null, null, List.of(), null, null, null, null, null, null, null);
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB get movie detail failed: " + e.getMessage(), e);
 		}

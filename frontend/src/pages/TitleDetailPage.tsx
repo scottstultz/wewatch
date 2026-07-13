@@ -213,7 +213,18 @@ function TitleDetailPage() {
                 </div>
               )}
 
-              {detail && <ThumbsRating rating={myRating} onRate={handleRate} />}
+              {detail?.trailerUrl && (
+              <a
+                className="title-detail-trailer"
+                href={detail.trailerUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                ▶ Watch trailer
+              </a>
+            )}
+
+            {detail && <ThumbsRating rating={myRating} onRate={handleRate} />}
 
               {entry ? (
                 picking ? (

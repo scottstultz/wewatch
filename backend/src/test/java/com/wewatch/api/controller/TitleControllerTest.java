@@ -56,6 +56,8 @@ import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvEpisode;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 import com.wewatch.api.tmdb.TmdbWatchProvider;
+import com.wewatch.api.tmdb.TmdbVideo;
+import com.wewatch.api.tmdb.TmdbVideos;
 import com.wewatch.api.tmdb.TmdbWatchProviders;
 
 @WebMvcTest(TitleController.class)
@@ -158,7 +160,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action")),
 			8.2, 25000, null, null
-		, null, 136));
+		, null, 136, null));
 		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
 			candidate.setId(1L);
@@ -201,7 +203,7 @@ class TitleControllerTest {
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
 			8.4, 21000, null, null
-		));
+		, null));
 		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
 			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
 			candidate.setId(5L);
@@ -642,7 +644,7 @@ class TitleControllerTest {
 			"Released", "1999-03-31",
 			List.of(new TmdbGenre(28, "Action"), new TmdbGenre(878, "Science Fiction")),
 			8.2, 25000, null, null
-		, null, 136));
+		, null, 136, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -666,9 +668,50 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.seasonCount").doesNotExist())
 			.andExpect(jsonPath("$.seasons").doesNotExist())
 			// No credits block from TMDB — an empty cast, not a null (#295)
-			.andExpect(jsonPath("$.cast.length()").value(0));
+			.andExpect(jsonPath("$.cast.length()").value(0))
+			// No videos block from TMDB — no link is rendered (#340)
+			.andExpect(jsonPath("$.trailerUrl").doesNotExist());
 
 		verify(tmdbClient).getMovieDetail("603");
+	}
+
+	@Test
+	void getTitleDetailReturnsTheTrailerUrlForAMovie() throws Exception {
+		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
+			603, "The Matrix", null, null, "Released", "1999-03-31",
+			List.of(), 8.2, 25000, null, null, null, 136,
+			new TmdbVideos(List.of(
+				new TmdbVideo("teaser1", "YouTube", "Teaser", true, "2024-01-01T00:00:00.000Z"),
+				new TmdbVideo("m8e-FF8MsqU", "YouTube", "Trailer", true, "2020-01-01T00:00:00.000Z")))));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("externalSource", "TMDB")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.trailerUrl").value("https://www.youtube.com/watch?v=m8e-FF8MsqU"));
+
+		// Videos ride the existing detail call — no extra TMDB request
+		verify(tmdbClient).getMovieDetail("603");
+		verifyNoMoreInteractions(tmdbClient);
+	}
+
+	@Test
+	void getTitleDetailReturnsTheTrailerUrlForATvShow() throws Exception {
+		when(tmdbClient.getTvDetail("1399")).thenReturn(new TmdbTvDetail(
+			1399, 8, "Ended", "2011-04-17", List.of(),
+			"Game of Thrones", null, null, List.of(), 8.4, 21000, null, null,
+			new TmdbVideos(List.of(
+				new TmdbVideo("BpJYNVhGf1s", "YouTube", "Trailer", true, "2011-04-01T00:00:00.000Z")))));
+
+		mockMvc.perform(get("/api/titles/detail")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "1399")
+			.param("externalSource", "TMDB")
+			.param("type", "TV"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.trailerUrl").value("https://www.youtube.com/watch?v=BpJYNVhGf1s"));
 	}
 
 	@Test
@@ -682,7 +725,7 @@ class TitleControllerTest {
 				// TMDB has no headshot for this one — the client renders a placeholder
 				new TmdbCastMember(3L, "Joe Pantoliano", "Cypher", null, 2)),
 				List.of()),
-			null, null, 136));
+			null, null, 136, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -711,7 +754,7 @@ class TitleControllerTest {
 			.toList();
 		when(tmdbClient.getMovieDetail("603")).thenReturn(new TmdbMovieDetail(
 			603, "The Matrix", null, null, "Released", "1999-03-31",
-			List.of(), 8.2, 25000, new TmdbCredits(fifteen, List.of()), null, null, 136));
+			List.of(), 8.2, 25000, new TmdbCredits(fifteen, List.of()), null, null, 136, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -734,7 +777,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		, null, null));
+		, null, null, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -762,7 +805,7 @@ class TitleControllerTest {
 					new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0))),
 				"GB", new TmdbRegionWatchProviders(List.of(
 					new TmdbWatchProvider(9, "Prime Video", "/p.jpg", 1)))))
-		, null, null));
+		, null, null, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -787,7 +830,7 @@ class TitleControllerTest {
 			"Game of Thrones", "Nine noble families fight for control.", "/got.jpg",
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
 			8.4, 21000, null, null
-		));
+		, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")
@@ -820,7 +863,7 @@ class TitleControllerTest {
 			new TmdbCredits(List.of(
 				new TmdbCastMember(1223786L, "Emilia Clarke", "Daenerys Targaryen", "/emilia.jpg", 0)),
 				List.of()),
-			null));
+			null, null));
 
 		mockMvc.perform(get("/api/titles/detail")
 			.header("Authorization", "Bearer test-token")

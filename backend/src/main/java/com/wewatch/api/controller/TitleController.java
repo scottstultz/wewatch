@@ -42,6 +42,7 @@ import com.wewatch.api.tmdb.TmdbRegionWatchProviders;
 import com.wewatch.api.tmdb.TmdbTvDetail;
 import com.wewatch.api.tmdb.TmdbTvSeason;
 import com.wewatch.api.tmdb.TmdbWatchProviders;
+import com.wewatch.api.tmdb.TrailerPicker;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -97,8 +98,8 @@ public class TitleController {
 	@Operation(summary = "Get live TMDB detail for a title",
 		description = "Includes genres, watch providers resolved for the caller's watch region "
 			+ "(#270), the caller's own thumbs rating if the title has been resolved locally "
-			+ "(#273), and top-billed cast (#295). This calls TMDB live and does not require the "
-			+ "title to exist locally.")
+			+ "(#273), top-billed cast (#295), and a YouTube trailer URL when TMDB has one "
+			+ "(#340). This calls TMDB live and does not require the title to exist locally.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "Detail returned"),
 		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
@@ -146,7 +147,8 @@ public class TitleController {
 				flatrateProviders(detail.watchProviders(), watchRegion),
 				titleId,
 				myRating,
-				topCast(detail.credits())
+				topCast(detail.credits()),
+				TrailerPicker.trailerUrl(detail.videos())
 			);
 		}
 
@@ -181,7 +183,8 @@ public class TitleController {
 			flatrateProviders(detail.watchProviders(), watchRegion),
 			titleId,
 			myRating,
-			topCast(detail.credits())
+			topCast(detail.credits()),
+			TrailerPicker.trailerUrl(detail.videos())
 		);
 	}
 
