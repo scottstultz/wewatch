@@ -19,7 +19,8 @@ JWTs — provider-specific logic is isolated to the exchange endpoint, so adding
 means writing one new validator and adding one branch in `AuthController.exchangeToken`; JWT
 issuance, validation, and every downstream endpoint are untouched.
 
-- `JwtTokenService` signs and decodes tokens with HMAC-SHA256 using the `JWT_SECRET` env var.
+- `JwtTokenService` signs and decodes tokens with HMAC-SHA256 using the `JWT_SECRET` env var, which
+  it validates at startup — see [Secret validation & issuer pinning](#secret-validation--issuer-pinning-346).
 - `GoogleTokenValidator` validates Google ID tokens via `https://oauth2.googleapis.com/tokeninfo`
   and checks the `aud` claim against `GOOGLE_CLIENT_ID` (this is separate from `JWT_SECRET`,
   which validates WeWatch's own tokens).
@@ -128,6 +129,31 @@ directly and spoof `X-Forwarded-For` to rotate its bucket key. That is strictly 
 pre-#336 state (a free global lockout from anywhere on the internet) and the per-email bucket is
 untouched either way. Closing it means not publishing that port in a deployment that faces anything
 but localhost.
+
+### Secret validation & issuer pinning (#346)
+
+`JwtTokenService`'s constructor rejects a `JWT_SECRET` shorter than 32 bytes (256 bits, the HS256
+minimum) with an `IllegalArgumentException`, which Spring surfaces as a failed context refresh — the
+app refuses to start rather than booting green and throwing a 500 from `MACSigner` at the first
+sign-in, which is what a short secret used to do. The bytes come from an explicit
+`StandardCharsets.UTF_8` rather than the platform default. `jwtDecoder()` installs
+`JwtValidators.createDefaultWithIssuer("wewatch")`, so the decoder checks `iss` on top of the
+default timestamp validators; the issuer is a single `ISSUER` constant shared by the signer and the
+validator so the two cannot drift.
+
+⚠️ **The charset pin is only safe because the secret is ASCII.** `openssl rand -hex 32` (what the
+README prescribes) emits hex, so UTF-8 and the old platform-default encoding produce identical key
+bytes and no live token is invalidated. A secret containing non-ASCII would change key material
+under this change and sign every existing session out. Same for the issuer pin: every token the app
+has ever issued already carries `iss: wewatch`, so nothing in a user's localStorage is rejected by
+it.
+
+⚠️ **A startup assertion is invisible to this test suite.** There is no `@SpringBootTest` in
+`backend/src/test` — every controller test is `@WebMvcTest` with `JwtTokenService` mocked, so the
+constructor never runs and no test would have caught a regression here. `JwtTokenServiceTest`
+constructs the service directly (31 bytes throws, exactly 32 is accepted) for that reason. The
+issuer check is likewise covered by hand-signing a token with the *right key* and a foreign `iss` —
+without that, the `setJwtValidator` line could be deleted with a green suite.
 
 ### Tab-restore resilience (#242)
 
