@@ -22,12 +22,14 @@ import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
 
 /**
- * Verifies the SecurityConfig permitAll matchers added for springdoc (#297): the OpenAPI
- * spec/Swagger UI paths must be reachable without a token, while unrelated endpoints must
- * still require one. This is a security-slice test, not a springdoc smoke test — springdoc's
- * auto-configured resource controllers aren't loaded under @WebMvcTest, so an unmapped path
- * here surfaces as 404 rather than 200; either way it proves the path isn't rejected by
- * Spring Security. End-to-end Swagger UI/spec serving is verified manually (see docs/api.md).
+ * The <em>dev</em> half of the per-profile docs expectation (#297, #343): under the local
+ * profile — the only one that sets springdoc.api-docs.enabled=true — the OpenAPI spec/Swagger UI
+ * paths must be reachable without a token, while unrelated endpoints still require one. The
+ * disabled default and prod configurations are covered by {@link OpenApiDisabledByDefaultTest}
+ * and {@link OpenApiProdSecurityTest}. This is a security-slice test, not a springdoc smoke
+ * test — springdoc's auto-configured resource controllers aren't loaded under @WebMvcTest, so an
+ * unmapped path here surfaces as 404 rather than 200; either way it proves the path isn't
+ * rejected by Spring Security. End-to-end serving is verified manually (see docs/api.md).
  */
 @WebMvcTest(UserController.class)
 @Import(SecurityConfig.class)
@@ -55,6 +57,14 @@ class OpenApiSecurityTest {
 	@Test
 	void apiDocsAreReachableWithoutAToken() throws Exception {
 		mockMvc.perform(get("/v3/api-docs"))
+			.andExpect(result -> assertThat(result.getResponse().getStatus())
+				.isNotEqualTo(HttpStatus.UNAUTHORIZED.value()));
+	}
+
+	@Test
+	void yamlSpecIsReachableWithoutAToken() throws Exception {
+		// A sibling path, not under /v3/api-docs/** — it needs its own matcher.
+		mockMvc.perform(get("/v3/api-docs.yaml"))
 			.andExpect(result -> assertThat(result.getResponse().getStatus())
 				.isNotEqualTo(HttpStatus.UNAUTHORIZED.value()));
 	}

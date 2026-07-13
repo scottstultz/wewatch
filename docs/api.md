@@ -4,7 +4,7 @@ The backend REST API is documented interactively via [springdoc-openapi](https:/
 — annotations on the controllers and DTOs in `backend/src/main/java/com/wewatch/api` generate
 both a browsable Swagger UI and a machine-readable OpenAPI spec. See
 [`docs/architecture.md`](architecture.md) → "API Documentation" for the setup and the
-local-only exposure decision.
+opt-in exposure decision (#343).
 
 ## Local dev
 
@@ -14,7 +14,8 @@ default port 8080, no context path):
 - Swagger UI: http://localhost:8080/swagger-ui.html
 - Raw OpenAPI spec (JSON): http://localhost:8080/v3/api-docs
 
-Both are disabled in the `prod` profile.
+Both are off by default in every configuration (#343) — the `local` profile is the only one
+that enables them, and the paths require authentication anywhere else.
 
 ## Authenticating in Swagger UI
 
