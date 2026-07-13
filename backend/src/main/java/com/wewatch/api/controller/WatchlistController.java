@@ -189,6 +189,9 @@ public class WatchlistController {
 		@AuthenticationPrincipal User caller,
 		@Valid @RequestBody AddMemberRequest request
 	) {
+		// Authorize before resolving the email: a non-owner must not be able to tell a
+		// registered address (403) from an unregistered one (404). addMember re-checks.
+		watchlistService.requireOwner(watchlistId, caller.getId());
 		User targetUser = userService.findByEmail(request.email());
 		WatchlistMember member = watchlistService.addMember(watchlistId, targetUser.getId(), caller.getId());
 		WatchlistMemberResponse response = toMemberResponse(member);
