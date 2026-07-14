@@ -10,29 +10,27 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 @Entity
-@Table(
-	name = "users",
-	uniqueConstraints = {
-		@UniqueConstraint(name = "uq_users_email", columnNames = "email")
-	}
-)
+@Table(name = "users")
 public class User {
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
+	// Uniqueness is case-insensitive and lives in the DB as UNIQUE (lower(email)) — the
+	// uq_users_email_lower index added in V25 (#345). JPA cannot express a functional index,
+	// so declaring unique = true here would describe a constraint that no longer exists.
+	// Writes canonicalize through EmailNormalizer; the index is the backstop.
 	@Email
 	@NotBlank
 	@Size(max = 255)
-	@Column(name = "email", nullable = false, unique = true, length = 255)
+	@Column(name = "email", nullable = false, length = 255)
 	private String email;
 
 	@NotBlank

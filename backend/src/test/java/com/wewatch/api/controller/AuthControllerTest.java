@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -171,6 +172,35 @@ class AuthControllerTest {
 				{
 					"provider": "email",
 					"credential": "{\\"email\\":\\"user@example.com\\",\\"password\\":\\"password123\\"}"
+				}
+				"""))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.token").value("email-jwt-token"));
+	}
+
+	/**
+	 * The sign-in credential is parsed out of a JSON *string*, so it never passes through @Email —
+	 * it is the one email entry point that can carry surrounding whitespace. The allowlist gate runs
+	 * first and existsByEmailIgnoreCase folds case but not whitespace, so before #345 an untrimmed
+	 * address was answered 403 "not allowed" instead of matching its own allowlist row.
+	 */
+	@Test
+	void emailSignInCanonicalizesTheCredentialBeforeTheAllowlistGate() throws Exception {
+		// Only the canonical address is allowlisted — the blanket any() stub in setUp() would let
+		// any string through and hide the bug this pins.
+		reset(allowedEmailRepository);
+		when(allowedEmailRepository.existsByEmailIgnoreCase("user@example.com")).thenReturn(true);
+
+		User user = new User(1L, "user@example.com", "Test User", Instant.now(), Instant.now(), "email", "user@example.com");
+		when(userService.authenticateWithPassword("user@example.com", "password123")).thenReturn(user);
+		when(jwtTokenService.generateToken(user)).thenReturn("email-jwt-token");
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "email",
+					"credential": "{\\"email\\":\\"  User@Example.COM  \\",\\"password\\":\\"password123\\"}"
 				}
 				"""))
 			.andExpect(status().isOk())
@@ -361,6 +391,21 @@ class AuthControllerTest {
 
 		// ...the fourth is throttled before the password is even checked.
 		mockMvc.perform(emailSignIn("user@example.com", "wrongpass"))
+			.andExpect(status().isTooManyRequests());
+	}
+
+	@Test
+	void failedSignInsShareOneThrottleBucketAcrossEmailCasings() throws Exception {
+		when(userService.authenticateWithPassword(any(), any()))
+			.thenThrow(new InvalidCredentialsException());
+
+		// Varying the casing must not mint a fresh 3-attempt budget per variant — the throttle
+		// keys on the canonical address, same as every other boundary after #345.
+		mockMvc.perform(emailSignIn("user@example.com", "wrongpass")).andExpect(status().isUnauthorized());
+		mockMvc.perform(emailSignIn("User@Example.com", "wrongpass")).andExpect(status().isUnauthorized());
+		mockMvc.perform(emailSignIn("USER@EXAMPLE.COM", "wrongpass")).andExpect(status().isUnauthorized());
+
+		mockMvc.perform(emailSignIn("uSeR@eXaMpLe.CoM", "wrongpass"))
 			.andExpect(status().isTooManyRequests());
 	}
 

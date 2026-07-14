@@ -7,7 +7,6 @@ import java.util.Set;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -62,21 +61,21 @@ class UserTest {
 		assertThat(violations).anyMatch(violation -> violation.getPropertyPath().toString().equals("email"));
 	}
 
+	/**
+	 * Email uniqueness is case-insensitive and lives in the DB as UNIQUE (lower(email)) — see V25
+	 * and {@code UserEmailUniquenessTest} (#345). JPA cannot express a functional index, so a
+	 * case-sensitive {@code unique = true} / {@code @UniqueConstraint} here would describe a
+	 * constraint the schema no longer has. This pins that they stay off: re-adding one is how the
+	 * entity starts lying about the schema again.
+	 */
 	@Test
-	void emailIsMarkedUniqueAtEntityLevel() throws NoSuchFieldException {
+	void emailDeclaresNoCaseSensitiveUniquenessAtEntityLevel() throws NoSuchFieldException {
 		Column column = User.class.getDeclaredField("email").getAnnotation(Column.class);
-
 		assertThat(column).isNotNull();
-		assertThat(column.unique()).isTrue();
-	}
+		assertThat(column.unique()).isFalse();
 
-	@Test
-	void emailIsIncludedInTableUniqueConstraint() {
 		Table table = User.class.getAnnotation(Table.class);
-
 		assertThat(table).isNotNull();
-		assertThat(table.uniqueConstraints())
-			.extracting(UniqueConstraint::name)
-			.contains("uq_users_email");
+		assertThat(table.uniqueConstraints()).isEmpty();
 	}
 }

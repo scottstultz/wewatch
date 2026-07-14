@@ -20,6 +20,7 @@ import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.UserRepository;
+import com.wewatch.api.security.EmailNormalizer;
 
 @Service
 public class UserService {
@@ -46,10 +47,12 @@ public class UserService {
 		if (user.getUpdatedAt() == null) {
 			user.setUpdatedAt(now);
 		}
+		// Canonicalize before validate() so @Email sees exactly what gets stored.
+		user.setEmail(EmailNormalizer.normalize(user.getEmail()));
 
 		validate(user);
 
-		userRepository.findByEmail(user.getEmail())
+		userRepository.findByEmailIgnoreCase(user.getEmail())
 			.ifPresent(existingUser -> {
 				throw new DuplicateEmailException(user.getEmail());
 			});
@@ -70,15 +73,16 @@ public class UserService {
 	}
 
 	public User findByEmail(String email) {
-		return userRepository.findByEmail(email)
+		return userRepository.findByEmailIgnoreCase(EmailNormalizer.normalize(email))
 			.orElseThrow(() -> new NoSuchElementException("No user is registered with that email"));
 	}
 
 	public User update(Long id, String email, String displayName) {
 		User existingUser = findById(id);
+		String normalizedEmail = EmailNormalizer.normalize(email);
 
-		if (email != null) {
-			existingUser.setEmail(email);
+		if (normalizedEmail != null) {
+			existingUser.setEmail(normalizedEmail);
 		}
 		if (displayName != null) {
 			existingUser.setDisplayName(displayName);
@@ -87,11 +91,11 @@ public class UserService {
 
 		validate(existingUser);
 
-		if (email != null) {
-			userRepository.findByEmail(email)
+		if (normalizedEmail != null) {
+			userRepository.findByEmailIgnoreCase(normalizedEmail)
 				.filter(userWithEmail -> !userWithEmail.getId().equals(id))
 				.ifPresent(userWithEmail -> {
-					throw new DuplicateEmailException(email);
+					throw new DuplicateEmailException(normalizedEmail);
 				});
 		}
 
@@ -118,10 +122,13 @@ public class UserService {
 
 	@Transactional
 	public User findOrCreateByProviderIdentity(String provider, String providerId, String email, String displayName) {
+		// Whatever casing the provider hands back must resolve to the one account for that
+		// address, otherwise which account a Google sign-in links to is casing-dependent.
+		String normalizedEmail = EmailNormalizer.normalize(email);
 		return userRepository.findByProviderAndProviderId(provider, providerId)
 			.orElseGet(() -> {
 				Instant now = Instant.now();
-				return userRepository.findByEmail(email)
+				return userRepository.findByEmailIgnoreCase(normalizedEmail)
 					.map(existing -> {
 						existing.setProvider(provider);
 						existing.setProviderId(providerId);
@@ -129,8 +136,9 @@ public class UserService {
 						return userRepository.save(existing);
 					})
 					.orElseGet(() -> {
-						String name = (displayName != null && !displayName.isBlank()) ? displayName : email;
-						User saved = userRepository.save(new User(null, email, name, now, now, provider, providerId));
+						String name = (displayName != null && !displayName.isBlank()) ? displayName : normalizedEmail;
+						User saved = userRepository.save(
+							new User(null, normalizedEmail, name, now, now, provider, providerId));
 						watchlistService.provisionPersonalWatchlist(saved.getId(), saved.getDisplayName() + "'s Watchlist");
 						return saved;
 					});
@@ -139,16 +147,19 @@ public class UserService {
 
 	@Transactional
 	public User registerWithPassword(String email, String displayName, String password) {
-		userRepository.findByEmail(email).ifPresent(existing -> {
-			throw new DuplicateEmailException(email);
+		String normalizedEmail = EmailNormalizer.normalize(email);
+		userRepository.findByEmailIgnoreCase(normalizedEmail).ifPresent(existing -> {
+			throw new DuplicateEmailException(normalizedEmail);
 		});
 
 		Instant now = Instant.now();
 		User user = new User();
-		user.setEmail(email);
+		user.setEmail(normalizedEmail);
 		user.setDisplayName(displayName);
 		user.setProvider("email");
-		user.setProviderId(email);
+		// providerId is a second copy of the address for password users — canonicalize it too,
+		// or findByProviderAndProviderId goes stale against the normalized email column.
+		user.setProviderId(normalizedEmail);
 		user.setPasswordHash(passwordEncoder.encode(password));
 		user.setCreatedAt(now);
 		user.setUpdatedAt(now);
@@ -167,7 +178,7 @@ public class UserService {
 	private static final String DUMMY_PASSWORD_HASH = "$2a$10$ntarrN47RrxhmC4J/OvMQe2PSTM.z92G7iVpW9aIgvFDCdVZxIeYO";
 
 	public User authenticateWithPassword(String email, String password) {
-		User user = userRepository.findByEmail(email)
+		User user = userRepository.findByEmailIgnoreCase(EmailNormalizer.normalize(email))
 			.filter(u -> u.getPasswordHash() != null)
 			.orElse(null);
 
