@@ -1,7 +1,6 @@
 package com.wewatch.api.security;
 
 import java.time.Duration;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -107,7 +106,7 @@ public class LoginAttemptService {
 	}
 
 	private static String emailKey(String email) {
-		return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+		return email == null ? "" : EmailNormalizer.normalize(email);
 	}
 
 	/** Clears every bucket. Operational/test reset — the throttle carries no persistent state. */

@@ -930,3 +930,69 @@ the allowlist, build that before opening sign-up.**
 `WatchlistControllerTest` covers the AC path (non-owner + unregistered email → 403, not 404) and
 asserts `findByEmail` is never reached; the old ordering fails both new assertions, which is the point
 of them.
+
+## Canonical email casing (#345)
+
+Email is the identity key at every boundary — registration, sign-in, provider linking, the allowlist,
+watchlist member-add — and each layer used to compare it differently. The allowlist read was
+`existsByEmailIgnoreCase`, but `UserRepository.findByEmail` was exact-match and `uq_users_email` (V1)
+was a case-sensitive `UNIQUE`. So `Foo@x.com` and `foo@x.com` could become two accounts for one human:
+the duplicate check missed the variant and the constraint happily accepted it. Which account a Google
+sign-in linked to then depended on the exact casing Google returned.
+
+The fix is one canonical form — trimmed, `toLowerCase(Locale.ROOT)` — in `security/EmailNormalizer`,
+applied on write and matched case-insensitively on read, with the database as the backstop.
+
+**Two layers, on purpose.** `UserService` normalizes every write (`create`, `update`,
+`registerWithPassword`, `findOrCreateByProviderIdentity`) and reads via `findByEmailIgnoreCase`; V25
+replaces the case-sensitive constraint with `UNIQUE (lower(email))`. The index is what makes the bug
+*impossible* rather than merely unlikely — a case-variant insert that bypasses the service now fails
+loudly with a constraint violation instead of silently minting a second account. Reads stay
+`IgnoreCase` rather than "exact match on an already-normalized string" so a row that escaped
+normalization (the `allowed_emails` rows are inserted by hand via psql, so hand-edited `users` rows
+are plausible too) still resolves; Postgres serves it from the same functional index, so it is not a
+scan.
+
+⚠️ **`Locale.ROOT` is load-bearing.** Under a Turkish default locale `"I".toLowerCase()` is the
+dotless `ı`, which would key an ASCII address to a non-ASCII string — a JVM-locale-dependent identity.
+`EmailNormalizerTest` sets the default locale to `tr` to pin it; nothing else in the suite would catch
+its removal.
+
+⚠️ **`provider_id` is a second copy of the address.** `registerWithPassword` stores the email in
+`provider_id` as well (password users key on `("email", <address>)`). Normalizing only the `email`
+column would strand `findByProviderAndProviderId` against it, so both the write path and V25's
+backfill canonicalize it.
+
+⚠️ **The migration refuses to merge; the allowlist dedupe is safe.** Two `users` rows differing only
+by case are two humans' watchlists, ratings and episode progress — V25 raises with the colliding
+addresses and lets Flyway abort, so a person decides. `allowed_emails` gets the opposite treatment
+(`DELETE ... WHERE a.id > b.id`): an allowlist row owns no data, so dropping the later duplicate is
+lossless. Its `UNIQUE` was case-sensitive too, so two rows for one human could coexist there as well.
+
+⚠️ **The sign-in credential is the one email entry point with no bean validation.** It arrives as a
+JSON *string* inside `TokenRequest.credential` and is parsed by hand, so unlike `RegisterRequest` /
+`AddMemberRequest` it never passes `@Email` — which means it is the only path that can carry
+surrounding whitespace. The allowlist gate runs first and `existsByEmailIgnoreCase` folds case but not
+whitespace, so an untrimmed address was answered **403 "not allowed"** — rejected by its own allowlist
+row. Hence `parseEmailCredential` canonicalizes at the edge and `requireAllowedEmail` normalizes before
+the lookup, so the throttle bucket, the allowlist gate and the user lookup all key off one string.
+Found by driving the real flow, not by the unit tests.
+
+**Entity annotations were removed, not updated.** JPA cannot express a functional index, so a
+case-sensitive `unique = true` / `@UniqueConstraint` on `User.email` would describe a constraint the
+schema no longer has (they were inert anyway — `ddl-auto=none`, Flyway owns the schema). `UserTest`
+now pins that they stay *off*, and `UserEmailUniquenessTest` reads the shipped V25 file off the
+classpath and asserts its shape — the same trick `ClientIpResolverTest` uses on the shipped
+`trusted-proxies` default. Without it V25 could be deleted with a green build: **no test in
+`backend/src/test` executes SQL** (no `@DataJpaTest`, no Testcontainers), so the migration itself is
+verified by hand against local Postgres.
+
+**Deploy order does not matter.** Reads are case-insensitive, so the new code tolerates
+pre-migration mixed-case rows; the migration is a no-op on already-canonical ones. And nothing on the
+authenticated request path looks a user up by email — `JwtTokenService` puts the user id in the
+subject and `email` is an informational claim — so normalizing storage cannot invalidate live tokens.
+
+**Relationship to #342.** This makes the `findOrCreateByProviderIdentity` link-by-email fallback
+*casing-stable*; it does not decide whether that fallback should link at all. It slightly widens the
+fallback's reach (it now matches case variants), which is the intent here and exactly why the
+pre-hijack fix (#342) should land on top of it.

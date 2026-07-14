@@ -8,7 +8,10 @@ import com.wewatch.api.model.User;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
-	Optional<User> findByEmail(String email);
+	// Case-insensitive by design (#345): writes store the canonical lowercase form, but a row
+	// inserted by hand can still carry mixed case, and LOWER(email) = LOWER(?) is served by the
+	// uq_users_email_lower index added in V25.
+	Optional<User> findByEmailIgnoreCase(String email);
 
 	Optional<User> findByProviderAndProviderId(String provider, String providerId);
 }

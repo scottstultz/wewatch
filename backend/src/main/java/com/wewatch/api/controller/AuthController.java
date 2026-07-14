@@ -20,6 +20,7 @@ import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.ClientIpResolver;
+import com.wewatch.api.security.EmailNormalizer;
 import com.wewatch.api.security.GoogleTokenValidator;
 import com.wewatch.api.security.GoogleTokenValidator.GoogleIdentity;
 import com.wewatch.api.security.GoogleTokenValidator.InvalidCredentialException;
@@ -134,7 +135,11 @@ public class AuthController {
 	}
 
 	private void requireAllowedEmail(String email) {
-		if (!allowedEmailRepository.existsByEmailIgnoreCase(email)) {
+		// The allowlist is the first gate on every auth flow, and it must judge the same string
+		// the rest of the request does. existsByEmailIgnoreCase folds case but not surrounding
+		// whitespace, so an untrimmed address (the sign-in credential is parsed out of a JSON
+		// string and never sees @Email) was answered 403 "not allowed" rather than being matched.
+		if (!allowedEmailRepository.existsByEmailIgnoreCase(EmailNormalizer.normalize(email))) {
 			throw new RegistrationNotAllowedException();
 		}
 	}
@@ -149,7 +154,10 @@ public class AuthController {
 			if (email == null || email.isBlank() || password == null || password.isBlank()) {
 				throw new IllegalArgumentException("Email and password are required");
 			}
-			return new EmailCredential(email, password);
+			// Canonical from the edge: this is the one email entry point with no bean validation,
+			// so the throttle bucket, the allowlist gate and the user lookup all key off the same
+			// form (#345).
+			return new EmailCredential(EmailNormalizer.normalize(email), password);
 		} catch (JsonProcessingException e) {
 			throw new IllegalArgumentException("Invalid credential format for email provider");
 		}

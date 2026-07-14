@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -53,7 +54,7 @@ class UserServiceTest {
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
 		User user = new User(null, "user@example.com", "Scott", null, null);
 
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.empty());
 		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		User created = service.create(user);
@@ -83,7 +84,7 @@ class UserServiceTest {
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 		User user = new User(null, "user@example.com", "Sam", Instant.now(), Instant.now());
 
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(existing));
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(existing));
 
 		assertThatThrownBy(() -> service.create(user)).isInstanceOf(DuplicateEmailException.class);
 	}
@@ -199,7 +200,7 @@ class UserServiceTest {
 		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmail("other@example.com")).thenReturn(Optional.of(other));
+		when(repository.findByEmailIgnoreCase("other@example.com")).thenReturn(Optional.of(other));
 
 		assertThatThrownBy(() -> service.update(1L, "other@example.com", null))
 			.isInstanceOf(DuplicateEmailException.class);
@@ -214,7 +215,7 @@ class UserServiceTest {
 		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(existing));
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(existing));
 		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		User updated = service.update(1L, "user@example.com", "Scott Stultz");
@@ -234,7 +235,7 @@ class UserServiceTest {
 		User savedUser = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
 		Watchlist watchlist = new Watchlist(1L, "Scott's Watchlist", WatchlistType.PERSONAL, Instant.now(), Instant.now());
 
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.empty());
 		when(repository.save(any(User.class))).thenReturn(savedUser);
 		when(watchlistService.provisionPersonalWatchlist(1L, "Scott's Watchlist")).thenReturn(watchlist);
 
@@ -252,7 +253,7 @@ class UserServiceTest {
 		User savedUser = new User(1L, "new@example.com", "New User", Instant.now(), Instant.now());
 
 		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
-		when(repository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("new@example.com")).thenReturn(Optional.empty());
 		when(repository.save(any(User.class))).thenReturn(savedUser);
 
 		service.findOrCreateByProviderIdentity("google", "sub-new", "new@example.com", "New User");
@@ -284,7 +285,7 @@ class UserServiceTest {
 		User existingUser = new User(1L, "existing@example.com", "Existing User", Instant.now(), Instant.now());
 
 		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
-		when(repository.findByEmail("existing@example.com")).thenReturn(Optional.of(existingUser));
+		when(repository.findByEmailIgnoreCase("existing@example.com")).thenReturn(Optional.of(existingUser));
 		when(repository.save(any(User.class))).thenReturn(existingUser);
 
 		service.findOrCreateByProviderIdentity("google", "sub-new", "existing@example.com", "Existing User");
@@ -301,7 +302,7 @@ class UserServiceTest {
 		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
 
-		when(repository.findByEmail("new@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("new@example.com")).thenReturn(Optional.empty());
 		when(passwordEncoder.encode("password123")).thenReturn("$2a$hashed");
 		when(repository.save(any(User.class))).thenAnswer(invocation -> {
 			User u = invocation.getArgument(0);
@@ -328,7 +329,7 @@ class UserServiceTest {
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
 		User existing = new User(1L, "existing@example.com", "Existing", Instant.now(), Instant.now());
 
-		when(repository.findByEmail("existing@example.com")).thenReturn(Optional.of(existing));
+		when(repository.findByEmailIgnoreCase("existing@example.com")).thenReturn(Optional.of(existing));
 
 		assertThatThrownBy(() -> service.registerWithPassword("existing@example.com", "User", "password123"))
 			.isInstanceOf(DuplicateEmailException.class);
@@ -345,7 +346,7 @@ class UserServiceTest {
 		User user = new User(1L, "user@example.com", "User", Instant.now(), Instant.now(), "email", "user@example.com");
 		user.setPasswordHash("$2a$hashed");
 
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(user));
 		when(passwordEncoder.matches("password123", "$2a$hashed")).thenReturn(true);
 
 		User result = service.authenticateWithPassword("user@example.com", "password123");
@@ -361,7 +362,7 @@ class UserServiceTest {
 		User user = new User(1L, "user@example.com", "User", Instant.now(), Instant.now(), "email", "user@example.com");
 		user.setPasswordHash("$2a$hashed");
 
-		when(repository.findByEmail("user@example.com")).thenReturn(Optional.of(user));
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(user));
 		when(passwordEncoder.matches("wrongpassword", "$2a$hashed")).thenReturn(false);
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("user@example.com", "wrongpassword"))
@@ -375,7 +376,7 @@ class UserServiceTest {
 		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
 
-		when(repository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("nobody@example.com")).thenReturn(Optional.empty());
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("nobody@example.com", "password123"))
 			.isInstanceOf(InvalidCredentialsException.class);
@@ -393,7 +394,7 @@ class UserServiceTest {
 		User googleUser = new User(1L, "google@example.com", "Google User", Instant.now(), Instant.now(), "google", "g-sub-123");
 		// passwordHash is null — Google-only user
 
-		when(repository.findByEmail("google@example.com")).thenReturn(Optional.of(googleUser));
+		when(repository.findByEmailIgnoreCase("google@example.com")).thenReturn(Optional.of(googleUser));
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("google@example.com", "password123"))
 			.isInstanceOf(InvalidCredentialsException.class);
@@ -409,10 +410,156 @@ class UserServiceTest {
 		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
 
-		when(repository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("nobody@example.com")).thenReturn(Optional.empty());
 		when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
 
 		assertThatThrownBy(() -> service.authenticateWithPassword("nobody@example.com", "password123"))
 			.isInstanceOf(InvalidCredentialsException.class);
+	}
+
+	// ── email casing (#345) ──────────────────────────────────
+	//
+	// Every case below fails against the pre-#345 exact-match lookups: the mocks stub only the
+	// canonical key, so a service that passes the raw string through gets Optional.empty() back.
+
+	@Test
+	void registerWithPasswordStoresCanonicalEmailAndProviderId() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+
+		when(repository.findByEmailIgnoreCase("new@example.com")).thenReturn(Optional.empty());
+		when(passwordEncoder.encode("password123")).thenReturn("$2a$hashed");
+		when(repository.save(any(User.class))).thenAnswer(invocation -> {
+			User u = invocation.getArgument(0);
+			u.setId(1L);
+			return u;
+		});
+
+		User result = service.registerWithPassword("  New@Example.COM  ", "New User", "password123");
+
+		assertThat(result.getEmail()).isEqualTo("new@example.com");
+		// providerId is the second copy of the address for password users — it must match.
+		assertThat(result.getProviderId()).isEqualTo("new@example.com");
+	}
+
+	@Test
+	void registerWithPasswordRejectsCaseVariantOfExistingEmail() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "existing@example.com", "Existing", Instant.now(), Instant.now());
+
+		when(repository.findByEmailIgnoreCase("existing@example.com")).thenReturn(Optional.of(existing));
+
+		assertThatThrownBy(() -> service.registerWithPassword("Existing@Example.com", "User", "password123"))
+			.isInstanceOf(DuplicateEmailException.class);
+		verify(repository, never()).save(any(User.class));
+	}
+
+	@Test
+	void authenticateWithPasswordAcceptsMixedCaseEmail() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User user = new User(1L, "user@example.com", "User", Instant.now(), Instant.now(), "email", "user@example.com");
+		user.setPasswordHash("$2a$hashed");
+
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(user));
+		when(passwordEncoder.matches("password123", "$2a$hashed")).thenReturn(true);
+
+		// Registered as user@, signing in as USER@ — same human, same account.
+		assertThat(service.authenticateWithPassword("USER@Example.com", "password123")).isEqualTo(user);
+	}
+
+	@Test
+	void findOrCreateByProviderIdentityLinksMixedCaseProviderEmailToExistingAccount() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "existing@example.com", "Existing User", Instant.now(), Instant.now());
+
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("existing@example.com")).thenReturn(Optional.of(existing));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		// Google hands back Existing@Example.com; that must link onto the one account for the
+		// address, not mint a second one whose identity depends on the casing Google chose.
+		User linked = service.findOrCreateByProviderIdentity(
+			"google", "sub-new", "Existing@Example.com", "Existing User");
+
+		assertThat(linked.getId()).isEqualTo(1L);
+		assertThat(linked.getProviderId()).isEqualTo("sub-new");
+		Mockito.verifyNoInteractions(watchlistService);
+	}
+
+	@Test
+	void findOrCreateByProviderIdentityStoresCanonicalEmailForNewUser() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("new@example.com")).thenReturn(Optional.empty());
+		when(repository.save(any(User.class))).thenAnswer(invocation -> {
+			User u = invocation.getArgument(0);
+			u.setId(1L);
+			return u;
+		});
+
+		User created = service.findOrCreateByProviderIdentity("google", "sub-new", "New@Example.com", "New User");
+
+		assertThat(created.getEmail()).isEqualTo("new@example.com");
+	}
+
+	@Test
+	void updateStoresCanonicalEmail() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.findByEmailIgnoreCase("moved@example.com")).thenReturn(Optional.empty());
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		assertThat(service.update(1L, "Moved@Example.com", null).getEmail()).isEqualTo("moved@example.com");
+	}
+
+	@Test
+	void updateRejectsCaseVariantOfAnotherUsersEmail() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
+
+		when(repository.findById(1L)).thenReturn(Optional.of(existing));
+		when(repository.findByEmailIgnoreCase("other@example.com")).thenReturn(Optional.of(other));
+
+		assertThatThrownBy(() -> service.update(1L, "OTHER@example.com", null))
+			.isInstanceOf(DuplicateEmailException.class);
+		verify(repository, never()).save(any(User.class));
+	}
+
+	@Test
+	void findByEmailResolvesMixedCaseInput() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		User user = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(user));
+
+		// The watchlist member-add path (WatchlistController.addMember) lands here.
+		assertThat(service.findByEmail(" User@Example.com ")).isEqualTo(user);
 	}
 }
