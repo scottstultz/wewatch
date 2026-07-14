@@ -13,9 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import com.wewatch.api.dto.UserResponse;
 import com.wewatch.api.dto.UserUpdateRequest;
 import com.wewatch.api.exception.ForbiddenException;
-import com.wewatch.api.exception.RegistrationNotAllowedException;
 import com.wewatch.api.model.User;
-import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
 
@@ -30,13 +28,10 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class UserController {
 
 	private final UserService userService;
-	private final AllowedEmailRepository allowedEmailRepository;
 	private final SuggestionService suggestionService;
 
-	public UserController(UserService userService, AllowedEmailRepository allowedEmailRepository,
-			SuggestionService suggestionService) {
+	public UserController(UserService userService, SuggestionService suggestionService) {
 		this.userService = userService;
-		this.allowedEmailRepository = allowedEmailRepository;
 		this.suggestionService = suggestionService;
 	}
 
@@ -67,15 +62,16 @@ public class UserController {
 
 	@PatchMapping("/{userId}")
 	@Operation(summary = "Update a user's profile or streaming-provider settings",
-		description = "Self-only — the caller may only update their own profile. Updating "
-			+ "watchRegion or watchProviderIds evicts the caller's cached suggestion shelves "
-			+ "so the next read recomputes with the new provider context (#270).")
+		description = "Self-only — the caller may only update their own profile. The email address "
+			+ "is not updatable: it is the account's identity and nothing here can prove the caller "
+			+ "owns an address they are moving to (#342). Updating watchRegion or watchProviderIds "
+			+ "evicts the caller's cached suggestion shelves so the next read recomputes with the "
+			+ "new provider context (#270).")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "Profile updated"),
 		@ApiResponse(responseCode = "400", description = "Validation failed"),
 		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
-		@ApiResponse(responseCode = "403", description = "Caller is not the requested user, or the new "
-			+ "email is not in the allowlist")
+		@ApiResponse(responseCode = "403", description = "Caller is not the requested user")
 	})
 	public UserResponse updateUser(
 		@PathVariable Long userId,
@@ -85,12 +81,7 @@ public class UserController {
 		if (!caller.getId().equals(userId)) {
 			throw new ForbiddenException("Cannot update another user's profile");
 		}
-		if (request.email() != null
-				&& !request.email().equalsIgnoreCase(caller.getEmail())
-				&& !allowedEmailRepository.existsByEmailIgnoreCase(request.email())) {
-			throw new RegistrationNotAllowedException();
-		}
-		User updated = userService.update(userId, request.email(), request.displayName());
+		User updated = userService.update(userId, request.displayName());
 		// Streaming-service settings (#270) change what every list the user
 		// belongs to may suggest — evict those cached shelves so the next read
 		// recomputes with the new provider context (same pattern as dismissals).

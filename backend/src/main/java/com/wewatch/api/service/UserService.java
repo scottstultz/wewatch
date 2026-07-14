@@ -16,6 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.wewatch.api.exception.AccountLinkConflictException;
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
@@ -77,27 +78,19 @@ public class UserService {
 			.orElseThrow(() -> new NoSuchElementException("No user is registered with that email"));
 	}
 
-	public User update(Long id, String email, String displayName) {
+	// The email is deliberately not updatable (#342). It is the account's identity: the allowlist,
+	// sign-in, and provider linking all key on it, and nothing here can prove the caller owns an
+	// address they are moving to. Changing one is an admin/DB operation. This also keeps provider_id
+	// — a second copy of the address for password users, see registerWithPassword — from going stale.
+	public User update(Long id, String displayName) {
 		User existingUser = findById(id);
-		String normalizedEmail = EmailNormalizer.normalize(email);
 
-		if (normalizedEmail != null) {
-			existingUser.setEmail(normalizedEmail);
-		}
 		if (displayName != null) {
 			existingUser.setDisplayName(displayName);
 		}
 		existingUser.setUpdatedAt(Instant.now());
 
 		validate(existingUser);
-
-		if (normalizedEmail != null) {
-			userRepository.findByEmailIgnoreCase(normalizedEmail)
-				.filter(userWithEmail -> !userWithEmail.getId().equals(id))
-				.ifPresent(userWithEmail -> {
-					throw new DuplicateEmailException(normalizedEmail);
-				});
-		}
 
 		return userRepository.save(existingUser);
 	}
@@ -130,6 +123,15 @@ public class UserService {
 				Instant now = Instant.now();
 				return userRepository.findByEmailIgnoreCase(normalizedEmail)
 					.map(existing -> {
+						// Trust-on-first-use by email is a pre-hijack vector (#342): anyone who knows an
+						// allowlisted address can claim it first (register is allowlist-gated but proves no
+						// ownership), and adopting the row here would hand the Google signer an account whose
+						// password hash — and watchlist memberships — someone else still holds. Only a row with
+						// no credentials at all is safe to adopt: nobody can sign into it today, so linking it
+						// grants no one access they did not already have.
+						if (existing.getPasswordHash() != null || existing.getProviderId() != null) {
+							throw new AccountLinkConflictException();
+						}
 						existing.setProvider(provider);
 						existing.setProviderId(providerId);
 						existing.setUpdatedAt(now);

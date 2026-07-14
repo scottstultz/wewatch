@@ -25,9 +25,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.model.User;
-import com.wewatch.api.repository.AllowedEmailRepository;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
 import com.wewatch.api.service.SuggestionService;
@@ -43,9 +41,6 @@ class UserControllerTest {
 
 	@MockBean
 	private UserService userService;
-
-	@MockBean
-	private AllowedEmailRepository allowedEmailRepository;
 
 	@MockBean
 	private SuggestionService suggestionService;
@@ -115,10 +110,9 @@ class UserControllerTest {
 	void updateUserReturnsUpdatedUser() throws Exception {
 		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
 		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
-		User updatedUser = new User(1L, "updated@example.com", "Scott Stultz", createdAt, updatedAt);
+		User updatedUser = new User(1L, "test@example.com", "Scott Stultz", createdAt, updatedAt);
 
-		when(allowedEmailRepository.existsByEmailIgnoreCase("updated@example.com")).thenReturn(true);
-		when(userService.update(1L, "updated@example.com", "Scott Stultz")).thenReturn(updatedUser);
+		when(userService.update(1L, "Scott Stultz")).thenReturn(updatedUser);
 
 		mockMvc.perform(
 			patch("/api/users/1")
@@ -126,7 +120,6 @@ class UserControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
-					  "email": "updated@example.com",
 					  "displayName": "Scott Stultz"
 					}
 					""")
@@ -134,21 +127,21 @@ class UserControllerTest {
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.id").value(1))
-			.andExpect(jsonPath("$.email").value("updated@example.com"))
+			.andExpect(jsonPath("$.email").value("test@example.com"))
 			.andExpect(jsonPath("$.displayName").value("Scott Stultz"))
 			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
 			.andExpect(jsonPath("$.updatedAt").value("2026-04-29T12:00:00Z"));
 
-		verify(userService).update(1L, "updated@example.com", "Scott Stultz");
+		verify(userService).update(1L, "Scott Stultz");
 	}
 
+	// #342: the email is the account's identity and is not self-service updatable. UserUpdateRequest
+	// has no email field at all, so a body still carrying one is ignored — there is no path from the
+	// request to an email write. Claiming an allowlisted address you don't own was half the pre-hijack.
 	@Test
-	void updateUserSupportsPartialPayload() throws Exception {
-		Instant createdAt = Instant.parse("2026-04-28T12:00:00Z");
-		Instant updatedAt = Instant.parse("2026-04-29T12:00:00Z");
-		User updatedUser = new User(1L, "user@example.com", "Scott Stultz", createdAt, updatedAt);
-
-		when(userService.update(1L, null, "Scott Stultz")).thenReturn(updatedUser);
+	void updateUserIgnoresEmailInBody() throws Exception {
+		User updatedUser = new User(1L, "test@example.com", "Scott Stultz", Instant.EPOCH, Instant.EPOCH);
+		when(userService.update(1L, "Scott Stultz")).thenReturn(updatedUser);
 
 		mockMvc.perform(
 			patch("/api/users/1")
@@ -156,16 +149,15 @@ class UserControllerTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""
 					{
+					  "email": "victim@example.com",
 					  "displayName": "Scott Stultz"
 					}
 					""")
 		)
 			.andExpect(status().isOk())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.email").value("user@example.com"))
-			.andExpect(jsonPath("$.displayName").value("Scott Stultz"));
+			.andExpect(jsonPath("$.email").value("test@example.com"));
 
-		verify(userService).update(1L, null, "Scott Stultz");
+		verify(userService).update(1L, "Scott Stultz");
 	}
 
 	@Test
@@ -188,7 +180,7 @@ class UserControllerTest {
 
 	@Test
 	void updateUserReturnsNotFoundWhenMissing() throws Exception {
-		when(userService.update(1L, null, "Scott")).thenThrow(new NoSuchElementException("User not found: 1"));
+		when(userService.update(1L, "Scott")).thenThrow(new NoSuchElementException("User not found: 1"));
 
 		mockMvc.perform(
 			patch("/api/users/1")
@@ -212,11 +204,7 @@ class UserControllerTest {
 			patch("/api/users/1")
 				.header("Authorization", "Bearer test-token")
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "not-an-email"
-					}
-					""")
+				.content("{\"displayName\": \"" + "a".repeat(256) + "\"}")
 		)
 			.andExpect(status().isBadRequest())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
@@ -225,33 +213,11 @@ class UserControllerTest {
 	}
 
 	@Test
-	void updateUserReturnsConflictForDuplicateEmail() throws Exception {
-		when(allowedEmailRepository.existsByEmailIgnoreCase("other@example.com")).thenReturn(true);
-		when(userService.update(1L, "other@example.com", null))
-			.thenThrow(new DuplicateEmailException("other@example.com"));
-
-		mockMvc.perform(
-			patch("/api/users/1")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "other@example.com"
-					}
-					""")
-		)
-			.andExpect(status().isConflict())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(409))
-			.andExpect(jsonPath("$.message").value("User email already exists: other@example.com"));
-	}
-
-	@Test
 	void updateUserSavesStreamingSettingsAndEvictsSuggestions() throws Exception {
 		User updatedUser = new User(1L, "test@example.com", "Test User", Instant.EPOCH, Instant.EPOCH);
 		updatedUser.setWatchRegion("US");
 		updatedUser.setWatchProviderIds(java.util.List.of(8, 9));
-		when(userService.update(1L, null, null)).thenReturn(TEST_USER);
+		when(userService.update(1L, null)).thenReturn(TEST_USER);
 		when(userService.updateStreamingSettings(1L, "US", java.util.List.of(8, 9))).thenReturn(updatedUser);
 
 		mockMvc.perform(
@@ -277,7 +243,7 @@ class UserControllerTest {
 
 	@Test
 	void updateUserWithoutStreamingFieldsDoesNotEvictSuggestions() throws Exception {
-		when(userService.update(1L, null, "Scott Stultz"))
+		when(userService.update(1L, "Scott Stultz"))
 			.thenReturn(new User(1L, "test@example.com", "Scott Stultz", Instant.EPOCH, Instant.EPOCH));
 
 		mockMvc.perform(
@@ -329,50 +295,6 @@ class UserControllerTest {
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
 			.andExpect(jsonPath("$.status").value(403))
 			.andExpect(jsonPath("$.message").value("Cannot view another user's profile"));
-	}
-
-	@Test
-	void updateUserReturnsForbiddenWhenNewEmailNotAllowlisted() throws Exception {
-		when(allowedEmailRepository.existsByEmailIgnoreCase("intruder@example.com")).thenReturn(false);
-
-		mockMvc.perform(
-			patch("/api/users/1")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "intruder@example.com"
-					}
-					""")
-		)
-			.andExpect(status().isForbidden())
-			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$.status").value(403))
-			.andExpect(jsonPath("$.message").value("This email is not authorized to use WeWatch."));
-
-		verify(userService, never()).update(any(), any(), any());
-	}
-
-	@Test
-	void updateUserSkipsAllowlistCheckWhenEmailUnchanged() throws Exception {
-		User updatedUser = new User(1L, "test@example.com", "New Name", Instant.EPOCH, Instant.EPOCH);
-		when(userService.update(1L, "Test@Example.com", "New Name")).thenReturn(updatedUser);
-
-		mockMvc.perform(
-			patch("/api/users/1")
-				.header("Authorization", "Bearer test-token")
-				.contentType(MediaType.APPLICATION_JSON)
-				.content("""
-					{
-					  "email": "Test@Example.com",
-					  "displayName": "New Name"
-					}
-					""")
-		)
-			.andExpect(status().isOk())
-			.andExpect(jsonPath("$.displayName").value("New Name"));
-
-		verify(allowedEmailRepository, never()).existsByEmailIgnoreCase(any());
 	}
 
 	@Test

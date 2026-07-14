@@ -996,3 +996,83 @@ subject and `email` is an informational claim — so normalizing storage cannot 
 *casing-stable*; it does not decide whether that fallback should link at all. It slightly widens the
 fallback's reach (it now matches case variants), which is the intent here and exactly why the
 pre-hijack fix (#342) should land on top of it.
+
+## Account linking & email immutability (#342)
+
+Two unverified-ownership behaviors composed into a pre-hijack: `PATCH /api/users/{id}` let a user
+change their email to any *allowlisted* address with no proof of ownership, and
+`findOrCreateByProviderIdentity` fell back to `findByEmailIgnoreCase` on a first Google sign-in and
+adopted whatever account it found — overwriting `provider`/`provider_id` while leaving the existing
+`password_hash` in place. Claim a household member's address before they sign up, wait for them to
+sign in with Google, and you are both on one account: they use it, and you still hold its password.
+
+**The claim vector that mattered was not the one in the title.** `POST /api/auth/register` is
+unauthenticated and gated *only* by the allowlist, so anyone who knows an allowlisted address can
+already claim it by registering a password account for it — no `PATCH` required. Removing the email
+change therefore does not close the pre-hijack; **the guard at the link sink is the whole fix.** Both
+shipped, for different reasons.
+
+### The link fallback now refuses accounts that hold credentials
+
+`UserService.findOrCreateByProviderIdentity` throws `AccountLinkConflictException` (→ **409**, next to
+`DuplicateEmailException` in `ApiExceptionHandler`) when the email-matched row has a `passwordHash` or
+*any* `providerId`. That leaves exactly one adoptable case: a row with **no password hash and no
+provider identity** — one nobody can sign into today, so linking it grants no one access they did not
+already have. (`userService.create()` has no callers in `src/main`; in practice this is V1-era/seeded
+rows, and keeping the branch is what stops the change from stranding them.)
+
+Already-linked accounts never reach the fallback — they hit on `(provider, provider_id)`. The only
+behavior that changes is a *first* Google sign-in against an account that already has a password: it
+now 409s, telling the user to sign in with the password they already have, instead of silently
+merging two identities.
+
+⚠️ **Clearing `password_hash` on link — the other option the issue floated — is not safe.** It locks
+the squatter out of the password but hands the victim an account the squatter *seeded*: `addMember`
+has no `PERSONAL` type guard (see "Authorization before lookup in addMember (#344)"), so the squatter
+can already be a member of that account's watchlist and keeps read/write access after the link. Refuse
+the link; do not try to launder the account.
+
+⚠️ **The conflict must not feed the auth throttle.** `AuthController.exchangeToken` records an IP
+failure for `InvalidCredentialException | RegistrationNotAllowedException` — `AccountLinkConflictException`
+is deliberately **not** in that `catch`. It is a legitimate user hitting a wall, not a credential
+guess; counting it would let a confused household member lock their own IP out of sign-in via the
+#318/#336 buckets. `repeatedLinkConflictsDoNotThrottleTheClient` pins this (the slice sets
+`ip-max-attempts=4`, so a counted failure would turn the 5th attempt into a 429).
+
+This adds no enumeration oracle: reaching the branch at all requires a Google-verified credential for
+the address (`GoogleTokenValidator` checks `email_verified`), so the caller already owns it.
+
+### Email is now immutable identity
+
+`UserUpdateRequest` has no `email` field, `UserService.update` takes `(id, displayName)`, and
+`UserController` lost the allowlist check and its `AllowedEmailRepository` dependency. The frontend
+never sent `email` — `updateStreamingSettings` is the endpoint's only caller — so no UI changed.
+A body still carrying `"email"` is *ignored*, not rejected (unknown properties are not fatal), which
+fails closed; `updateUserIgnoresEmailInBody` pins that there is no path from the request to an email
+write. Changing an address is now an admin/DB operation.
+
+Bonus: this retires the #345 trap where `provider_id` — a second copy of the address for password
+users — went stale after an email change. The two copies can no longer diverge.
+
+⚠️ **The enumeration/squatting exposure is narrowed, not closed, and the bound is the allowlist.**
+Anyone allowlisted can still register a password account for another allowlisted address they don't
+own; they simply can no longer *inherit that person's Google identity* when the rightful owner shows
+up — the owner gets a 409 and the squatter gets nothing. Closing it properly means invitation
+semantics (unknown address → invite, not an account), the same conclusion #344 reached. **If WeWatch
+ever drops the allowlist, build that before opening sign-up.**
+
+### Testing
+
+The two rejection cases in `UserServiceTest` fail against the pre-fix code (verified by deleting the
+guard and re-running), so they are real regression guards rather than restatements. `AuthControllerTest`
+covers the 409 through the full MockMvc stack and the no-throttle rule. `SignInPage.test.tsx` (the
+page's first test) stubs the GIS global, captures the callback the page registers, and asserts the 409
+renders the password-instead message — the Google callback used to bare-catch every failure into
+"Sign-in failed. Please try again.", which would have left a user with a working password no way to
+learn that it was the way in.
+
+The Google link path **cannot be exercised by curl**: `GoogleTokenValidator` verifies the credential's
+signature against Google's JWKS, so a forged one 401s long before the service runs. It is covered by
+tests; email immutability was additionally verified by hand against the running app and local Postgres
+(register a password account, `PATCH` its email to another allowlisted address → 200, address
+unchanged in `users`, `display_name` still updatable, password sign-in still works).

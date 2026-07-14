@@ -21,6 +21,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.exception.AccountLinkConflictException;
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
@@ -110,6 +111,54 @@ class AuthControllerTest {
 				}
 				"""))
 			.andExpect(status().isUnauthorized());
+	}
+
+	// #342: a first-time Google sign-in that matches an account already holding credentials is
+	// refused rather than silently linked. It surfaces as a 409 so the sign-in page can tell the
+	// user to use the password they already have.
+	@Test
+	void exchangeTokenReturnsConflictWhenGoogleWouldLinkOntoACredentialedAccount() throws Exception {
+		when(googleTokenValidator.validate(any()))
+			.thenReturn(new GoogleIdentity("g-sub", "victim@example.com", "Victim"));
+		when(userService.findOrCreateByProviderIdentity(any(), any(), any(), any()))
+			.thenThrow(new AccountLinkConflictException());
+
+		mockMvc.perform(post("/api/auth/token")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("""
+				{
+					"provider": "google",
+					"credential": "google-credential"
+				}
+				"""))
+			.andExpect(status().isConflict())
+			.andExpect(jsonPath("$.status").value(409))
+			.andExpect(jsonPath("$.message")
+				.value("An account with this email already exists. Sign in with your password instead."));
+	}
+
+	// A link conflict is a legitimate user hitting a wall, not a credential guess. Counting it
+	// against the #318/#336 buckets would let a confused household member lock their own IP out of
+	// sign-in entirely — so it must fall through the throttle uncounted. ip-max-attempts is 4 here,
+	// so a counted failure would turn the 5th attempt into a 429.
+	@Test
+	void repeatedLinkConflictsDoNotThrottleTheClient() throws Exception {
+		when(googleTokenValidator.validate(any()))
+			.thenReturn(new GoogleIdentity("g-sub", "victim@example.com", "Victim"));
+		when(userService.findOrCreateByProviderIdentity(any(), any(), any(), any()))
+			.thenThrow(new AccountLinkConflictException());
+
+		for (int attempt = 0; attempt < 5; attempt++) {
+			mockMvc.perform(post("/api/auth/token")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+					{
+						"provider": "google",
+						"credential": "google-credential"
+					}
+					"""))
+				.andExpect(status().isConflict());
+		}
 	}
 
 	@Test
