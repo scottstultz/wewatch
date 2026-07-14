@@ -40,8 +40,16 @@ function SignInPage() {
             const weWatchToken = await exchangeToken('google', response.credential)
             handleCredential(weWatchToken)
             navigate(from, { replace: true })
-          } catch {
-            setError('Sign-in failed. Please try again.')
+          } catch (err) {
+            const status = (err as Error & { status?: number }).status
+            if (status === 409) {
+              // The backend refused to link Google onto an account that already has a password
+              // (#342). Without this branch the user just sees "Sign-in failed" and has no way
+              // to know the password they already have is the way in.
+              setError('An account with this email already exists. Sign in with your password instead.')
+            } else {
+              setError('Sign-in failed. Please try again.')
+            }
           }
         },
       })

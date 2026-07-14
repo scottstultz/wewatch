@@ -70,6 +70,8 @@ public class AuthController {
 		@ApiResponse(responseCode = "400", description = "Unrecognized provider"),
 		@ApiResponse(responseCode = "401", description = "Invalid credential"),
 		@ApiResponse(responseCode = "403", description = "Email not in the allowlist"),
+		@ApiResponse(responseCode = "409", description = "A first-time provider sign-in matched an "
+			+ "existing account that already holds credentials; it is not linked (#342)"),
 		@ApiResponse(responseCode = "429", description = "Too many attempts; throttled")
 	})
 	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request,

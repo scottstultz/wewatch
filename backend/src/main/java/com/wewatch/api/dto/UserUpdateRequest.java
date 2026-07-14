@@ -2,17 +2,15 @@ package com.wewatch.api.dto;
 
 import java.util.List;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 
+// No email field: the address is the account's identity and is not self-service updatable (#342).
+// A body carrying "email" is ignored rather than rejected — unknown properties are not fatal — so
+// the endpoint fails closed for any client still sending one.
 public record UserUpdateRequest(
-	@Email
-	@Size(max = 255)
-	String email,
-
 	@Size(max = 255)
 	String displayName,
 

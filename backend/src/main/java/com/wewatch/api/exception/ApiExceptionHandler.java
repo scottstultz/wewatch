@@ -48,6 +48,14 @@ public class ApiExceptionHandler {
 		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
 	}
 
+	@ExceptionHandler(AccountLinkConflictException.class)
+	public ResponseEntity<ApiErrorResponse> handleAccountLinkConflict(
+		AccountLinkConflictException exception,
+		HttpServletRequest request
+	) {
+		return buildErrorResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
+	}
+
 	@ExceptionHandler(ForbiddenException.class)
 	public ResponseEntity<ApiErrorResponse> handleForbidden(ForbiddenException exception, HttpServletRequest request) {
 		return buildErrorResponse(HttpStatus.FORBIDDEN, exception.getMessage(), request.getRequestURI());

@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import com.wewatch.api.exception.AccountLinkConflictException;
 import com.wewatch.api.exception.DuplicateEmailException;
 import com.wewatch.api.exception.InvalidCredentialsException;
 import com.wewatch.api.model.User;
@@ -114,7 +115,7 @@ class UserServiceTest {
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
 		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-		User updated = service.update(1L, null, "Scott Stultz");
+		User updated = service.update(1L, "Scott Stultz");
 
 		assertThat(updated.getEmail()).isEqualTo("user@example.com");
 		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
@@ -172,7 +173,7 @@ class UserServiceTest {
 
 		when(repository.findById(42L)).thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.update(42L, null, "Scott"))
+		assertThatThrownBy(() -> service.update(42L, "Scott"))
 			.isInstanceOf(NoSuchElementException.class)
 			.hasMessage("User not found: 42");
 	}
@@ -187,42 +188,7 @@ class UserServiceTest {
 
 		when(repository.findById(1L)).thenReturn(Optional.of(existing));
 
-		assertThatThrownBy(() -> service.update(1L, "", null)).isInstanceOf(ConstraintViolationException.class);
-	}
-
-	@Test
-	void updateRejectsDuplicateEmailForAnotherUser() {
-		UserRepository repository = Mockito.mock(UserRepository.class);
-		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
-		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
-		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
-		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
-
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmailIgnoreCase("other@example.com")).thenReturn(Optional.of(other));
-
-		assertThatThrownBy(() -> service.update(1L, "other@example.com", null))
-			.isInstanceOf(DuplicateEmailException.class);
-	}
-
-	@Test
-	void updateAllowsExistingEmailForSameUser() {
-		UserRepository repository = Mockito.mock(UserRepository.class);
-		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
-		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
-		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
-
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(existing));
-		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
-
-		User updated = service.update(1L, "user@example.com", "Scott Stultz");
-
-		assertThat(updated.getEmail()).isEqualTo("user@example.com");
-		assertThat(updated.getDisplayName()).isEqualTo("Scott Stultz");
-		verify(repository).save(existing);
+		assertThatThrownBy(() -> service.update(1L, "")).isInstanceOf(ConstraintViolationException.class);
 	}
 
 	@Test
@@ -517,36 +483,71 @@ class UserServiceTest {
 		assertThat(created.getEmail()).isEqualTo("new@example.com");
 	}
 
+	// ── #342: the email-link fallback must not adopt an account that already has credentials ──
+
 	@Test
-	void updateStoresCanonicalEmail() {
+	void findOrCreateByProviderIdentityRejectsLinkingOntoAPasswordAccount() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
 		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+		// The pre-hijack: someone registered a password account for an allowlisted address that is
+		// not theirs (register is allowlist-gated but proves no ownership). The rightful owner now
+		// signs in with Google for the first time.
+		User squatted = new User(1L, "victim@example.com", "Victim", Instant.now(), Instant.now());
+		squatted.setProvider("email");
+		squatted.setProviderId("victim@example.com");
+		squatted.setPasswordHash("$2a$hashed");
 
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmailIgnoreCase("moved@example.com")).thenReturn(Optional.empty());
-		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+		when(repository.findByProviderAndProviderId("google", "sub-victim")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("victim@example.com")).thenReturn(Optional.of(squatted));
 
-		assertThat(service.update(1L, "Moved@Example.com", null).getEmail()).isEqualTo("moved@example.com");
+		assertThatThrownBy(() -> service.findOrCreateByProviderIdentity(
+			"google", "sub-victim", "victim@example.com", "Victim"))
+			.isInstanceOf(AccountLinkConflictException.class);
+
+		// The attacker's account is left exactly as it was — no silent merge.
+		verify(repository, never()).save(any(User.class));
+		Mockito.verifyNoInteractions(watchlistService);
 	}
 
 	@Test
-	void updateRejectsCaseVariantOfAnotherUsersEmail() {
+	void findOrCreateByProviderIdentityRejectsLinkingOntoADifferentProviderIdentity() {
 		UserRepository repository = Mockito.mock(UserRepository.class);
 		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
 		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
 		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
-		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
-		User other = new User(2L, "other@example.com", "Sam", Instant.now(), Instant.now());
+		User existing = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now(), "google", "sub-old");
 
-		when(repository.findById(1L)).thenReturn(Optional.of(existing));
-		when(repository.findByEmailIgnoreCase("other@example.com")).thenReturn(Optional.of(other));
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(existing));
 
-		assertThatThrownBy(() -> service.update(1L, "OTHER@example.com", null))
-			.isInstanceOf(DuplicateEmailException.class);
+		assertThatThrownBy(() -> service.findOrCreateByProviderIdentity(
+			"google", "sub-new", "user@example.com", "Scott"))
+			.isInstanceOf(AccountLinkConflictException.class);
+
 		verify(repository, never()).save(any(User.class));
+	}
+
+	@Test
+	void findOrCreateByProviderIdentityStillAdoptsACredentiallessAccount() {
+		UserRepository repository = Mockito.mock(UserRepository.class);
+		WatchlistService watchlistService = Mockito.mock(WatchlistService.class);
+		PasswordEncoder passwordEncoder = Mockito.mock(PasswordEncoder.class);
+		UserService service = new UserService(repository, validator, watchlistService, passwordEncoder);
+		// No password hash and no provider identity: nobody can sign into this row today, so linking
+		// it hands the caller nothing they did not already have. This is the only safe adoption.
+		User dormant = new User(1L, "user@example.com", "Scott", Instant.now(), Instant.now());
+
+		when(repository.findByProviderAndProviderId("google", "sub-new")).thenReturn(Optional.empty());
+		when(repository.findByEmailIgnoreCase("user@example.com")).thenReturn(Optional.of(dormant));
+		when(repository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		User linked = service.findOrCreateByProviderIdentity("google", "sub-new", "user@example.com", "Scott");
+
+		assertThat(linked.getId()).isEqualTo(1L);
+		assertThat(linked.getProvider()).isEqualTo("google");
+		assertThat(linked.getProviderId()).isEqualTo("sub-new");
 	}
 
 	@Test
