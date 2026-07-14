@@ -20,5 +20,10 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "src/manifest.test.ts", "src/security-headers.test.ts"]
+  "include": [
+    "vite.config.ts",
+    "src/manifest.test.ts",
+    "src/security-headers.test.ts",
+    "src/nginx-serving.test.ts"
+  ]
 }
