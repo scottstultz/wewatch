@@ -1,11 +1,35 @@
-# Railway terminates TLS at its edge and forwards plain HTTP to this container, so the request
-# nginx sees is never https and HSTS cannot key off $scheme. The edge tells us what the browser
-# hop was via X-Forwarded-Proto; nginx skips an add_header whose value is empty, so a local
-# docker compose run (http://localhost:3000) sends no HSTS at all.
+# Railway terminates TLS at its edge and forwards plain HTTP to this container, so the request nginx
+# sees is never https: $scheme is a lie about the browser hop, and everything below that cares about
+# the real protocol has to read the edge's X-Forwarded-Proto instead. This map is the single place
+# that value is interpreted -- both the HSTS header and the header we hand the backend derive from
+# it, so the two cannot drift apart (they had: the /api/ proxy used to overwrite the edge's value
+# with $scheme, telling the backend every request arrived over plain http).
 #
-# $hsts_header and $http_x_forwarded_proto survive the Dockerfile's envsubst only because it is
-# given an explicit variable list (envsubst '$BACKEND_URL'). Dropping that list would blank both.
-map $http_x_forwarded_proto $hsts_header {
+# The regex, not a pass-through, is the point. Whatever lands here is forwarded to the backend, and
+# the first feature to build an absolute URL, set a secure cookie or issue a proto-aware redirect
+# from it must not be handed an arbitrary client-supplied string. Only http or https can come out;
+# anything else falls back to the scheme actually spoken to this container. Match is case-sensitive
+# on purpose -- ~* would capture "HTTPS" verbatim and then miss the exact-match key in $hsts_header.
+#
+# Leftmost wins if the header ever arrives as a chain ("https, http"): for X-Forwarded-Proto the
+# first entry is the original client hop. That is the mirror image of the right-to-left walk
+# ClientIpResolver does over X-Forwarded-For (#336), where the *last* entry is the one a trusted
+# proxy wrote -- the two conventions genuinely differ, so the asymmetry is not a bug.
+#
+# No edge header at all (local docker compose, which publishes 3000:80 straight at nginx with
+# nothing in front of it) means no match, so $forwarded_proto is just the real scheme: http.
+map $http_x_forwarded_proto $forwarded_proto {
+    "~^(?<edge_proto>https?)\b"  $edge_proto;
+    default                      $scheme;
+}
+
+# nginx skips an add_header whose value is empty, so a local docker compose run over http sends no
+# HSTS at all.
+#
+# $hsts_header, $forwarded_proto and $http_x_forwarded_proto survive the Dockerfile's envsubst only
+# because it is given an explicit variable list (envsubst '$BACKEND_URL'). Dropping that list would
+# blank all three; nginx-serving.test.ts pins the list against exactly that.
+map $forwarded_proto $hsts_header {
     https   "max-age=31536000; includeSubDomains";
     default "";
 }
@@ -99,7 +123,12 @@ server {
         proxy_ssl_server_name on;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # $scheme here would be a lie: TLS ends at Railway's edge, so it is always http inside this
+        # container and the backend would be told plain http even for an https browser hop. Forward
+        # what the edge saw (normalized by the $forwarded_proto map at the top of this file), which
+        # degrades to the real scheme when there is no edge in front of us.
+        proxy_set_header X-Forwarded-Proto $forwarded_proto;
 
         # Spring Security sends both of these by default and add_header appends rather than
         # replaces, so without this every API response would carry each header twice.

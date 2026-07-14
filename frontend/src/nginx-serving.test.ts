@@ -11,6 +11,7 @@ import { resolve } from 'node:path'
 // there is no nginx in the loop -- so the config can only break in the built container, i.e. in
 // production. That is what makes it worth testing as text.
 const nginxConf = readFileSync(resolve(process.cwd(), 'nginx.conf.template'), 'utf-8')
+const dockerfile = readFileSync(resolve(process.cwd(), 'Dockerfile'), 'utf-8')
 
 /** Every directive the config actually declares. Comments go first: they name these same directives. */
 const directives = nginxConf.replace(/^\s*#.*$/gm, '')
@@ -21,10 +22,20 @@ const gzipTypes = (directives.match(/gzip_types\s+([^;]+);/)?.[1] ?? '').trim().
 /** The body of `map $uri $cache_control { ... }` -- the cache policy table. */
 const cacheMap = directives.match(/map \$uri \$cache_control \{([^}]*)\}/)?.[1] ?? ''
 
-/** The body of a location block, e.g. locationBody('/assets/'). */
+/** The body of `map $http_x_forwarded_proto $forwarded_proto { ... }` -- the #348 proto table. */
+const protoMap =
+  directives.match(/map \$http_x_forwarded_proto \$forwarded_proto \{([^}]*)\}/)?.[1] ?? ''
+
+/**
+ * The body of a location block, e.g. locationBody('/assets/'). Ends at the first line that closes a
+ * block rather than at the first `}` character: /api/ contains `${BACKEND_URL}`, so a lazy match up
+ * to the next brace stops one line into the body and silently reports it as almost empty.
+ */
 function locationBody(path: string): string {
   const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return directives.match(new RegExp(`location ${escaped} \\{([^}]*)\\}`))?.[1] ?? ''
+  const opening = directives.match(new RegExp(`location ${escaped} \\{`))
+  if (opening?.index === undefined) return ''
+  return directives.slice(opening.index + opening[0].length).split(/^\s*\}/m)[0]
 }
 
 /** The value $cache_control takes for one map key, e.g. cachePolicy('~^/assets/'). */
@@ -126,5 +137,61 @@ describe('nginx cache policy (#347)', () => {
     // cached. A 404 carries no cache policy at all (see above), so a bad deploy leaves no residue.
     expect(locationBody('/assets/')).toContain('=404')
     expect(locationBody('/assets/')).not.toContain('index.html')
+  })
+})
+
+describe('nginx forwarded protocol (#348)', () => {
+  it('forwards the edge’s protocol to the backend rather than $scheme', () => {
+    // TLS ends at Railway's edge, so $scheme inside this container is http for every request ever
+    // made -- sending it as X-Forwarded-Proto tells the backend that plain http is all anyone uses.
+    // Nothing reads the header server-side today; the first feature that builds an absolute URL or
+    // sets a secure cookie from it would inherit the lie.
+    expect(locationBody('/api/')).toContain('proxy_set_header X-Forwarded-Proto $forwarded_proto;')
+    expect(locationBody('/api/')).not.toMatch(/X-Forwarded-Proto\s+\$scheme/)
+  })
+
+  it('falls back to the real scheme when no edge sits in front of us', () => {
+    // docker compose publishes 3000:80 straight at nginx, so there is no X-Forwarded-Proto on the
+    // request at all and the map has to degrade to what this container actually spoke.
+    expect(protoMap).toMatch(/default\s+\$scheme;/)
+  })
+
+  it('can only ever emit http or https, never a client-supplied string', () => {
+    // The value is handed to the backend, so a pass-through map (`default $http_x_forwarded_proto`)
+    // would let a caller put arbitrary bytes in front of whatever eventually reads the header. Only
+    // the protocol regex may produce a value; everything else lands on the $scheme default above.
+    const sources = protoMap
+      .split(';')
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter(Boolean)
+    expect(sources).toEqual(['"~^(?<edge_proto>https?)\\b"', 'default'])
+  })
+
+  it('keys HSTS off the same normalized value, so the two cannot drift', () => {
+    // Reading the raw header a second time is how the /api/ proxy and the HSTS header ended up
+    // disagreeing about the same request in the first place. It also means a chained value
+    // ("https, http") misses the exact-match `https` key and silently drops HSTS in production.
+    expect(directives).toMatch(/map \$forwarded_proto \$hsts_header \{/)
+    expect(directives).not.toMatch(/map \$http_x_forwarded_proto \$hsts_header \{/)
+  })
+
+  it('substitutes only ${BACKEND_URL}, so nginx’s own $-variables survive the build', () => {
+    // envsubst with no argument replaces *every* $-token it can see: $scheme, $forwarded_proto,
+    // $hsts_header and $http_x_forwarded_proto would all be blanked at image build time, and the
+    // config that reaches nginx would be a different file from the one in this repo. The explicit
+    // list is the only thing preventing that, and nothing pinned it before #348.
+    const list = dockerfile.match(/envsubst\s+'([^']*)'/)?.[1] ?? ''
+    expect(list, 'envsubst must be given an explicit variable list').not.toBe('')
+
+    const allowed = new Set(list.match(/\$\w+/g) ?? [])
+    const placeholders = new Set(
+      [...directives.matchAll(/\$\{(\w+)\}/g)].map((match) => `$${match[1]}`),
+    )
+    expect(placeholders.size).toBeGreaterThan(0)
+
+    const unsubstituted = [...placeholders].filter((name) => !allowed.has(name))
+    expect(unsubstituted, 'the template expands a placeholder envsubst is not told about').toEqual(
+      [],
+    )
   })
 })

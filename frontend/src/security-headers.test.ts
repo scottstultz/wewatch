@@ -30,10 +30,11 @@ describe('nginx security headers', () => {
     expect(header('X-Content-Type-Options')).toBe('nosniff')
     expect(header('X-Frame-Options')).toBe('DENY')
     expect(header('Referrer-Policy')).toBe('strict-origin-when-cross-origin')
-    // HSTS is the one variable value: it is gated on X-Forwarded-Proto, since Railway terminates
-    // TLS upstream and the request nginx sees is always plain http.
+    // HSTS is the one variable value: it is gated on the protocol the *edge* saw, since Railway
+    // terminates TLS upstream and the request nginx sees is always plain http. $forwarded_proto is
+    // the #348 map that normalizes X-Forwarded-Proto (and feeds the /api/ proxy the same value).
     expect(nginxConf).toContain('add_header Strict-Transport-Security $hsts_header always;')
-    expect(nginxConf).toMatch(/map \$http_x_forwarded_proto \$hsts_header \{/)
+    expect(nginxConf).toMatch(/map \$forwarded_proto \$hsts_header \{/)
   })
 
   it('locks down the directives an XSS foothold would need', () => {
