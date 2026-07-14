@@ -1076,3 +1076,91 @@ signature against Google's JWKS, so a forged one 401s long before the service ru
 tests; email immutability was additionally verified by hand against the running app and local Postgres
 (register a password account, `PATCH` its email to another allowlisted address → 200, address
 unchanged in `users`, `display_name` still updatable, password sign-in still works).
+
+## Serving layer — compression & caching (#347)
+
+`frontend/nginx.conf.template` had no `gzip` and no `Cache-Control`. The `nginx:alpine` base image
+ships `#gzip on;` *commented out* in its stock `nginx.conf` (verified on 1.31.2), so every cold load
+pulled the whole bundle uncompressed; and the content-hashed `/assets/*` files — immutable by
+construction — got only heuristic freshness plus a conditional revalidation on every visit. Both are
+fixed in the config alone; no application code changed.
+
+Measured against the built container: the JS bundle goes **316,678 → 94,998 bytes** over the wire
+(3.3×), CSS 35.6 kB → 7.1 kB.
+
+### The #337 trap is what dictates the design
+
+The obvious `location /assets/ { add_header Cache-Control ...; }` is exactly the mistake the
+[Security Headers](#security-headers-337) section warns about: nginx **replaces** the inherited
+`add_header` set the moment a location declares one, so it would strip the CSP from every file the
+app actually runs on. `expires` avoids that (it sets `Cache-Control` without `add_header`) but cannot
+emit `immutable`.
+
+So the value is computed by a **`map $uri $cache_control`** — the same idiom `$hsts_header` already
+uses — and added **once, in `server`**, next to the other five headers. No location declares an
+`add_header`, so `security-headers.test.ts`'s inheritance guard keeps passing unchanged.
+
+| `$uri` | policy | why |
+|---|---|---|
+| `~^/api/` | `""` | nginx omits an `add_header` whose value is empty. Spring Security already sends `no-cache, no-store, max-age=0, must-revalidate`; anything we add either duplicates the header or *weakens* it to something a browser may write to disk. |
+| `~^/assets/` | `public, max-age=31536000, immutable` | Vite content-hashes the filename, so the URL changes whenever the bytes do. `immutable` is the part that stops a reload revalidating them anyway. |
+| default | `no-cache` | `index.html` names the hashed bundles, so it is the one file a deploy must invalidate. `no-cache` still *caches* — it revalidates before use — rather than pinning a stale document for a heuristic freshness window. |
+
+⚠️ **The `Cache-Control` `add_header` deliberately omits `always`,** unlike the five security headers.
+Without it `add_header` applies to 2xx/3xx only — which is exactly the set that should carry a cache
+policy. A long-lived policy on an *error* response is how a bad deploy pins a 404 in someone's browser
+for a year. The security headers want the opposite (they must ride on errors too), which is why the
+two differ one line apart.
+
+⚠️ **`gzip_proxied any` is load-bearing, not boilerplate.** The default (`off`) skips compression for
+any request carrying a `Via` header — i.e. potentially everything arriving through Railway's edge. Left
+at the default, this change would compress perfectly under local `docker compose` and *nothing* in
+production.
+
+⚠️ **`gzip_types` lists both JavaScript media types.** 1.31.2's `mime.types` maps `.js` to
+`application/javascript`, but nginx has moved on this before; naming only the current one means a
+future base-image bump silently stops compressing the largest file we serve, with nothing going red.
+`text/html` is deliberately *absent*: it is compressed implicitly whenever `gzip` is on and is the one
+type `gzip_types` cannot control. `application/manifest+json` has to be named because it is not in
+nginx's `mime.types` at all — the #324 manifest location declares it by hand, and a test now couples
+the two lists so a future custom type can't ship uncompressed.
+
+### `/assets/` gets its own location, to keep it out of the SPA fallback
+
+```nginx
+location /assets/ { try_files $uri =404; }
+```
+
+A missing `/assets/*.js` used to answer **200 + `index.html`** (the #324 trap — the SPA fallback
+swallows it and the browser parses a page of HTML as JavaScript). That was merely confusing before;
+with a year-long `immutable` policy on the prefix it would be *cached*. The `=404` makes a bad deploy
+fail loudly, and — per the `always` decision above — an error carries no cache policy at all, so
+nothing about it persists.
+
+Unversioned static files (`favicon.svg`, the PWA icons, `manifest.webmanifest`) fall to the `no-cache`
+default and so revalidate. That is a deliberate trade: a handful of ~150-byte 304s per cold load, in
+exchange for a changed icon or manifest propagating immediately. It is not worth a hashing scheme.
+
+### Testing
+
+`src/nginx-serving.test.ts` is the third file-on-disk test after `manifest.test.ts` (#324) and
+`security-headers.test.ts` (#337), registered the same way (`exclude`d from `tsconfig.app.json`,
+compiled by `tsconfig.node.json`, because it reads `node:fs`). It exists for the same reason they do:
+**none of this is observable under `npm run dev`**, which serves the app from Vite with no nginx in the
+loop — the config can only break in the built container, i.e. in production. It pins the gzip type
+list, `gzip_proxied`, each branch of the cache map, the absence of `always` on `Cache-Control`, and the
+`=404`. All 9 fail against the pre-#347 config.
+
+The template is still never *executed* by any test, so the behavior was verified against the built
+container: gzip fires on JS/CSS/SVG/manifest (and not on PNG); `/assets/*` carries
+`public, max-age=31536000, immutable` **and** all five #337 headers; `/` and an SPA deep link carry
+`no-cache`; a missing asset is a 404 with **no** `Cache-Control` but with the security headers intact;
+the manifest keeps `application/manifest+json` *and* its CSP; HSTS still fires only with
+`X-Forwarded-Proto: https`; and a proxied `/api/health` against the real backend carries exactly one
+`Cache-Control` — Spring's own, `no-store` intact — with no duplicated `X-Frame-Options` or
+`X-Content-Type-Options`.
+
+`gzip_static` is compiled into the base image (`--with-http_gzip_static_module`), so precompressing the
+bundle at build time is available as a follow-up: it would trade a little image-build time for a better
+ratio (zopfli/`gzip -9`) and zero per-request CPU. Not done here — on-the-fly at `gzip_comp_level 5` is
+already the bulk of the win.

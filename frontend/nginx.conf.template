@@ -10,11 +10,55 @@ map $http_x_forwarded_proto $hsts_header {
     default "";
 }
 
+# Cache policy is decided here rather than in a `location` for the same reason the headers below
+# live in `server`: a location that declares an add_header replaces the whole inherited set, so an
+# add_header Cache-Control under /assets/ would strip the CSP from every file the app runs on. The
+# `expires` directive dodges that but cannot emit `immutable`; mapping the value and adding it once
+# in `server` gives us both.
+map $uri $cache_control {
+    # Spring Security already sends "no-cache, no-store, max-age=0, must-revalidate" on its own.
+    # nginx omits an add_header whose value is empty (the trick the HSTS line above relies on), so
+    # this leaves the API's headers exactly as the backend wrote them -- anything we added here
+    # would either duplicate the header or weaken it into something a browser may store on disk.
+    ~^/api/     "";
+
+    # Vite content-hashes these, so the URL changes whenever the bytes do: they can never go stale
+    # and never need revalidating. `immutable` is what stops a reload from re-checking them.
+    ~^/assets/  "public, max-age=31536000, immutable";
+
+    # index.html (directly and through the SPA fallback) names the hashed bundles, so it is the one
+    # file a deploy has to invalidate. no-cache still caches -- it revalidates before use -- so the
+    # new build lands on the next navigation instead of waiting out a heuristic freshness window.
+    default     "no-cache";
+}
+
 server {
     listen 80;
 
     root /usr/share/nginx/html;
     index index.html;
+
+    # The nginx:alpine base image ships gzip commented out (verified on 1.31.2), so until now every
+    # cold load pulled the whole bundle uncompressed. text/html is deliberately absent from the list
+    # below: it is compressed implicitly whenever gzip is on, and is the one type gzip_types cannot
+    # control. application/manifest+json is present because it is *not* in nginx's mime.types at all
+    # -- the manifest location further down declares it, so gzip_types has to name it too.
+    #
+    # Both JavaScript media types are listed on purpose. 1.31.2's mime.types maps .js to
+    # application/javascript, but nginx has moved on this before; naming only the current one means
+    # a future base-image bump silently stops compressing the largest file we serve, with no test
+    # anywhere going red.
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 256;
+    gzip_comp_level 5;
+
+    # Not boilerplate: the default (`off`) skips compression for any request carrying a Via header,
+    # i.e. potentially everything that reaches us through Railway's edge proxy. Left at the default
+    # this change would compress perfectly under local docker compose and nothing in production.
+    gzip_proxied any;
+
+    gzip_types application/javascript text/javascript text/css application/json image/svg+xml application/manifest+json;
 
     # The JWT lives in localStorage and is a 24h stateless token with no revocation (#293), so an
     # XSS foothold would mean a day-long session nobody can kill. The CSP is the mitigation for
@@ -44,6 +88,12 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security $hsts_header always;
 
+    # Value comes from the $cache_control map above. Unlike the five headers above it, this one is
+    # deliberately *not* `always`: without it add_header applies to 2xx/3xx only, which is exactly
+    # the set that should carry a cache policy. A year-long policy on an error is how a bad deploy
+    # pins a 404 in someone's browser.
+    add_header Cache-Control $cache_control;
+
     location /api/ {
         proxy_pass ${BACKEND_URL}/api/;
         proxy_ssl_server_name on;
@@ -63,6 +113,15 @@ server {
     # The types block is scoped to this location, so it does not shadow the global type map.
     location = /manifest.webmanifest {
         types { application/manifest+json webmanifest; }
+    }
+
+    # The hashed bundle must never reach the SPA fallback below. A missing /assets/ file would
+    # otherwise answer 200 + index.html and the browser would try to parse a page of HTML as
+    # JavaScript -- and now that this prefix carries a year-long immutable policy, it would cache
+    # that answer. =404 makes a bad deploy fail loudly, and an error carries no cache policy at all
+    # (the Cache-Control add_header above is not `always`), so nothing about it persists.
+    location /assets/ {
+        try_files $uri =404;
     }
 
     location / {
