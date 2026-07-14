@@ -1164,3 +1164,67 @@ the manifest keeps `application/manifest+json` *and* its CSP; HSTS still fires o
 bundle at build time is available as a follow-up: it would trade a little image-build time for a better
 ratio (zopfli/`gzip -9`) and zero per-request CPU. Not done here — on-the-fly at `gzip_comp_level 5` is
 already the bulk of the win.
+
+## Forwarded protocol (#348)
+
+Railway terminates TLS at its edge and forwards plain HTTP into the container, so **`$scheme` inside
+nginx is `http` for every request that will ever reach it** — it describes the edge-to-container hop,
+never the browser's. #337 already knew this (HSTS keys off `X-Forwarded-Proto`, not `$scheme`), but the
+`/api/` proxy did not: it sent `proxy_set_header X-Forwarded-Proto $scheme`, overwriting the edge's real
+value and telling the backend that every request in production arrived over plain HTTP. One header, two
+readings, disagreeing about the same request.
+
+Nothing consumes it server-side today — `server.forward-headers-strategy` is unset, so Spring ignores
+`X-Forwarded-*` entirely, and the #336 throttle reads `X-Forwarded-For` — which is the only reason this
+was latent rather than a live bug. The first feature to generate an absolute URL, set a `Secure` cookie,
+or issue a proto-aware redirect would have inherited the lie.
+
+### One map, two consumers
+
+```nginx
+map $http_x_forwarded_proto $forwarded_proto {
+    "~^(?<edge_proto>https?)\b"  $edge_proto;
+    default                      $scheme;
+}
+map $forwarded_proto $hsts_header { ... }   # was keyed on the raw header
+```
+
+The `/api/` proxy and the HSTS header now both read `$forwarded_proto`, so they cannot drift apart again.
+Rewiring HSTS onto it is a fix in its own right: the old exact-match `https` key misses a *chained* value
+(`https, http`) and would silently stop sending HSTS in production.
+
+⚠️ **The regex is deliberate; the canonical pass-through idiom is wrong here.** The usual
+`default $http_x_forwarded_proto; "" $scheme;` forwards whatever the caller sent, verbatim — and the
+entire motivation for this change is that something downstream will eventually *build a URL* out of this
+value. Only `http` or `https` can leave this map; anything else falls back to the protocol actually spoken
+to the container. Case-sensitive on purpose: `~*` would capture `HTTPS` verbatim and then miss the
+exact-match `https` key in `$hsts_header` below it.
+
+⚠️ **Leftmost wins here; rightmost wins in `ClientIpResolver` (#336).** For a chained
+`X-Forwarded-Proto: https, http` the **first** entry is the original client hop. For `X-Forwarded-For` the
+**last** entry is the one a trusted proxy wrote, which is why that walk goes right to left. The two
+conventions genuinely differ — the asymmetry looks like a bug and isn't.
+
+⚠️ **`server.forward-headers-strategy` stays off.** Forwarding the correct value and *honoring* it are
+separate decisions; only the first is in scope. Enabling it activates Tomcat's `RemoteIpValve`, which
+rewrites `getRemoteAddr()` at the container level — the input to `ClientIpResolver`, which rejected that
+valve precisely because no test in this suite starts a container to catch the interaction. Whoever first
+needs the value on the backend should make that call with the throttle in front of them.
+
+### Testing
+
+`nginx-serving.test.ts` gains five assertions: the forwarded value, the `$scheme` fallback (the local
+`docker compose` path — it publishes `3000:80` straight at nginx, so there is no edge header at all), that
+the map can emit only `http`/`https`, that HSTS shares the source variable, and that the Dockerfile's
+`envsubst` is given an explicit variable list. Four fail against the pre-#348 config.
+
+That last one is new coverage rather than a regression guard: the template's top comment has always warned
+that `$hsts_header`, `$forwarded_proto` and `$http_x_forwarded_proto` survive image build only because the
+Dockerfile passes `envsubst '$BACKEND_URL'` — a bare `envsubst` blanks **every** `$`-token in the file, and
+the config nginx runs would quietly be a different file from the one in this repo. Nothing pinned it.
+
+The proxied value is a *request* header, so unlike #337/#347 it cannot be seen with `curl -I` against the
+container. Verified by pointing `BACKEND_URL` at an echo server that prints the headers it receives:
+`https` in → `https` forwarded (the bug: was `http`), `http` → `http`, **no header → `http`** (compose),
+`https, http` → `https`, and `gopher://evil` → `http`, not the junk. HSTS still fires for an `https` edge
+hop and still stays silent locally.
