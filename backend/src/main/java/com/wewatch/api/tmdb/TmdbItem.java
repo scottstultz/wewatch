@@ -15,6 +15,9 @@ public record TmdbItem(
 	@JsonProperty("release_date") String releaseDate,
 	@JsonProperty("first_air_date") String firstAirDate,
 	@JsonProperty("poster_path") String posterPath,
-	@JsonProperty("genre_ids") List<Integer> genreIds
+	@JsonProperty("genre_ids") List<Integer> genreIds,
+	// Only present on person hits from /search/multi (#356)
+	@JsonProperty("profile_path") String profilePath,
+	double popularity
 ) {
 }

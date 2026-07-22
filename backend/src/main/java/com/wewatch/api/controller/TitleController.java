@@ -23,7 +23,7 @@ import com.wewatch.api.dto.SeasonSummaryResponse;
 import com.wewatch.api.dto.TitleDetailResponse;
 import com.wewatch.api.dto.TitleResolveRequest;
 import com.wewatch.api.dto.TitleResponse;
-import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.dto.TitleSearchResults;
 import com.wewatch.api.dto.WatchProviderResponse;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
@@ -77,19 +77,21 @@ public class TitleController {
 	}
 
 	@GetMapping("/search")
-	@Operation(summary = "Search titles via TMDB",
-		description = "Blank query returns an empty list without calling TMDB.")
+	@Operation(summary = "Search titles (and people) via TMDB",
+		description = "Returns matching titles plus, on a multi search (no type filter), person "
+			+ "hits ranked by TMDB popularity for the Discover \"People\" row (#356). A movie/tv "
+			+ "type filter returns titles only. Blank query returns empty lists without calling TMDB.")
 	@ApiResponses({
 		@ApiResponse(responseCode = "200", description = "Search results returned (possibly empty)"),
 		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
 		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
 	})
-	public List<TitleSearchResponse> searchTitles(
+	public TitleSearchResults searchTitles(
 		@RequestParam String q,
 		@RequestParam(required = false) TitleType type
 	) {
 		if (q.isBlank()) {
-			return List.of();
+			return new TitleSearchResults(List.of(), List.of());
 		}
 		return tmdbClient.search(q, type);
 	}

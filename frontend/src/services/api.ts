@@ -11,6 +11,7 @@ import type {
   TitleRating,
   TitleResponse,
   TitleSearchResponse,
+  TitleSearchResults,
   TitleType,
   WatchProvider,
   WatchRegion,
@@ -119,13 +120,13 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
   return {
     // ── Title search ─────────────────────────────────────────
 
-    async searchTitles(query: string, type?: string): Promise<TitleSearchResponse[]> {
+    async searchTitles(query: string, type?: string): Promise<TitleSearchResults> {
       const params = new URLSearchParams({ q: query })
       if (type) params.set('type', type)
 
       const response = await authedFetch(`${BASE_URL}/titles/search?${params}`)
       if (!response.ok) throw new Error(`Search failed with status ${response.status}`)
-      return response.json() as Promise<TitleSearchResponse[]>
+      return response.json() as Promise<TitleSearchResults>
     },
 
     async findOrCreateTitle(
