@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import TitleDetailPage from './TitleDetailPage'
 import { WatchlistProvider } from '../contexts/WatchlistContext'
 import type { ApiClient } from '../services/api'
-import type { TitleDetailResponse, WatchlistResponse } from '../types/api'
+import type { TitleDetailResponse, TitleSearchResponse, WatchlistEntryResponse, WatchlistResponse } from '../types/api'
 
 // Mock at the service layer (#287 convention): the page gets a fake ApiClient
 // through useApi; the real WatchlistProvider runs on top of the same fake.
@@ -12,6 +12,9 @@ const mockApi = {
   getTitleDetail: vi.fn(),
   getWatchlists: vi.fn(),
   getWatchlistEntries: vi.fn(),
+  getRecommendations: vi.fn(),
+  findOrCreateTitle: vi.fn(),
+  addToWatchlist: vi.fn(),
 }
 
 vi.mock('../contexts/AuthContext', async importOriginal => ({
@@ -67,11 +70,89 @@ function renderPage(path = '/title/movie/tmdb/603') {
   )
 }
 
+function makeRec(externalId: string, name: string): TitleSearchResponse {
+  return {
+    externalId,
+    externalSource: 'tmdb',
+    type: 'MOVIE',
+    name,
+    overview: null,
+    releaseDate: null,
+    posterUrl: null,
+  }
+}
+
+const reloaded = makeRec('604', 'The Matrix Reloaded')
+const revolutions = makeRec('605', 'The Matrix Revolutions')
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockApi.getTitleDetail.mockResolvedValue(makeDetail())
   mockApi.getWatchlists.mockResolvedValue([watchlist])
   mockApi.getWatchlistEntries.mockResolvedValue([])
+  mockApi.getRecommendations.mockResolvedValue([])
+})
+
+describe('TitleDetailPage "More Like This" (#358)', () => {
+  it('does not fetch recommendations until the tab is opened, then renders them', async () => {
+    mockApi.getRecommendations.mockResolvedValue([reloaded, revolutions])
+    renderPage()
+
+    // The detail lands but the recommendations are not fetched yet — lazy.
+    await screen.findByRole('heading', { name: 'The Matrix' })
+    expect(mockApi.getRecommendations).not.toHaveBeenCalled()
+    expect(screen.queryByText('The Matrix Reloaded')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+
+    expect(await screen.findByText('The Matrix Reloaded')).toBeInTheDocument()
+    expect(screen.getByText('The Matrix Revolutions')).toBeInTheDocument()
+    expect(mockApi.getRecommendations).toHaveBeenCalledWith('MOVIE', '603')
+  })
+
+  it('shows an empty-state message when there are no recommendations', async () => {
+    mockApi.getRecommendations.mockResolvedValue([])
+    renderPage()
+    await screen.findByRole('heading', { name: 'The Matrix' })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+
+    expect(await screen.findByText('No similar titles to show.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add to watchlist' })).not.toBeInTheDocument()
+  })
+
+  it('resolves then adds a recommendation, and the add survives reconcile', async () => {
+    mockApi.getRecommendations.mockResolvedValue([reloaded])
+    mockApi.findOrCreateTitle.mockResolvedValue(42)
+    mockApi.addToWatchlist.mockResolvedValue({ id: 9, status: 'WANT_TO_WATCH' })
+    renderPage()
+    await screen.findByRole('heading', { name: 'The Matrix' })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Add to watchlist' }))
+
+    await waitFor(() => expect(mockApi.findOrCreateTitle).toHaveBeenCalledWith(reloaded))
+    expect(mockApi.addToWatchlist).toHaveBeenCalledWith(1, 42, 'WANT_TO_WATCH')
+    await screen.findByRole('button', { name: /^Status: Want to Watch/ })
+  })
+
+  it('holds the recommendation tiles back until the watchlist has reconciled (#305)', async () => {
+    let resolveEntries: (entries: WatchlistEntryResponse[]) => void = () => {}
+    mockApi.getWatchlistEntries.mockReturnValue(
+      new Promise<WatchlistEntryResponse[]>(resolve => { resolveEntries = resolve }),
+    )
+    mockApi.getRecommendations.mockResolvedValue([reloaded])
+    renderPage()
+
+    // The hero paints and the tab is present, but its grid waits on the reconcile.
+    await screen.findByRole('heading', { name: 'The Matrix' })
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+    expect(screen.queryByText('The Matrix Reloaded')).not.toBeInTheDocument()
+
+    resolveEntries([])
+
+    expect(await screen.findByText('The Matrix Reloaded')).toBeInTheDocument()
+  })
 })
 
 describe('TitleDetailPage runtime (#311)', () => {
