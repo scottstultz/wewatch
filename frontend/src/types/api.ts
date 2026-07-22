@@ -19,6 +19,22 @@ export interface TitleSearchResponse {
   providerIds?: number[] | null
 }
 
+// One person hit from the Discover multi search (#356), rendered in the slim
+// "People" row and linking to the person page.
+export interface PersonSearchResult {
+  id: number
+  name: string
+  // Null when TMDB has no headshot — the UI renders a silhouette placeholder
+  profileUrl: string | null
+}
+
+// The Discover search payload (#356): titles and people kept separate so the
+// client can render a People row above the title grid rather than interleaving.
+export interface TitleSearchResults {
+  titles: TitleSearchResponse[]
+  people: PersonSearchResult[]
+}
+
 // ── Watch providers (#270) ─────────────────────────────────
 
 export interface WatchProvider {

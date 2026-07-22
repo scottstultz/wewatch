@@ -20,7 +20,9 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.client.MockRestServiceServer;
 
+import com.wewatch.api.dto.PersonSearchResult;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.dto.TitleSearchResults;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.tmdb.TmdbTvSeason;
@@ -83,9 +85,18 @@ class TmdbClientTest {
 		      "poster_path": "/ggFHVNu6YYI5L9pCfOacjizRGt.jpg"
 		    },
 		    {
-		      "id": 12345,
+		      "id": 6193,
 		      "media_type": "person",
-		      "name": "Leonardo DiCaprio"
+		      "name": "Leonardo DiCaprio",
+		      "profile_path": "/leo.jpg",
+		      "popularity": 42.0
+		    },
+		    {
+		      "id": 500,
+		      "media_type": "person",
+		      "name": "Tom Cruise",
+		      "profile_path": null,
+		      "popularity": 88.5
 		    }
 		  ]
 		}
@@ -96,9 +107,11 @@ class TmdbClientTest {
 		server.expect(requestTo(containsString("/3/search/movie")))
 			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
 
-		List<TitleSearchResponse> results = tmdbClient.search("inception", TitleType.MOVIE);
+		TitleSearchResults response = tmdbClient.search("inception", TitleType.MOVIE);
 
+		List<TitleSearchResponse> results = response.titles();
 		assertThat(results).hasSize(1);
+		assertThat(response.people()).isEmpty();
 		TitleSearchResponse result = results.get(0);
 		assertThat(result.externalId()).isEqualTo("27205");
 		assertThat(result.externalSource()).isEqualTo("TMDB");
@@ -113,9 +126,11 @@ class TmdbClientTest {
 		server.expect(requestTo(containsString("/3/search/tv")))
 			.andRespond(withSuccess(TV_JSON, MediaType.APPLICATION_JSON));
 
-		List<TitleSearchResponse> results = tmdbClient.search("breaking bad", TitleType.TV);
+		TitleSearchResults response = tmdbClient.search("breaking bad", TitleType.TV);
 
+		List<TitleSearchResponse> results = response.titles();
 		assertThat(results).hasSize(1);
+		assertThat(response.people()).isEmpty();
 		TitleSearchResponse result = results.get(0);
 		assertThat(result.externalId()).isEqualTo("1396");
 		assertThat(result.type()).isEqualTo(TitleType.TV);
@@ -125,17 +140,28 @@ class TmdbClientTest {
 	}
 
 	@Test
-	void searchMultiReturnsBothTypesAndFiltersPersonResults() {
+	void searchMultiSeparatesTitlesFromPeopleRankedByPopularity() {
 		server.expect(requestTo(containsString("/3/search/multi")))
 			.andRespond(withSuccess(MULTI_JSON, MediaType.APPLICATION_JSON));
 
-		List<TitleSearchResponse> results = tmdbClient.search("inception", null);
+		TitleSearchResults response = tmdbClient.search("inception", null);
 
-		assertThat(results).hasSize(2);
-		assertThat(results.stream().map(TitleSearchResponse::type))
+		List<TitleSearchResponse> titles = response.titles();
+		assertThat(titles).hasSize(2);
+		assertThat(titles.stream().map(TitleSearchResponse::type))
 			.containsExactly(TitleType.MOVIE, TitleType.TV);
-		assertThat(results.stream().map(TitleSearchResponse::name))
+		assertThat(titles.stream().map(TitleSearchResponse::name))
 			.containsExactly("Inception", "Breaking Bad");
+
+		// People ride the same response, are pulled out of the title list, and are
+		// ordered by popularity desc — Tom Cruise (88.5) before Leonardo (42.0) (#356).
+		assertThat(response.people()).hasSize(2);
+		assertThat(response.people().stream().map(PersonSearchResult::name))
+			.containsExactly("Tom Cruise", "Leonardo DiCaprio");
+		assertThat(response.people().get(0).id()).isEqualTo(500L);
+		assertThat(response.people().get(0).profileUrl()).isNull();
+		assertThat(response.people().get(1).profileUrl())
+			.isEqualTo("https://image.tmdb.org/t/p/w185/leo.jpg");
 	}
 
 	private static final String MALFORMED_DATE_JSON = """
@@ -164,7 +190,7 @@ class TmdbClientTest {
 		server.expect(requestTo(containsString("/3/search/movie")))
 			.andRespond(withSuccess(MALFORMED_DATE_JSON, MediaType.APPLICATION_JSON));
 
-		List<TitleSearchResponse> results = tmdbClient.search("inception", TitleType.MOVIE);
+		List<TitleSearchResponse> results = tmdbClient.search("inception", TitleType.MOVIE).titles();
 
 		assertThat(results).hasSize(2);
 		assertThat(results.get(0).releaseDate().toString()).isEqualTo("2010-07-16");
@@ -177,9 +203,10 @@ class TmdbClientTest {
 		server.expect(requestTo(containsString("/3/search/multi")))
 			.andRespond(withSuccess("{\"results\":[]}", MediaType.APPLICATION_JSON));
 
-		List<TitleSearchResponse> results = tmdbClient.search("xyznotafilm", null);
+		TitleSearchResults response = tmdbClient.search("xyznotafilm", null);
 
-		assertThat(results).isEmpty();
+		assertThat(response.titles()).isEmpty();
+		assertThat(response.people()).isEmpty();
 	}
 
 	@Test

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import JustWatchAttribution from '../components/JustWatchAttribution'
+import { PersonSilhouette } from '../components/OverviewCastPanel'
 import TitleCard, { cardKey } from '../components/TitleCard'
 import type { AddHandler, CardStatus, DismissHandler, OpenHandler, RemoveHandler, ToggleHandler } from '../components/TitleCard'
 import { useTitleCardActions } from '../hooks/useTitleCardActions'
-import type { ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider } from '../types/api'
+import type { PersonSearchResult, ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider } from '../types/api'
 
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
@@ -121,6 +122,8 @@ function DiscoverPage() {
   const setQuery = (q: string) => setSearchParams(q ? { q } : {}, { replace: true })
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [results, setResults] = useState<TitleSearchResponse[]>([])
+  // Person hits for the slim "People" row above the title grid (#356)
+  const [people, setPeople] = useState<PersonSearchResult[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
@@ -166,6 +169,7 @@ function DiscoverPage() {
   useEffect(() => {
     if (!query.trim()) {
       setResults([])
+      setPeople([])
       setSearched(false)
       return
     }
@@ -182,11 +186,14 @@ function DiscoverPage() {
         const entryByKey = new Map(
           watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e])
         )
-        setResults(data)
+        setResults(data.titles)
+        // People aren't watchlist entries — they get their own row and skip
+        // the cardStatus/entryIds reconcile entirely (#356).
+        setPeople(data.people)
         setSearched(true)
         setCardStatus(prev => {
           const next = { ...prev }
-          data.forEach(title => {
+          data.titles.forEach(title => {
             const k = cardKey(title)
             const existing = entryByKey.get(k)
             if (existing) next[k] = existing.status
@@ -196,7 +203,7 @@ function DiscoverPage() {
         })
         setEntryIds(prev => {
           const next = { ...prev }
-          data.forEach(title => {
+          data.titles.forEach(title => {
             const k = cardKey(title)
             const existing = entryByKey.get(k)
             if (existing) next[k] = existing.id
@@ -378,8 +385,29 @@ function DiscoverPage() {
           <>
             {isLoading && <p className="search-status">Searching…</p>}
             {error && <p className="search-status search-status-error">{error}</p>}
-            {!isLoading && searched && results.length === 0 && (
+            {!isLoading && searched && results.length === 0 && people.length === 0 && (
               <p className="search-status">No results for &ldquo;{query}&rdquo;.</p>
+            )}
+            {people.length > 0 && (
+              <section className="people-row" aria-label="People">
+                <h2 className="people-row-heading">People</h2>
+                <div className="people-row-tiles">
+                  {/* Server ranks by popularity; CSS caps this at 2 on mobile,
+                      4 on web (#356). */}
+                  {people.slice(0, 4).map(person => (
+                    <Link
+                      key={person.id}
+                      to={`/person/${person.id}`}
+                      className="people-row-item"
+                    >
+                      {person.profileUrl
+                        ? <img className="people-row-photo" src={person.profileUrl} alt="" loading="lazy" />
+                        : <div className="people-row-photo"><PersonSilhouette /></div>}
+                      <span className="people-row-name">{person.name}</span>
+                    </Link>
+                  ))}
+                </div>
+              </section>
             )}
             {results.length > 0 && (
               <div className="title-grid">

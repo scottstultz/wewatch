@@ -1,6 +1,7 @@
 package com.wewatch.api.tmdb;
 
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -10,7 +11,9 @@ import org.springframework.web.client.RestClientException;
 
 import java.util.stream.Collectors;
 
+import com.wewatch.api.dto.PersonSearchResult;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.dto.TitleSearchResults;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.TitleType;
 
@@ -31,21 +34,32 @@ public class TmdbClient {
 			.build();
 	}
 
-	public List<TitleSearchResponse> search(String query, TitleType type) {
+	public TitleSearchResults search(String query, TitleType type) {
 		try {
 			if (type == TitleType.MOVIE) {
-				return fetchItems("/3/search/movie", query).stream()
+				List<TitleSearchResponse> titles = fetchItems("/3/search/movie", query).stream()
 					.map(item -> toResponse(item, TitleType.MOVIE))
 					.toList();
+				return new TitleSearchResults(titles, List.of());
 			} else if (type == TitleType.TV) {
-				return fetchItems("/3/search/tv", query).stream()
+				List<TitleSearchResponse> titles = fetchItems("/3/search/tv", query).stream()
 					.map(item -> toResponse(item, TitleType.TV))
 					.toList();
+				return new TitleSearchResults(titles, List.of());
 			} else {
-				return fetchItems("/3/search/multi", query).stream()
+				List<TmdbItem> items = fetchItems("/3/search/multi", query);
+				List<TitleSearchResponse> titles = items.stream()
 					.filter(item -> "movie".equals(item.mediaType()) || "tv".equals(item.mediaType()))
 					.map(item -> toResponse(item, "movie".equals(item.mediaType()) ? TitleType.MOVIE : TitleType.TV))
 					.toList();
+				// People ride the same multi response (#356) — surfaced as a slim
+				// row, not interleaved, ranked by TMDB popularity.
+				List<PersonSearchResult> people = items.stream()
+					.filter(item -> "person".equals(item.mediaType()))
+					.sorted(Comparator.comparingDouble(TmdbItem::popularity).reversed())
+					.map(item -> new PersonSearchResult(item.id(), item.name(), profileUrl(item.profilePath())))
+					.toList();
+				return new TitleSearchResults(titles, people);
 			}
 		} catch (RestClientException e) {
 			throw new TmdbApiException("TMDB search failed: " + e.getMessage(), e);

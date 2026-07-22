@@ -16,6 +16,7 @@ const mockApi = {
   getSuggestions: vi.fn(),
   dismissSuggestion: vi.fn(),
   undoDismissSuggestion: vi.fn(),
+  searchTitles: vi.fn(),
 }
 
 vi.mock('../contexts/AuthContext', async importOriginal => ({
@@ -88,6 +89,7 @@ beforeEach(() => {
   mockApi.getSuggestions.mockResolvedValue([shelf])
   mockApi.dismissSuggestion.mockResolvedValue(undefined)
   mockApi.undoDismissSuggestion.mockResolvedValue(undefined)
+  mockApi.searchTitles.mockResolvedValue({ titles: [], people: [] })
 })
 
 afterEach(() => {
@@ -200,5 +202,62 @@ describe('DiscoverPage "what can we both watch" shelf (#322)', () => {
 
     expect(screen.getByText('On services you share')).toBeInTheDocument()
     expect(screen.queryByText('On your services')).not.toBeInTheDocument()
+  })
+})
+
+describe('DiscoverPage "People" row on actor search (#356)', () => {
+  function person(id: number, name: string, profileUrl: string | null = null) {
+    return { id, name, profileUrl }
+  }
+
+  function renderSearch() {
+    return render(
+      <MemoryRouter initialEntries={['/?q=leo']}>
+        <WatchlistProvider>
+          <DiscoverPage />
+        </WatchlistProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  it('shows a People row above the title results, linking to the person page', async () => {
+    mockApi.searchTitles.mockResolvedValue({
+      titles: [makeTitle('27205', 'Inception')],
+      people: [person(6193, 'Leonardo DiCaprio', 'https://img/leo.jpg')],
+    })
+
+    const { container } = renderSearch()
+
+    const link = await screen.findByRole('link', { name: /Leonardo DiCaprio/ })
+    expect(link).toHaveAttribute('href', '/person/6193')
+
+    // People row is rendered before the title grid in the DOM.
+    const peopleRow = container.querySelector('.people-row')!
+    const titleGrid = container.querySelector('.title-grid')!
+    expect(peopleRow).toBeTruthy()
+    expect(titleGrid).toBeTruthy()
+    expect(peopleRow.compareDocumentPosition(titleGrid))
+      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('renders at most 4 person tiles even when more come back (CSS caps to 2 on mobile)', async () => {
+    mockApi.searchTitles.mockResolvedValue({
+      titles: [],
+      people: [
+        person(1, 'Actor One'),
+        person(2, 'Actor Two'),
+        person(3, 'Actor Three'),
+        person(4, 'Actor Four'),
+        person(5, 'Actor Five'),
+        person(6, 'Actor Six'),
+      ],
+    })
+
+    const { container } = renderSearch()
+
+    await screen.findByText('Actor One')
+    expect(container.querySelectorAll('.people-row-item')).toHaveLength(4)
+    // The 2-vs-4 split is a CSS media query, not asserted here.
+    expect(screen.queryByText('Actor Five')).not.toBeInTheDocument()
   })
 })

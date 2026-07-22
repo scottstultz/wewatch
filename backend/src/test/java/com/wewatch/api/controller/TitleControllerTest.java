@@ -35,7 +35,9 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
+import com.wewatch.api.dto.PersonSearchResult;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.dto.TitleSearchResults;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
@@ -503,33 +505,44 @@ class TitleControllerTest {
 			)
 		);
 
-		when(tmdbClient.search("inception", null)).thenReturn(searchResults);
+		List<PersonSearchResult> people = List.of(
+			new PersonSearchResult(12345, "Leonardo DiCaprio", "https://image.tmdb.org/t/p/w185/leo.jpg")
+		);
+
+		when(tmdbClient.search("inception", null))
+			.thenReturn(new TitleSearchResults(searchResults, people));
 
 		mockMvc.perform(get("/api/titles/search")
 			.header("Authorization", "Bearer test-token")
 			.param("q", "inception"))
 			.andExpect(status().isOk())
 			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-			.andExpect(jsonPath("$[0].externalId").value("27205"))
-			.andExpect(jsonPath("$[0].externalSource").value("TMDB"))
-			.andExpect(jsonPath("$[0].type").value("MOVIE"))
-			.andExpect(jsonPath("$[0].name").value("Inception"))
-			.andExpect(jsonPath("$[0].releaseDate").value("2010-07-16"))
-			.andExpect(jsonPath("$[0].posterUrl").value("https://image.tmdb.org/t/p/w500/poster.jpg"));
+			.andExpect(jsonPath("$.titles[0].externalId").value("27205"))
+			.andExpect(jsonPath("$.titles[0].externalSource").value("TMDB"))
+			.andExpect(jsonPath("$.titles[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$.titles[0].name").value("Inception"))
+			.andExpect(jsonPath("$.titles[0].releaseDate").value("2010-07-16"))
+			.andExpect(jsonPath("$.titles[0].posterUrl").value("https://image.tmdb.org/t/p/w500/poster.jpg"))
+			.andExpect(jsonPath("$.people[0].id").value(12345))
+			.andExpect(jsonPath("$.people[0].name").value("Leonardo DiCaprio"))
+			.andExpect(jsonPath("$.people[0].profileUrl").value("https://image.tmdb.org/t/p/w185/leo.jpg"));
 
 		verify(tmdbClient).search("inception", null);
 	}
 
 	@Test
 	void searchTitlesReturnsEmptyListWhenNoResultsFound() throws Exception {
-		when(tmdbClient.search("xyznotafilm", null)).thenReturn(List.of());
+		when(tmdbClient.search("xyznotafilm", null))
+			.thenReturn(new TitleSearchResults(List.of(), List.of()));
 
 		mockMvc.perform(get("/api/titles/search")
 			.header("Authorization", "Bearer test-token")
 			.param("q", "xyznotafilm"))
 			.andExpect(status().isOk())
-			.andExpect(jsonPath("$").isArray())
-			.andExpect(jsonPath("$").isEmpty());
+			.andExpect(jsonPath("$.titles").isArray())
+			.andExpect(jsonPath("$.titles").isEmpty())
+			.andExpect(jsonPath("$.people").isArray())
+			.andExpect(jsonPath("$.people").isEmpty());
 	}
 
 	@Test
