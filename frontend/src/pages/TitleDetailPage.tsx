@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
@@ -6,6 +6,8 @@ import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import JustWatchAttribution from '../components/JustWatchAttribution'
 import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
+import TitleCard, { cardKey } from '../components/TitleCard'
+import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import { formatRuntime } from '../utils/formatDuration'
 import type { TitleDetailResponse, TitleRating, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
 
@@ -27,7 +29,7 @@ function TitleDetailPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const api = useApi()
-  const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
+  const { watchlists, selectedWatchlistId, selectWatchlist, isLoading: watchlistsLoading } = useWatchlists()
 
   const type = parseType(typeParam)
   const navState = location.state as { title?: TitleSearchResponse; fromLibrary?: string } | null
@@ -46,6 +48,24 @@ function TitleDetailPage() {
   // first rate resolves one on demand
   const [titleId, setTitleId] = useState<number | null>(null)
   const [myRating, setMyRating] = useState<TitleRating | null>(null)
+
+  // "More Like This" (#358) — lazily fetched only when the user opens the tab.
+  const [recommendations, setRecommendations] = useState<TitleSearchResponse[] | null>(null)
+  const [recsRequested, setRecsRequested] = useState(false)
+  const [recsLoading, setRecsLoading] = useState(false)
+  // The recommendation tiles stay hidden until the watchlist has reconciled once,
+  // so an optimistic add can't be clobbered by an in-flight reconcile (#305).
+  const [seeded, setSeeded] = useState(false)
+  const {
+    cardStatus,
+    setCardStatus,
+    setEntryIds,
+    pickingKey,
+    handleAddToWatchlist,
+    togglePicker,
+    handleChangeStatus: handleCardChangeStatus,
+    handleRemove,
+  } = useTitleCardActions(api, selectedWatchlistId)
 
   useEffect(() => {
     if (!source || !externalId || !type) {
@@ -75,9 +95,14 @@ function TitleDetailPage() {
     return () => { cancelled = true }
   }, [api, source, externalId, type])
 
-  // Look up whether this title is already on the selected watchlist.
+  // Look up whether this title is already on the selected watchlist, and seed the
+  // "More Like This" grid's add/status map from the *same* fetch (#358) — one call
+  // drives both the single-title button and the recommendation tiles. The tiles
+  // stay gated on `seeded` until this reconcile lands once (#305).
   useEffect(() => {
-    if (!selectedWatchlistId || !source || !externalId) return
+    if (!source || !externalId || watchlistsLoading) return
+    // No list chosen yet: nothing to reconcile, but still paint tiles as "+".
+    if (!selectedWatchlistId) { setSeeded(true); return }
     let cancelled = false
     setEntry(null)
     setEntryLoaded(false)
@@ -90,12 +115,43 @@ function TitleDetailPage() {
           e => e.externalSource === source && e.externalId === externalId,
         )
         setEntry(match ? { id: match.id, status: match.status } : null)
+
+        // Seed every entry on the list into the grid map. We never delete keys
+        // here (unlike PersonPage, which scopes to a known candidate list), so an
+        // add still in flight is always preserved.
+        setCardStatus(prev => {
+          const next = { ...prev }
+          entries.forEach(e => { next[`${e.externalSource}-${e.externalId}`] = e.status })
+          return next
+        })
+        setEntryIds(prev => {
+          const next = { ...prev }
+          entries.forEach(e => { next[`${e.externalSource}-${e.externalId}`] = e.id })
+          return next
+        })
       })
       .catch(() => { /* treat as not added */ })
-      .finally(() => { if (!cancelled) setEntryLoaded(true) })
+      .finally(() => { if (!cancelled) { setEntryLoaded(true); setSeeded(true) } })
 
     return () => { cancelled = true }
-  }, [api, selectedWatchlistId, source, externalId])
+  }, [api, selectedWatchlistId, source, externalId, watchlistsLoading, setCardStatus, setEntryIds])
+
+  // Lazy fetch (#358): only once the user opens the tab (recsRequested), and only
+  // once per mount — the result is held in state so toggling doesn't refetch.
+  useEffect(() => {
+    if (!recsRequested || !detail || recommendations !== null) return
+    let cancelled = false
+    setRecsLoading(true)
+
+    api.getRecommendations(detail.type, detail.externalId)
+      .then(recs => { if (!cancelled) setRecommendations(recs) })
+      .catch(() => { if (!cancelled) setRecommendations([]) })
+      .finally(() => { if (!cancelled) setRecsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [recsRequested, detail, recommendations, api])
+
+  const showMoreLikeThis = useCallback(() => setRecsRequested(true), [])
 
   async function handleAdd(status: WatchStatus) {
     if (!selectedWatchlistId || !detail) return
@@ -137,6 +193,41 @@ function TitleDetailPage() {
     } catch {
       setEntry(previous)
     }
+  }
+
+  function openTitle(title: TitleSearchResponse) {
+    navigate(
+      `/title/${title.type.toLowerCase()}/${title.externalSource}/${title.externalId}`,
+      { state: { title } },
+    )
+  }
+
+  // The tab body is always passed to the panel so the tab is present (lazy) —
+  // the fetch fires only when it's opened. Gated on `seeded` per #305.
+  function renderMoreLikeThis() {
+    if (!seeded || recsLoading || recommendations === null) {
+      return <p className="search-status">Loading…</p>
+    }
+    if (recommendations.length === 0) {
+      return <p className="search-status">No similar titles to show.</p>
+    }
+    return (
+      <div className="title-grid">
+        {recommendations.map(rec => (
+          <TitleCard
+            key={cardKey(rec)}
+            title={rec}
+            status={cardStatus[cardKey(rec)] ?? 'idle'}
+            isPicking={pickingKey === cardKey(rec)}
+            onAdd={handleAddToWatchlist}
+            onChangeStatus={handleCardChangeStatus}
+            onTogglePicker={togglePicker}
+            onOpen={openTitle}
+            onRemove={handleRemove}
+          />
+        ))}
+      </div>
+    )
   }
 
   // Use the navigation hint for instant paint while the full detail loads.
@@ -276,7 +367,14 @@ function TitleDetailPage() {
 
       {isLoading && <p className="search-status">Loading details…</p>}
 
-      {detail && <OverviewCastPanel overview={detail.overview} cast={detail.cast} />}
+      {detail && (
+        <OverviewCastPanel
+          overview={detail.overview}
+          cast={detail.cast}
+          moreLikeThis={renderMoreLikeThis()}
+          onShowMoreLikeThis={showMoreLikeThis}
+        />
+      )}
 
       {detail?.watchProviders && detail.watchProviders.length > 0 && (
         <section className="panel">

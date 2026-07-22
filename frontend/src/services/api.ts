@@ -156,6 +156,15 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       return response.json() as Promise<TitleDetailResponse>
     },
 
+    // Title-anchored "More Like This" recommendations (#358). Lazily called by
+    // TitleDetailPage only when the user opens the tab.
+    async getRecommendations(type: TitleType, externalId: string): Promise<TitleSearchResponse[]> {
+      const params = new URLSearchParams({ type, externalId })
+      const response = await authedFetch(`${BASE_URL}/titles/recommendations?${params}`)
+      if (!response.ok) throw new Error(`Failed to fetch recommendations: ${response.status}`)
+      return response.json() as Promise<TitleSearchResponse[]>
+    },
+
     // ── People (#305) ────────────────────────────────────────
 
     async getPerson(personId: number): Promise<PersonDetailResponse> {

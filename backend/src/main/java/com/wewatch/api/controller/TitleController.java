@@ -23,12 +23,14 @@ import com.wewatch.api.dto.SeasonSummaryResponse;
 import com.wewatch.api.dto.TitleDetailResponse;
 import com.wewatch.api.dto.TitleResolveRequest;
 import com.wewatch.api.dto.TitleResponse;
+import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.dto.TitleSearchResults;
 import com.wewatch.api.dto.WatchProviderResponse;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
+import com.wewatch.api.service.RecommendationService;
 import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
@@ -63,17 +65,20 @@ public class TitleController {
 	private final TmdbClient tmdbClient;
 	private final TmdbCacheService tmdbCacheService;
 	private final TitleRatingService titleRatingService;
+	private final RecommendationService recommendationService;
 
 	public TitleController(
 		TitleService titleService,
 		TmdbClient tmdbClient,
 		TmdbCacheService tmdbCacheService,
-		TitleRatingService titleRatingService
+		TitleRatingService titleRatingService,
+		RecommendationService recommendationService
 	) {
 		this.titleService = titleService;
 		this.tmdbClient = tmdbClient;
 		this.tmdbCacheService = tmdbCacheService;
 		this.titleRatingService = titleRatingService;
+		this.recommendationService = recommendationService;
 	}
 
 	@GetMapping("/search")
@@ -94,6 +99,24 @@ public class TitleController {
 			return new TitleSearchResults(List.of(), List.of());
 		}
 		return tmdbClient.search(q, type);
+	}
+
+	@GetMapping("/recommendations")
+	@Operation(summary = "Title-anchored \"More Like This\" recommendations",
+		description = "Related titles for the given title, from TMDB's own recommendations topped "
+			+ "up with `similar` when sparse (#358). Deliberately title-anchored — this answers "
+			+ "\"what else is like this one?\" in context and is distinct from the personalized "
+			+ "Discover shelves. Cached in-process per (type, id).")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "Recommendations returned (possibly empty)"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "502", description = "TMDB API call failed")
+	})
+	public List<TitleSearchResponse> recommendations(
+		@RequestParam String externalId,
+		@RequestParam TitleType type
+	) {
+		return recommendationService.recommendationsFor(type, externalId);
 	}
 
 	@GetMapping("/detail")

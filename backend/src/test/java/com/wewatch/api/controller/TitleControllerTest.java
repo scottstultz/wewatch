@@ -44,6 +44,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.RecommendationService;
 import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
@@ -81,6 +82,9 @@ class TitleControllerTest {
 
 	@MockBean
 	private TitleRatingService titleRatingService;
+
+	@MockBean
+	private RecommendationService recommendationService;
 
 	@MockBean
 	private UserService userService;
@@ -564,6 +568,50 @@ class TitleControllerTest {
 		mockMvc.perform(get("/api/titles/search")
 			.header("Authorization", "Bearer test-token"))
 			.andExpect(status().isBadRequest());
+	}
+
+	// ─── GET /api/titles/recommendations (#358) ───────────────────────────────
+
+	@Test
+	void recommendationsReturnsRelatedTitles() throws Exception {
+		when(recommendationService.recommendationsFor(TitleType.MOVIE, "603")).thenReturn(List.of(
+			new TitleSearchResponse(
+				"604",
+				"TMDB",
+				TitleType.MOVIE,
+				"The Matrix Reloaded",
+				"Neo and the rebel leaders.",
+				LocalDate.parse("2003-05-15"),
+				"https://image.tmdb.org/t/p/w500/reloaded.jpg",
+				null
+			)
+		));
+
+		mockMvc.perform(get("/api/titles/recommendations")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("type", "MOVIE"))
+			.andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+			.andExpect(jsonPath("$[0].externalId").value("604"))
+			.andExpect(jsonPath("$[0].type").value("MOVIE"))
+			.andExpect(jsonPath("$[0].name").value("The Matrix Reloaded"));
+
+		verify(recommendationService).recommendationsFor(TitleType.MOVIE, "603");
+	}
+
+	@Test
+	void recommendationsReturnsBadGatewayOnTmdbError() throws Exception {
+		when(recommendationService.recommendationsFor(any(), any()))
+			.thenThrow(new TmdbApiException("TMDB recommendations failed", new RuntimeException()));
+
+		mockMvc.perform(get("/api/titles/recommendations")
+			.header("Authorization", "Bearer test-token")
+			.param("externalId", "603")
+			.param("type", "MOVIE"))
+			.andExpect(status().isBadGateway())
+			.andExpect(jsonPath("$.status").value(502))
+			.andExpect(jsonPath("$.message").value("TMDB recommendations failed"));
 	}
 
 	// ─── GET /api/titles/{titleId}/seasons ────────────────────────────────────
