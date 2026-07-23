@@ -15,6 +15,13 @@ export const MIN_PICKS = 2
 const TIME_STOPS: (number | null)[] = [30, 45, 60, 90, 120, null]
 const ANY_INDEX = TIME_STOPS.length - 1
 
+// The runtime label is wanted on every tile, including at "Any" where nothing is being
+// filtered. `maxMinutes` is capped at 600 server-side, so asking for the ceiling means
+// "everything with a known runtime" — one call at open populates the labels for the
+// whole grid. It is a *label* source only: it never filters and never blocks, so a
+// title the endpoint omits simply shows no label.
+const ANY_MINUTES = 600
+
 function windowLabel(minutes: number | null): string {
   if (minutes == null) return 'Any'
   return minutes === 120 ? '2h' : `${minutes}m`
@@ -132,6 +139,11 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
       .finally(() => setPendingWindow(prev => (prev === minutes ? null : prev)))
   }, [api, watchlistId])
 
+  // Populate the runtime labels once at open. Keyed like any other stop, so selecting a
+  // real one later reuses the cache machinery — and because nothing reads `pendingWindow`
+  // or `failedWindow` while `timeWindow` is null, this can't show a spinner or an error.
+  useEffect(() => { loadWindow(ANY_MINUTES) }, [loadWindow])
+
   function chooseStop(index: number) {
     setWindowIndex(index)
     // Selections made under the old stop may not survive the new one
@@ -152,11 +164,18 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
 
   const timeWindow = TIME_STOPS[windowIndex]
   const activePicks = timeWindow != null ? picksByWindow[timeWindow] : undefined
-  const pickByEntryId = new Map((activePicks ?? []).map(pick => [pick.entryId, pick]))
   const isChecking = timeWindow != null && activePicks === undefined && pendingWindow === timeWindow
   const hasFailed = timeWindow != null && activePicks === undefined && failedWindow === timeWindow
+
+  // Filtering and labelling are deliberately two different lookups. Only the active
+  // stop decides what fits; labels fall back to the ceiling fetch so a tile still shows
+  // its runtime at "Any" — and so a stop that is still loading can't filter the grid
+  // through the ceiling's much wider set.
+  const fitsIds = new Set((activePicks ?? []).map(pick => pick.entryId))
   const fitsWindow = (entry: WatchlistEntryResponse) =>
-    timeWindow == null || pickByEntryId.has(entry.id)
+    timeWindow == null || fitsIds.has(entry.id)
+  const labelPicks = activePicks ?? picksByWindow[ANY_MINUTES]
+  const pickByEntryId = new Map((labelPicks ?? []).map(pick => [pick.entryId, pick]))
 
   const typeEntries = entries.filter(e => e.type === mediaType)
   const eligibleEntries = typeEntries.filter(fitsWindow)

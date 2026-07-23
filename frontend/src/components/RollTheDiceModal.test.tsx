@@ -80,6 +80,8 @@ const toggleButton = (side: 'Movies' | 'TV') =>
 describe('RollTheDiceModal — media toggle (#366)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Every open fires the ceiling call for the runtime labels
+    mockApi.getTonightPicks.mockResolvedValue([])
   })
 
   it('shows one type at a time and swaps the grid when flipped', () => {
@@ -118,16 +120,30 @@ describe('RollTheDiceModal — media toggle (#366)', () => {
 describe('RollTheDiceModal — duration slider (#366)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Every open fires the ceiling call for the runtime labels
+    mockApi.getTonightPicks.mockResolvedValue([])
   })
 
-  it('starts on "Any", rightmost, and asks the backend nothing until it moves', () => {
+  it('starts on "Any", rightmost, filtering nothing', () => {
     renderModal()
 
     expect(slider()).toHaveValue('5')
     expect(slider()).toHaveAttribute('max', '5')
     expect(slider()).toHaveAttribute('aria-valuetext', 'Any time')
-    expect(mockApi.getTonightPicks).not.toHaveBeenCalled()
     expect(screen.getByAltText('Some Obscure Film')).toBeInTheDocument()
+  })
+
+  it('labels the tiles with their runtimes at "Any" without filtering any out', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+
+    // The endpoint's own ceiling, used as a label source rather than a filter
+    expect(mockApi.getTonightPicks).toHaveBeenCalledWith(1, 600)
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+    expect(screen.getByText('155m')).toBeInTheDocument()
+    // Omitted by the endpoint (no runtime on record) — still offered, just unlabelled
+    expect(screen.getByAltText('Some Obscure Film')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Roll All (3 Titles)' })).toBeEnabled()
   })
 
   it('narrows the grid to the titles that fit the chosen stop', async () => {
@@ -172,7 +188,8 @@ describe('RollTheDiceModal — duration slider (#366)', () => {
     await waitFor(() =>
       expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument(),
     )
-    expect(mockApi.getTonightPicks).toHaveBeenCalledTimes(1)
+    // Ignoring the ceiling call fired at open, the 2h stop was fetched exactly once
+    expect(mockApi.getTonightPicks.mock.calls.filter(([, m]) => m === 120)).toHaveLength(1)
   })
 
   it('shows a zero state rather than an error when nothing fits', async () => {
@@ -205,7 +222,9 @@ describe('RollTheDiceModal — duration slider (#366)', () => {
   })
 
   it('offers a retry rather than a stuck spinner when the check fails', async () => {
-    mockApi.getTonightPicks.mockRejectedValueOnce(new Error('boom'))
+    mockApi.getTonightPicks.mockImplementation((_id: number, minutes: number) =>
+      minutes === 45 ? Promise.reject(new Error('boom')) : Promise.resolve([]),
+    )
     renderModal()
 
     moveTo(STOP.m45)
@@ -226,6 +245,8 @@ describe('RollTheDiceModal — duration slider (#366)', () => {
 describe('RollTheDiceModal — roll CTA (#366)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Every open fires the ceiling call for the runtime labels
+    mockApi.getTonightPicks.mockResolvedValue([])
   })
 
   it('rolls everything by default and tracks the selection as it grows', () => {
