@@ -422,6 +422,7 @@ function LibraryPage() {
       {showDice && selectedWatchlistId && (
         <RollTheDiceModal
           entries={activeTab === 'WANT_TO_WATCH' ? wantToWatchEntries : watchingEntries}
+          watchlistId={selectedWatchlistId}
           wantToWatchMode={activeTab === 'WANT_TO_WATCH'}
           onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {

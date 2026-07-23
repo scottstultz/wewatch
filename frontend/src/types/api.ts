@@ -128,6 +128,20 @@ export interface ReturningEpisode {
   runtimeMinutes: number | null
 }
 
+// ── What can I finish tonight? (#359) ───────────────────────
+
+// One entry that fits a chosen time window. A movie is judged on its own runtime, a
+// show on the runtime of the next unwatched episode (episode 1 for a show never
+// started). Titles with no known runtime never appear — they can't be judged to fit,
+// so the absence of an entry id here means "doesn't fit or can't be measured".
+export interface TonightPick {
+  entryId: number
+  type: TitleType
+  runtimeMinutes: number
+  nextSeason: number | null
+  nextEpisode: number | null
+}
+
 // ── Stats (#323) ────────────────────────────────────────────
 
 // Watch stats for a watchlist, not for the signed-in user: episode progress is stored

@@ -13,6 +13,7 @@ import type {
   TitleSearchResponse,
   TitleSearchResults,
   TitleType,
+  TonightPick,
   WatchProvider,
   WatchRegion,
   WatchlistEntryResponse,
@@ -365,6 +366,16 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       const response = await authedFetch(`${BASE_URL}/watchlists/${watchlistId}/returning?days=${days}`)
       if (!response.ok) throw new Error(`Failed to fetch returning episodes: ${response.status}`)
       return response.json() as Promise<ReturningEpisode[]>
+    },
+
+    // ── What can I finish tonight? (#359) ───────────────────
+
+    async getTonightPicks(watchlistId: number, maxMinutes: number): Promise<TonightPick[]> {
+      const response = await authedFetch(
+        `${BASE_URL}/watchlists/${watchlistId}/tonight?maxMinutes=${maxMinutes}`,
+      )
+      if (!response.ok) throw new Error(`Failed to fetch tonight picks: ${response.status}`)
+      return response.json() as Promise<TonightPick[]>
     },
 
     // ── Stats (#323) ────────────────────────────────────────
