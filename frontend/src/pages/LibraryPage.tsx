@@ -203,12 +203,14 @@ function LibraryPage() {
     .filter(e => (e.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase()))
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
   const wantToWatchEntries = entries.filter(e => e.status === 'WANT_TO_WATCH')
-  const wantToWatchEligible =
-    wantToWatchEntries.filter(e => e.type === 'MOVIE').length >= MIN_PICKS
-    || wantToWatchEntries.filter(e => e.type === 'TV').length >= MIN_PICKS
+  // Every roll is type-scoped since #366, so a list is rollable only if one *side* of
+  // the picker's toggle has enough — not if the two types add up to enough between them.
+  const rollableByType = (list: WatchlistEntryResponse[]) =>
+    list.filter(e => e.type === 'MOVIE').length >= MIN_PICKS
+    || list.filter(e => e.type === 'TV').length >= MIN_PICKS
   const canRoll =
-    (activeTab === 'WATCHING' && watchingEntries.length >= MIN_PICKS)
-    || (activeTab === 'WANT_TO_WATCH' && wantToWatchEligible)
+    (activeTab === 'WATCHING' && rollableByType(watchingEntries))
+    || (activeTab === 'WANT_TO_WATCH' && rollableByType(wantToWatchEntries))
 
   return (
     <div className="page">
@@ -408,11 +410,7 @@ function LibraryPage() {
         <button
           className="flip-fab"
           onClick={() => setShowDice(true)}
-          aria-label={
-            activeTab === 'WANT_TO_WATCH'
-              ? 'Roll the dice — pick a random title from Want to Watch'
-              : 'Roll the dice — pick a random show to watch'
-          }
+          aria-label="Roll the dice — pick a random title to watch"
           title="Roll the dice"
         >
           🎲
@@ -423,7 +421,6 @@ function LibraryPage() {
         <RollTheDiceModal
           entries={activeTab === 'WANT_TO_WATCH' ? wantToWatchEntries : watchingEntries}
           watchlistId={selectedWatchlistId}
-          wantToWatchMode={activeTab === 'WANT_TO_WATCH'}
           onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {
             setShowDice(false)

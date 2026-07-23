@@ -2367,6 +2367,29 @@ div.people-row-photo {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
+/* The picker (#366) makes the poster grid the only scroll region, so the toggle,
+   slider and CTA stay put and reachable. Scoped to a modifier on purpose: the reveal
+   phase shares .flip-modal and needs to keep its plain block layout. */
+.flip-modal-picker {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.flip-modal-picker > * {
+  flex-shrink: 0;
+}
+
+.flip-modal-picker .flip-select-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* Without this the rows are auto-sized and compressible: squeezed by the flex
+     parent they flatten the 2:3 posters into bars instead of overflowing, and the
+     grid never scrolls. max-content pins each row to the poster's real height. */
+  grid-auto-rows: max-content;
+}
+
 .flip-title {
   margin: 0 0 6px;
   color: #f8fafc;
@@ -2470,42 +2493,79 @@ div.people-row-photo {
   cursor: not-allowed;
 }
 
-.flip-mode-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
+/* Media toggle (#366) — reuses the app's segmented-control idiom (.library-tab),
+   same as the Overview/Cast panel, rather than a third set of pill styles. */
+.flip-type-toggle {
+  margin: 14px 0 2px;
 }
 
-/* Time-window chips (#359) — one wrapping row, so five windows plus "Any time"
-   stay one glance rather than a menu. */
-.flip-window-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 12px 0 16px;
+/* Duration slider (#366), replacing the #359 chip row. Six discrete stops, "Any"
+   rightmost: the axis reads as increasing time, so "no limit" belongs at the top end. */
+.flip-slider {
+  margin: 10px 0 16px;
 }
 
-.flip-window-chip {
-  padding: 5px 12px;
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 999px;
+.flip-slider-input {
+  width: 100%;
+  margin: 0;
+  appearance: none;
+  -webkit-appearance: none;
   background: transparent;
-  color: #cbd5e1;
-  font-size: 0.8125rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
-.flip-window-chip:hover {
-  border-color: rgba(148, 163, 184, 0.5);
-  color: #f8fafc;
+.flip-slider-input:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 4px;
+  border-radius: 999px;
 }
 
-.flip-window-chip-active {
-  border-color: #7dd3fc;
+/* One rule per engine, never a combined selector list: an unrecognised
+   pseudo-element invalidates the whole list, which would silently drop both
+   thumbs back to the UA default. */
+.flip-slider-input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.flip-slider-input::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.3);
+}
+
+.flip-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  margin-top: -7px;
+  border: none;
+  border-radius: 50%;
   background: #7dd3fc;
-  color: #0f1720;
+  cursor: pointer;
+}
+
+.flip-slider-input::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: #7dd3fc;
+  cursor: pointer;
+}
+
+.flip-slider-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.flip-slider-tick-active {
+  color: #7dd3fc;
   font-weight: 600;
 }
 
@@ -2520,31 +2580,23 @@ div.people-row-photo {
   text-align: center;
 }
 
+/* White text on a drop shadow rather than a pill (#366): the pill covered poster art
+   on every tile to solve a legibility problem only light posters have.
+   Three layers, deliberately — a tight opaque core so the glyph edges survive against
+   a *white* poster, then a wider halo for everything else. A single 1px offset (or
+   even two layers) leaves white-on-white barely readable; verified by rendering the
+   tile over #fff in headless Chrome. */
 .flip-tile-runtime {
   position: absolute;
   left: 6px;
   bottom: 6px;
-  padding: 2px 6px;
-  border-radius: 6px;
-  background: rgba(15, 23, 42, 0.85);
-  color: #e2e8f0;
+  color: #fff;
   font-size: 0.6875rem;
-  font-weight: 600;
-}
-
-.flip-back-btn {
-  align-self: flex-start;
-  padding: 4px 0;
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: color 0.15s;
-}
-
-.flip-back-btn:hover {
-  color: #e2e8f0;
+  font-weight: 700;
+  text-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.9),
+    0 0 8px rgba(0, 0, 0, 0.75);
 }
 
 .flip-reveal {

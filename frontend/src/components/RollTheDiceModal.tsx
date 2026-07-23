@@ -8,14 +8,27 @@ export const MIN_PICKS = 2
 // "What can I finish tonight?" (#359). The windows people actually think in: a sitcom,
 // a drama episode, a short film, a normal film, a long one. Inclusive — a 90-minute
 // film fits the 90m window.
-const TIME_WINDOWS = [30, 45, 60, 90, 120]
+//
+// "Any" is a stop on the slider rather than a separate control (#366), and it is the
+// *rightmost* one: the axis reads left-to-right as increasing time, so "no limit"
+// belongs after 2h, not before 30m.
+const TIME_STOPS: (number | null)[] = [30, 45, 60, 90, 120, null]
+const ANY_INDEX = TIME_STOPS.length - 1
 
-function windowLabel(minutes: number): string {
+function windowLabel(minutes: number | null): string {
+  if (minutes == null) return 'Any'
   return minutes === 120 ? '2h' : `${minutes}m`
 }
 
 function windowPhrase(minutes: number): string {
   return minutes === 120 ? '2 hours' : `${minutes} minutes`
+}
+
+// What a screen reader announces for the slider. Without it the raw index ("5") is
+// read out — the tick captions below the track are decoration, not accessible values.
+function stopValueText(index: number): string {
+  const minutes = TIME_STOPS[index]
+  return minutes == null ? 'Any time' : windowPhrase(minutes)
 }
 
 function pickLabel(pick: TonightPick): string {
@@ -25,15 +38,22 @@ function pickLabel(pick: TonightPick): string {
     : runtime
 }
 
+// Which side the toggle opens on: Movies, unless Movies has too few to roll and TV
+// doesn't — so the picker never opens on a grid you can't do anything with.
+function defaultType(entries: WatchlistEntryResponse[]): TitleType {
+  const movies = entries.filter(e => e.type === 'MOVIE').length
+  const shows = entries.filter(e => e.type === 'TV').length
+  return movies >= MIN_PICKS || shows < MIN_PICKS ? 'MOVIE' : 'TV'
+}
+
 interface RollTheDiceModalProps {
   entries: WatchlistEntryResponse[]
   watchlistId: number
-  wantToWatchMode?: boolean
   onClose: () => void
   onOpenEntry: (entry: WatchlistEntryResponse) => void
 }
 
-type Phase = 'type' | 'mode' | 'select' | 'reveal'
+type Phase = 'select' | 'reveal'
 
 // Module scope on purpose: Math.random is impure, and the lint rules that keep render
 // pure flag it inside the component even where it is only ever reached from a handler.
@@ -64,12 +84,12 @@ function RevealCard({ entry, showBody }: { entry: WatchlistEntryResponse; showBo
   )
 }
 
-function RollTheDiceModal({
-  entries, watchlistId, wantToWatchMode, onClose, onOpenEntry,
-}: RollTheDiceModalProps) {
+function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTheDiceModalProps) {
   const api = useApi()
-  const [phase, setPhase] = useState<Phase>(wantToWatchMode ? 'type' : 'select')
-  const [mediaType, setMediaType] = useState<TitleType | null>(null)
+  const [phase, setPhase] = useState<Phase>('select')
+  // Resolved once at mount: flipping the toggle has to stick, so this can't be derived
+  // from `entries` on every render.
+  const [mediaType, setMediaType] = useState<TitleType>(() => defaultType(entries))
   const [searchTerm, setSearchTerm] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [displayId, setDisplayId] = useState<number | null>(null)
@@ -77,12 +97,12 @@ function RollTheDiceModal({
   const [isShuffling, setIsShuffling] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Time window (#359). null = "Any time". Each window's answer is cached, so moving
-  // back and forth across the chips costs at most one request per window.
-  const [timeWindow, setTimeWindow] = useState<number | null>(null)
+  // Time window (#359), now a slider position (#366). Each stop's answer is cached, so
+  // dragging back and forth costs at most one request per stop.
+  const [windowIndex, setWindowIndex] = useState(ANY_INDEX)
   const [picksByWindow, setPicksByWindow] = useState<Record<number, TonightPick[]>>({})
-  // Which window is in flight / has failed, rather than bare booleans: a second chip
-  // tapped mid-request must not inherit the first one's spinner or its error.
+  // Which window is in flight / has failed, rather than bare booleans: a stop dragged
+  // past must not inherit another one's spinner or its error.
   const [pendingWindow, setPendingWindow] = useState<number | null>(null)
   const [failedWindow, setFailedWindow] = useState<number | null>(null)
 
@@ -112,15 +132,25 @@ function RollTheDiceModal({
       .finally(() => setPendingWindow(prev => (prev === minutes ? null : prev)))
   }, [api, watchlistId])
 
-  function chooseWindow(minutes: number | null) {
-    setTimeWindow(minutes)
-    // Selections made under the old window may not survive the new one
+  function chooseStop(index: number) {
+    setWindowIndex(index)
+    // Selections made under the old stop may not survive the new one
     setSelected(new Set())
+    const minutes = TIME_STOPS[index]
     if (minutes != null && !picksByWindow[minutes]) {
       loadWindow(minutes)
     }
   }
 
+  function chooseType(type: TitleType) {
+    if (type === mediaType) return
+    setMediaType(type)
+    // A selection made on one side has no meaning on the other
+    setSelected(new Set())
+    setSearchTerm('')
+  }
+
+  const timeWindow = TIME_STOPS[windowIndex]
   const activePicks = timeWindow != null ? picksByWindow[timeWindow] : undefined
   const pickByEntryId = new Map((activePicks ?? []).map(pick => [pick.entryId, pick]))
   const isChecking = timeWindow != null && activePicks === undefined && pendingWindow === timeWindow
@@ -128,20 +158,22 @@ function RollTheDiceModal({
   const fitsWindow = (entry: WatchlistEntryResponse) =>
     timeWindow == null || pickByEntryId.has(entry.id)
 
-  const eligibleEntries = (wantToWatchMode ? entries.filter(e => e.type === mediaType) : entries)
-    .filter(fitsWindow)
+  const typeEntries = entries.filter(e => e.type === mediaType)
+  const eligibleEntries = typeEntries.filter(fitsWindow)
   const visibleEntries = eligibleEntries.filter(e =>
     (e.name ?? '').toLowerCase().includes(searchTerm.trim().toLowerCase()),
   )
 
+  // Counts on the toggle answer "what's behind the other side *right now*", so they
+  // track the active stop rather than the raw list.
   const movieCount = entries.filter(e => e.type === 'MOVIE' && fitsWindow(e)).length
   const showCount = entries.filter(e => e.type === 'TV' && fitsWindow(e)).length
 
-  // A window narrow enough to leave one title makes the roll pointless — that title is
+  // A stop narrow enough to leave one title makes the roll pointless — that title is
   // the answer, so present it instead of a dice you already know the result of.
   const solePick = timeWindow != null && eligibleEntries.length === 1 ? eligibleEntries[0] : null
-  const nothingFits = timeWindow != null
-    && (phase === 'type' ? movieCount + showCount === 0 : eligibleEntries.length === 0)
+  const nothingFits = timeWindow != null && eligibleEntries.length === 0
+  const emptyType = typeEntries.length === 0
 
   function toggle(id: number) {
     setSelected(prev => {
@@ -150,13 +182,6 @@ function RollTheDiceModal({
       else if (next.size < MAX_PICKS) next.add(id)
       return next
     })
-  }
-
-  function chooseType(type: TitleType) {
-    setMediaType(type)
-    setSelected(new Set())
-    setSearchTerm('')
-    setPhase('mode')
   }
 
   function roll(ids: number[]) {
@@ -203,43 +228,37 @@ function RollTheDiceModal({
     setIsShuffling(false)
     setSelected(new Set())
     setSearchTerm('')
-    setPhase(wantToWatchMode ? 'mode' : 'select')
+    setPhase('select')
   }
 
   const byId = (id: number | null) => entries.find(e => e.id === id) ?? null
   const revealEntry = byId(isShuffling ? displayId : chosenId)
+  const typeNoun = mediaType === 'MOVIE' ? 'movies' : 'shows'
 
-  const typeLabel = mediaType === 'MOVIE' ? 'Movies' : 'Shows'
-  // The minimum to roll: with a window on, one fitting title is handled by solePick, so
-  // anything that reaches a roll button genuinely needs two.
-  const enoughToRoll = (count: number) => count >= MIN_PICKS
+  // The CTA carries the whole selection model: nothing selected rolls everything on
+  // offer, one is short of a roll, two or more rolls just those.
+  const rollCount = eligibleEntries.length
+  const cta = selected.size === 0
+    ? {
+      label: `Roll All (${rollCount} Title${rollCount === 1 ? '' : 's'})`,
+      disabled: rollCount < MIN_PICKS,
+      onClick: rollAll,
+    }
+    : selected.size === 1
+      ? { label: 'Select 1 more to roll…', disabled: true, onClick: () => {} }
+      : {
+        label: `Roll Selected (${selected.size})`,
+        disabled: false,
+        onClick: () => roll([...selected]),
+      }
 
-  const windowChips = (
-    <div className="flip-window-row" role="group" aria-label="How much time do you have?">
-      <button
-        type="button"
-        className={`flip-window-chip${timeWindow == null ? ' flip-window-chip-active' : ''}`}
-        aria-pressed={timeWindow == null}
-        onClick={() => chooseWindow(null)}
-      >
-        Any time
-      </button>
-      {TIME_WINDOWS.map(minutes => (
-        <button
-          key={minutes}
-          type="button"
-          className={`flip-window-chip${timeWindow === minutes ? ' flip-window-chip-active' : ''}`}
-          aria-pressed={timeWindow === minutes}
-          onClick={() => chooseWindow(minutes)}
-        >
-          {windowLabel(minutes)}
-        </button>
-      ))}
-    </div>
-  )
-
-  // What replaces a phase's body when the window has something to say about it.
-  function windowState() {
+  // What replaces the grid when the toggle or the stop has something to say instead.
+  // Order matters: an empty side of the toggle is not a window problem, so it is
+  // reported before anything that talks about runtimes.
+  function bodyState() {
+    if (emptyType) {
+      return <p className="flip-window-note">No {typeNoun} in this list.</p>
+    }
     if (hasFailed) {
       return (
         <div className="flip-window-note">
@@ -280,85 +299,66 @@ function RollTheDiceModal({
     return null
   }
 
-  const windowBody = phase === 'reveal' ? null : windowState()
+  const body = phase === 'select' ? bodyState() : null
 
   return (
     <div className="flip-overlay" onClick={handleBackdropClick}>
-      <div className="flip-modal" role="dialog" aria-modal="true" aria-label="Roll the dice">
+      <div
+        className={`flip-modal${phase === 'select' ? ' flip-modal-picker' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Roll the dice"
+      >
         <button className="list-manage-close" onClick={onClose} aria-label="Close">×</button>
-
-        {phase === 'type' && (
-          <>
-            <h3 className="flip-title">Roll the dice</h3>
-            <p className="flip-subtitle">What do you want to roll for?</p>
-
-            {windowChips}
-
-            {windowBody ?? (
-              <div className="flip-mode-actions">
-                <button
-                  className="flip-go-btn"
-                  disabled={movieCount === 0 || (timeWindow == null && !enoughToRoll(movieCount))}
-                  onClick={() => chooseType('MOVIE')}
-                >
-                  Movies ({movieCount})
-                </button>
-                <button
-                  className="flip-go-btn"
-                  disabled={showCount === 0 || (timeWindow == null && !enoughToRoll(showCount))}
-                  onClick={() => chooseType('TV')}
-                >
-                  Shows ({showCount})
-                </button>
-              </div>
-            )}
-          </>
-        )}
-
-        {phase === 'mode' && (
-          <>
-            <button className="flip-back-btn" onClick={() => setPhase('type')}>‹ Back</button>
-            <h3 className="flip-title">Roll the dice</h3>
-            <p className="flip-subtitle">
-              {typeLabel} in Want to Watch — how do you want to roll?
-            </p>
-
-            {windowChips}
-
-            {windowBody ?? (
-              <div className="flip-mode-actions">
-                <button
-                  className="flip-go-btn"
-                  disabled={!enoughToRoll(eligibleEntries.length)}
-                  onClick={rollAll}
-                >
-                  Roll all ({eligibleEntries.length})
-                </button>
-                <button
-                  className="flip-secondary-btn"
-                  disabled={!enoughToRoll(eligibleEntries.length)}
-                  onClick={() => { setSelected(new Set()); setPhase('select') }}
-                >
-                  Narrow it down
-                </button>
-              </div>
-            )}
-          </>
-        )}
 
         {phase === 'select' && (
           <>
-            {wantToWatchMode && (
-              <button className="flip-back-btn" onClick={() => setPhase('mode')}>‹ Back</button>
-            )}
             <h3 className="flip-title">Roll the dice</h3>
-            <p className="flip-subtitle">
-              Pick {MIN_PICKS}–{MAX_PICKS}{wantToWatchMode ? ` ${typeLabel.toLowerCase()}` : " of the shows you're watching"} and let fate choose.
-            </p>
 
-            {windowChips}
+            <div className="library-tabs flip-type-toggle" role="group" aria-label="Movies or TV">
+              <button
+                type="button"
+                className={`library-tab${mediaType === 'MOVIE' ? ' library-tab-active' : ''}`}
+                aria-pressed={mediaType === 'MOVIE'}
+                onClick={() => chooseType('MOVIE')}
+              >
+                Movies ({movieCount})
+              </button>
+              <button
+                type="button"
+                className={`library-tab${mediaType === 'TV' ? ' library-tab-active' : ''}`}
+                aria-pressed={mediaType === 'TV'}
+                onClick={() => chooseType('TV')}
+              >
+                TV ({showCount})
+              </button>
+            </div>
 
-            {windowBody ?? (
+            <div className="flip-slider">
+              <input
+                type="range"
+                className="flip-slider-input"
+                min={0}
+                max={ANY_INDEX}
+                step={1}
+                value={windowIndex}
+                aria-label="How much time do you have?"
+                aria-valuetext={stopValueText(windowIndex)}
+                onChange={e => chooseStop(Number(e.target.value))}
+              />
+              <div className="flip-slider-ticks" aria-hidden="true">
+                {TIME_STOPS.map((minutes, i) => (
+                  <span
+                    key={windowLabel(minutes)}
+                    className={`flip-slider-tick${i === windowIndex ? ' flip-slider-tick-active' : ''}`}
+                  >
+                    {windowLabel(minutes)}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {body ?? (
               <>
                 <div className="search-input-wrapper">
                   <input
@@ -407,13 +407,16 @@ function RollTheDiceModal({
                 </div>
 
                 <div className="flip-actions">
-                  <span className="flip-count">{selected.size} / {MAX_PICKS} selected</span>
+                  {/* Only once something is selected — otherwise the cap is noise */}
+                  <span className="flip-count">
+                    {selected.size > 0 ? `${selected.size} / ${MAX_PICKS} selected` : ''}
+                  </span>
                   <button
                     className="flip-go-btn"
-                    disabled={selected.size < MIN_PICKS}
-                    onClick={() => roll([...selected])}
+                    disabled={cta.disabled}
+                    onClick={cta.onClick}
                   >
-                    Roll!
+                    {cta.label}
                   </button>
                 </div>
               </>

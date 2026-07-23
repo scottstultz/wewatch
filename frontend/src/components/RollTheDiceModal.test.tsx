@@ -35,19 +35,33 @@ function makeEntry(id: number, name: string, type: TitleType): WatchlistEntryRes
   }
 }
 
-// A short film, a show mid-run, and a long film with no runtime on record.
-const SHORT_MOVIE = makeEntry(1, 'Paddington', 'MOVIE')
-const SHOW = makeEntry(2, 'Breaking Bad', 'TV')
-const UNKNOWN_MOVIE = makeEntry(3, 'Some Obscure Film', 'MOVIE')
+const PADDINGTON = makeEntry(1, 'Paddington', 'MOVIE')
+const BREAKING_BAD = makeEntry(2, 'Breaking Bad', 'TV')
+// Never comes back from /tonight — no runtime on record, so it can't be judged to fit
+const OBSCURE = makeEntry(3, 'Some Obscure Film', 'MOVIE')
+const DUNE = makeEntry(4, 'Dune', 'MOVIE')
+const THE_BEAR = makeEntry(5, 'The Bear', 'TV')
 
-const MOVIE_PICK: TonightPick = {
+const PADDINGTON_PICK: TonightPick = {
   entryId: 1, type: 'MOVIE', runtimeMinutes: 95, nextSeason: null, nextEpisode: null,
 }
-const SHOW_PICK: TonightPick = {
+const BREAKING_BAD_PICK: TonightPick = {
   entryId: 2, type: 'TV', runtimeMinutes: 47, nextSeason: 3, nextEpisode: 7,
 }
+const DUNE_PICK: TonightPick = {
+  entryId: 4, type: 'MOVIE', runtimeMinutes: 155, nextSeason: null, nextEpisode: null,
+}
+const BEAR_PICK: TonightPick = {
+  entryId: 5, type: 'TV', runtimeMinutes: 30, nextSeason: 1, nextEpisode: 1,
+}
 
-function renderModal(entries = [SHORT_MOVIE, SHOW, UNKNOWN_MOVIE]) {
+// 3 movies, 2 shows — so the toggle opens on Movies and neither side is a sole pick.
+const DEFAULT_ENTRIES = [PADDINGTON, BREAKING_BAD, OBSCURE, DUNE, THE_BEAR]
+
+// Slider stops: 0=30m 1=45m 2=60m 3=90m 4=2h 5=Any
+const STOP = { m30: '0', m45: '1', m60: '2', m120: '4', any: '5' }
+
+function renderModal(entries = DEFAULT_ENTRIES) {
   return render(
     <RollTheDiceModal
       entries={entries}
@@ -58,97 +72,194 @@ function renderModal(entries = [SHORT_MOVIE, SHOW, UNKNOWN_MOVIE]) {
   )
 }
 
-describe('RollTheDiceModal time windows (#359)', () => {
+const slider = () => screen.getByRole('slider')
+const moveTo = (stop: string) => fireEvent.change(slider(), { target: { value: stop } })
+const toggleButton = (side: 'Movies' | 'TV') =>
+  screen.getByRole('button', { name: new RegExp(`^${side} \\(`) })
+
+describe('RollTheDiceModal — media toggle (#366)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('narrows the picks to the titles that fit the chosen window', async () => {
-    mockApi.getTonightPicks.mockResolvedValue([MOVIE_PICK, SHOW_PICK])
+  it('shows one type at a time and swaps the grid when flipped', () => {
     renderModal()
 
-    // Everything is on offer before a window is chosen
-    expect(screen.getByAltText('Some Obscure Film')).toBeInTheDocument()
+    // Opens on Movies: three of them, no shows
+    expect(toggleButton('Movies')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByAltText('Paddington')).toBeInTheDocument()
+    expect(screen.getByAltText('Dune')).toBeInTheDocument()
+    expect(screen.queryByAltText('Breaking Bad')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '2h' }))
+    fireEvent.click(toggleButton('TV'))
 
-    await waitFor(() => expect(screen.getByAltText('Paddington')).toBeInTheDocument())
     expect(screen.getByAltText('Breaking Bad')).toBeInTheDocument()
-    // A title the backend left out — no known runtime, so it can't be judged to fit
-    expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument()
+    expect(screen.getByAltText('The Bear')).toBeInTheDocument()
+    expect(screen.queryByAltText('Paddington')).not.toBeInTheDocument()
+  })
+
+  it('opens on TV when there are too few movies to roll', () => {
+    renderModal([PADDINGTON, BREAKING_BAD, THE_BEAR])
+
+    expect(toggleButton('TV')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByAltText('Breaking Bad')).toBeInTheDocument()
+  })
+
+  it('says the side is empty rather than blaming the time window', () => {
+    renderModal([BREAKING_BAD, THE_BEAR])
+
+    fireEvent.click(toggleButton('Movies'))
+
+    expect(screen.getByText('No movies in this list.')).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing here fits/)).not.toBeInTheDocument()
+  })
+})
+
+describe('RollTheDiceModal — duration slider (#366)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('starts on "Any", rightmost, and asks the backend nothing until it moves', () => {
+    renderModal()
+
+    expect(slider()).toHaveValue('5')
+    expect(slider()).toHaveAttribute('max', '5')
+    expect(slider()).toHaveAttribute('aria-valuetext', 'Any time')
+    expect(mockApi.getTonightPicks).not.toHaveBeenCalled()
+    expect(screen.getByAltText('Some Obscure Film')).toBeInTheDocument()
+  })
+
+  it('narrows the grid to the titles that fit the chosen stop', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK, BREAKING_BAD_PICK])
+    renderModal()
+
+    moveTo(STOP.m120)
+
+    await waitFor(() =>
+      expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByAltText('Paddington')).toBeInTheDocument()
+    expect(screen.getByAltText('Dune')).toBeInTheDocument()
     expect(mockApi.getTonightPicks).toHaveBeenCalledWith(1, 120)
+    expect(slider()).toHaveAttribute('aria-valuetext', '2 hours')
   })
 
   it('labels a fitting show with the next episode it would play', async () => {
-    mockApi.getTonightPicks.mockResolvedValue([MOVIE_PICK, SHOW_PICK])
+    mockApi.getTonightPicks.mockResolvedValue([BREAKING_BAD_PICK, BEAR_PICK])
     renderModal()
 
-    fireEvent.click(screen.getByRole('button', { name: '2h' }))
+    fireEvent.click(toggleButton('TV'))
+    moveTo(STOP.m120)
 
     await waitFor(() => expect(screen.getByText('S3 E7 · 47m')).toBeInTheDocument())
-    expect(screen.getByText('95m')).toBeInTheDocument()
+    expect(screen.getByText('S1 E1 · 30m')).toBeInTheDocument()
   })
 
-  it('shows a zero state rather than an error when nothing fits', async () => {
-    mockApi.getTonightPicks.mockResolvedValue([])
+  it('restores the full list on "Any" and does not refetch a stop already seen', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK])
     renderModal()
 
-    fireEvent.click(screen.getByRole('button', { name: '30m' }))
-
-    await waitFor(() =>
-      expect(screen.getByText(/Nothing here fits in 30 minutes/)).toBeInTheDocument(),
-    )
-    expect(screen.queryByText('Checking runtimes…')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Roll!' })).not.toBeInTheDocument()
-  })
-
-  it('offers the single fitting title directly instead of a roll', async () => {
-    mockApi.getTonightPicks.mockResolvedValue([SHOW_PICK])
-    renderModal()
-
-    fireEvent.click(screen.getByRole('button', { name: '60m' }))
-
-    await waitFor(() =>
-      expect(screen.getByText(/Only one thing fits 60 minutes/)).toBeInTheDocument(),
-    )
-    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Roll!' })).not.toBeInTheDocument()
-  })
-
-  it('restores the full list on "Any time" and does not refetch a window already seen', async () => {
-    mockApi.getTonightPicks.mockResolvedValue([MOVIE_PICK, SHOW_PICK])
-    renderModal()
-
-    fireEvent.click(screen.getByRole('button', { name: '2h' }))
+    moveTo(STOP.m120)
     await waitFor(() =>
       expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument(),
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Any time' }))
+    moveTo(STOP.any)
     expect(screen.getByAltText('Some Obscure Film')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '2h' }))
+    moveTo(STOP.m120)
     await waitFor(() =>
       expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument(),
     )
     expect(mockApi.getTonightPicks).toHaveBeenCalledTimes(1)
   })
 
+  it('shows a zero state rather than an error when nothing fits', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([])
+    renderModal()
+
+    moveTo(STOP.m30)
+
+    await waitFor(() =>
+      expect(screen.getByText(/Nothing here fits in 30 minutes/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Checking runtimes…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Roll All/ })).not.toBeInTheDocument()
+  })
+
+  it('offers the single fitting title directly instead of a roll', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK])
+    renderModal()
+
+    moveTo(STOP.m60)
+
+    await waitFor(() =>
+      expect(screen.getByText(/Only one thing fits 60 minutes/)).toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Roll/ })).not.toBeInTheDocument()
+    // The filters stay reachable so the sole pick isn't a dead end
+    expect(slider()).toBeInTheDocument()
+    expect(toggleButton('TV')).toBeInTheDocument()
+  })
+
   it('offers a retry rather than a stuck spinner when the check fails', async () => {
     mockApi.getTonightPicks.mockRejectedValueOnce(new Error('boom'))
     renderModal()
 
-    fireEvent.click(screen.getByRole('button', { name: '45m' }))
+    moveTo(STOP.m45)
 
     await waitFor(() =>
       expect(screen.getByText(/Couldn't check runtimes/)).toBeInTheDocument(),
     )
 
-    mockApi.getTonightPicks.mockResolvedValue([MOVIE_PICK])
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK])
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
     await waitFor(() =>
       expect(screen.getByText(/Only one thing fits 45 minutes/)).toBeInTheDocument(),
     )
+  })
+})
+
+describe('RollTheDiceModal — roll CTA (#366)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('rolls everything by default and tracks the selection as it grows', () => {
+    renderModal()
+
+    // Nothing selected: the whole matching set is the offer
+    expect(screen.getByRole('button', { name: 'Roll All (3 Titles)' })).toBeEnabled()
+
+    fireEvent.click(screen.getByAltText('Paddington'))
+    const nudge = screen.getByRole('button', { name: 'Select 1 more to roll…' })
+    expect(nudge).toBeDisabled()
+
+    fireEvent.click(screen.getByAltText('Dune'))
+    expect(screen.getByRole('button', { name: 'Roll Selected (2)' })).toBeEnabled()
+  })
+
+  it('cannot roll a side that has fewer than two titles', () => {
+    // 1 movie, 2 shows — opens on the rollable side
+    renderModal([PADDINGTON, BREAKING_BAD, THE_BEAR])
+
+    expect(screen.getByRole('button', { name: 'Roll All (2 Titles)' })).toBeEnabled()
+
+    fireEvent.click(toggleButton('Movies'))
+    expect(screen.getByRole('button', { name: 'Roll All (1 Title)' })).toBeDisabled()
+  })
+
+  it('reaches the reveal from "Roll All" with nothing selected', () => {
+    // Reduced motion lands the reveal immediately instead of running the shuffle timers
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true }) as unknown as typeof window.matchMedia
+    renderModal()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Roll All (3 Titles)' }))
+
+    expect(screen.getByText('You should watch')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Roll again' })).toBeInTheDocument()
   })
 })
