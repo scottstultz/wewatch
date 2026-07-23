@@ -22,6 +22,12 @@ const ANY_INDEX = TIME_STOPS.length - 1
 // title the endpoint omits simply shows no label.
 const ANY_MINUTES = 600
 
+// How long the slider must hold still before its stop is fetched (#368). A range input
+// fires onChange for every discrete step the thumb crosses, so a drag across the track
+// used to fire one request — and one loading state — per stop. Only the *fetch* waits;
+// `windowIndex` still updates on every event so the thumb never lags the pointer.
+const SETTLE_MS = 150
+
 function windowLabel(minutes: number | null): string {
   if (minutes == null) return 'Any'
   return minutes === 120 ? '2h' : `${minutes}m`
@@ -108,10 +114,19 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
   // dragging back and forth costs at most one request per stop.
   const [windowIndex, setWindowIndex] = useState(ANY_INDEX)
   const [picksByWindow, setPicksByWindow] = useState<Record<number, TonightPick[]>>({})
-  // Which window is in flight / has failed, rather than bare booleans: a stop dragged
-  // past must not inherit another one's spinner or its error.
-  const [pendingWindow, setPendingWindow] = useState<number | null>(null)
+  // Which window failed, rather than a bare boolean: a stop dragged past must not
+  // inherit another one's error. (#366 tracked the in-flight window here too; since
+  // #368 "in flight" is just "the settled stop has no answer yet", which also covers
+  // the settle delay before the request is even made.)
   const [failedWindow, setFailedWindow] = useState<number | null>(null)
+  // The stop the grid is actually filtered by (#368). It deliberately lags `windowIndex`:
+  // through the settle delay and the request that follows, the grid keeps rendering the
+  // last stop that resolved instead of emptying out. Without it the grid would drop to
+  // zero tiles on every drag — which is the height collapse this issue is about, and also
+  // what made `nothingFits` trivially true the moment the old "Checking runtimes…" branch
+  // stopped guarding it.
+  const [appliedIndex, setAppliedIndex] = useState(ANY_INDEX)
+  const appliedRef = useRef(ANY_INDEX)
 
   // Close on Escape
   useEffect(() => {
@@ -131,12 +146,10 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
   )
 
   const loadWindow = useCallback((minutes: number) => {
-    setPendingWindow(minutes)
     setFailedWindow(prev => (prev === minutes ? null : prev))
     api.getTonightPicks(watchlistId, minutes)
       .then(picks => setPicksByWindow(prev => ({ ...prev, [minutes]: picks })))
       .catch(() => setFailedWindow(minutes))
-      .finally(() => setPendingWindow(prev => (prev === minutes ? null : prev)))
   }, [api, watchlistId])
 
   // Populate the runtime labels once at open. Keyed like any other stop, so selecting a
@@ -144,15 +157,29 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
   // or `failedWindow` while `timeWindow` is null, this can't show a spinner or an error.
   useEffect(() => { loadWindow(ANY_MINUTES) }, [loadWindow])
 
-  function chooseStop(index: number) {
-    setWindowIndex(index)
-    // Selections made under the old stop may not survive the new one
-    setSelected(new Set())
-    const minutes = TIME_STOPS[index]
-    if (minutes != null && !picksByWindow[minutes]) {
-      loadWindow(minutes)
+  const timeWindow = TIME_STOPS[windowIndex]
+
+  // Fetch the stop the slider *settled* on, not every stop the thumb crossed (#368). The
+  // cleanup cancels the previous stop's timer, so one drag across the track schedules five
+  // and fires one. Re-running when `picksByWindow` fills only ever makes the cache check
+  // below return earlier, at the cost of restarting one timer.
+  useEffect(() => {
+    if (timeWindow == null || picksByWindow[timeWindow]) return
+    const timer = setTimeout(() => loadWindow(timeWindow), SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [timeWindow, picksByWindow, loadWindow])
+
+  // Advance the grid onto the current stop once there is an answer to show for it.
+  useEffect(() => {
+    if (timeWindow != null && picksByWindow[timeWindow] === undefined) return
+    if (appliedRef.current !== windowIndex) {
+      appliedRef.current = windowIndex
+      // A stop that genuinely changed invalidates selections made under the old one.
+      // Dragging away and back settles on the same stop, so it leaves them alone.
+      setSelected(new Set())
     }
-  }
+    setAppliedIndex(windowIndex)
+  }, [windowIndex, timeWindow, picksByWindow])
 
   function chooseType(type: TitleType) {
     if (type === mediaType) return
@@ -162,19 +189,25 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
     setSearchTerm('')
   }
 
-  const timeWindow = TIME_STOPS[windowIndex]
   const activePicks = timeWindow != null ? picksByWindow[timeWindow] : undefined
-  const isChecking = timeWindow != null && activePicks === undefined && pendingWindow === timeWindow
   const hasFailed = timeWindow != null && activePicks === undefined && failedWindow === timeWindow
+  // "The settled stop has no answer yet" — which spans the settle delay as well as the
+  // request itself (#368), so the grid dims once for the whole gap instead of flickering
+  // at the boundary between them. `pendingWindow` is now only the retry button's business.
+  const isChecking = timeWindow != null && activePicks === undefined && !hasFailed
 
-  // Filtering and labelling are deliberately two different lookups. Only the active
+  // What the grid renders against: the applied stop, which lags the slider (#368).
+  const appliedWindow = TIME_STOPS[appliedIndex]
+  const appliedPicks = appliedWindow != null ? picksByWindow[appliedWindow] : undefined
+
+  // Filtering and labelling are deliberately two different lookups. Only the applied
   // stop decides what fits; labels fall back to the ceiling fetch so a tile still shows
   // its runtime at "Any" — and so a stop that is still loading can't filter the grid
   // through the ceiling's much wider set.
-  const fitsIds = new Set((activePicks ?? []).map(pick => pick.entryId))
+  const fitsIds = new Set((appliedPicks ?? []).map(pick => pick.entryId))
   const fitsWindow = (entry: WatchlistEntryResponse) =>
-    timeWindow == null || fitsIds.has(entry.id)
-  const labelPicks = activePicks ?? picksByWindow[ANY_MINUTES]
+    appliedWindow == null || fitsIds.has(entry.id)
+  const labelPicks = appliedPicks ?? picksByWindow[ANY_MINUTES]
   const pickByEntryId = new Map((labelPicks ?? []).map(pick => [pick.entryId, pick]))
 
   const typeEntries = entries.filter(e => e.type === mediaType)
@@ -188,10 +221,17 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
   const movieCount = entries.filter(e => e.type === 'MOVIE' && fitsWindow(e)).length
   const showCount = entries.filter(e => e.type === 'TV' && fitsWindow(e)).length
 
+  // Both of these swap the body out, so they may only describe the stop the grid is
+  // actually showing (#368) — otherwise a drag past a narrow stop would collapse the
+  // modal mid-gesture and quote a duration the user has already moved off.
+  const settled = appliedIndex === windowIndex
+
   // A stop narrow enough to leave one title makes the roll pointless — that title is
   // the answer, so present it instead of a dice you already know the result of.
-  const solePick = timeWindow != null && eligibleEntries.length === 1 ? eligibleEntries[0] : null
-  const nothingFits = timeWindow != null && eligibleEntries.length === 0
+  const solePick = settled && appliedWindow != null && eligibleEntries.length === 1
+    ? eligibleEntries[0]
+    : null
+  const nothingFits = settled && appliedWindow != null && eligibleEntries.length === 0
   const emptyType = typeEntries.length === 0
 
   function toggle(id: number) {
@@ -256,24 +296,34 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
 
   // The CTA carries the whole selection model: nothing selected rolls everything on
   // offer, one is short of a roll, two or more rolls just those.
+  //
+  // `isChecking` is folded into each branch rather than OR'd at the JSX (#368) — the
+  // tiles on screen belong to the previous stop while a check is in flight, so rolling
+  // them would pick from a set that is about to change. Written this way on purpose:
+  // `disabled={cta.disabled || isChecking}` at the call site is a react-hooks/refs
+  // *error*, not a warning, and CI fails on errors. Neither operand alone trips it.
   const rollCount = eligibleEntries.length
   const cta = selected.size === 0
     ? {
       label: `Roll All (${rollCount} Title${rollCount === 1 ? '' : 's'})`,
-      disabled: rollCount < MIN_PICKS,
+      disabled: rollCount < MIN_PICKS || isChecking,
       onClick: rollAll,
     }
     : selected.size === 1
       ? { label: 'Select 1 more to roll…', disabled: true, onClick: () => {} }
       : {
         label: `Roll Selected (${selected.size})`,
-        disabled: false,
+        disabled: isChecking,
         onClick: () => roll([...selected]),
       }
 
   // What replaces the grid when the toggle or the stop has something to say instead.
   // Order matters: an empty side of the toggle is not a window problem, so it is
   // reported before anything that talks about runtimes.
+  //
+  // Every state here is a *settled* one. An in-flight check deliberately isn't — it dims
+  // the grid in place rather than swapping it out (#368), because swapping is what made
+  // the modal collapse and re-expand on every stop the thumb crossed.
   function bodyState() {
     if (emptyType) {
       return <p className="flip-window-note">No {typeNoun} in this list.</p>
@@ -287,9 +337,6 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
           </button>
         </div>
       )
-    }
-    if (isChecking) {
-      return <p className="flip-window-note">Checking runtimes…</p>
     }
     if (nothingFits) {
       return (
@@ -363,7 +410,9 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                 value={windowIndex}
                 aria-label="How much time do you have?"
                 aria-valuetext={stopValueText(windowIndex)}
-                onChange={e => chooseStop(Number(e.target.value))}
+                // Moves the thumb and nothing else — the fetch and the selection reset
+                // both wait for the drag to settle (#368).
+                onChange={e => setWindowIndex(Number(e.target.value))}
               />
               <div className="flip-slider-ticks" aria-hidden="true">
                 {TIME_STOPS.map((minutes, i) => (
@@ -398,7 +447,7 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                   )}
                 </div>
 
-                <div className="flip-select-grid">
+                <div className={`flip-select-grid${isChecking ? ' flip-select-grid-checking' : ''}`}>
                   {visibleEntries.map(entry => {
                     const isSelected = selected.has(entry.id)
                     const atCap = selected.size >= MAX_PICKS && !isSelected
@@ -409,7 +458,11 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                         type="button"
                         className={`flip-tile${isSelected ? ' flip-tile-selected' : ''}`}
                         aria-pressed={isSelected}
-                        disabled={atCap}
+                        // These tiles are the *previous* stop's set while a check is in
+                        // flight and some of them won't survive the new one, so they must
+                        // not be selectable. `disabled` rather than the stylesheet's
+                        // pointer-events alone: that leaves them keyboard-reachable (#368).
+                        disabled={atCap || isChecking}
                         onClick={() => toggle(entry.id)}
                         title={entry.name ?? undefined}
                       >
@@ -426,9 +479,14 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                 </div>
 
                 <div className="flip-actions">
-                  {/* Only once something is selected — otherwise the cap is noise */}
-                  <span className="flip-count">
-                    {selected.size > 0 ? `${selected.size} / ${MAX_PICKS} selected` : ''}
+                  {/* Only once something is selected — otherwise the cap is noise. The
+                      in-flight message rides this slot on purpose (#368): it is already
+                      rendered unconditionally, so borrowing it costs no height, and a
+                      check has cleared the selection it would otherwise displace. */}
+                  <span className="flip-count" aria-live="polite">
+                    {isChecking
+                      ? 'Checking runtimes…'
+                      : selected.size > 0 ? `${selected.size} / ${MAX_PICKS} selected` : ''}
                   </span>
                   <button
                     className="flip-go-btn"

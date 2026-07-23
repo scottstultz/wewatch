@@ -76,6 +76,19 @@ const slider = () => screen.getByRole('slider')
 const moveTo = (stop: string) => fireEvent.change(slider(), { target: { value: stop } })
 const toggleButton = (side: 'Movies' | 'TV') =>
   screen.getByRole('button', { name: new RegExp(`^${side} \\(`) })
+const tile = (name: string) => screen.getByAltText(name).closest('button')!
+
+// The ceiling call every open fires for the runtime labels — never the stop under test.
+const stopCalls = () => mockApi.getTonightPicks.mock.calls.filter(([, m]) => m !== 600)
+
+// Holds one window's answer open so the in-flight state can be asserted.
+function deferWindow(minutes: number, otherwise: TonightPick[]) {
+  let release!: (picks: TonightPick[]) => void
+  const held = new Promise<TonightPick[]>(resolve => { release = resolve })
+  mockApi.getTonightPicks.mockImplementation((_id: number, m: number) =>
+    m === minutes ? held : Promise.resolve(otherwise))
+  return { release: () => release(otherwise) }
+}
 
 describe('RollTheDiceModal — media toggle (#366)', () => {
   beforeEach(() => {
@@ -282,5 +295,87 @@ describe('RollTheDiceModal — roll CTA (#366)', () => {
 
     expect(screen.getByText('You should watch')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Roll again' })).toBeInTheDocument()
+  })
+})
+
+describe('RollTheDiceModal — slider does not resize the modal (#368)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.getTonightPicks.mockResolvedValue([])
+  })
+
+  it('fires one request for the stop the drag lands on, not one per stop crossed', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+
+    // A range input fires onChange for every discrete step the thumb passes over
+    for (const stop of ['4', '3', '2', '1', STOP.m30]) moveTo(stop)
+
+    await waitFor(() => expect(mockApi.getTonightPicks).toHaveBeenCalledWith(1, 30))
+    expect(stopCalls()).toEqual([[1, 30]])
+  })
+
+  it('dims the grid in place instead of unmounting the body while a check is in flight', async () => {
+    const held = deferWindow(30, [PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+
+    moveTo(STOP.m30)
+    await waitFor(() => expect(screen.getByText('Checking runtimes…')).toBeInTheDocument())
+
+    // The three things the pre-#368 body swap took down with it
+    expect(screen.getByPlaceholderText('Search titles…')).toBeInTheDocument()
+    expect(screen.getByAltText('Paddington')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Roll All/ })).toBeInTheDocument()
+
+    held.release()
+    await waitFor(() => expect(screen.queryByText('Checking runtimes…')).not.toBeInTheDocument())
+  })
+
+  it('cannot select or roll the previous stop\'s tiles while a check is in flight', async () => {
+    const held = deferWindow(30, [PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+
+    moveTo(STOP.m30)
+    await waitFor(() => expect(screen.getByText('Checking runtimes…')).toBeInTheDocument())
+
+    // These are the *old* stop's tiles and some won't survive the new one
+    expect(tile('Paddington')).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^Roll All/ })).toBeDisabled()
+
+    held.release()
+    await waitFor(() => expect(tile('Paddington')).toBeEnabled())
+  })
+
+  it('keeps the selection when the slider is dragged away and back to the same stop', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+
+    fireEvent.click(tile('Paddington'))
+    fireEvent.click(tile('Dune'))
+    expect(screen.getByRole('button', { name: 'Roll Selected (2)' })).toBeInTheDocument()
+
+    // Passes over other stops and returns before any of them settles
+    moveTo(STOP.m60)
+    moveTo(STOP.any)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Roll Selected (2)' })).toBeEnabled())
+    expect(stopCalls()).toEqual([])
+  })
+
+  it('still drops the selection when the slider settles on a different stop', async () => {
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK, DUNE_PICK])
+    renderModal()
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+
+    fireEvent.click(tile('Paddington'))
+    fireEvent.click(tile('Dune'))
+    expect(screen.getByRole('button', { name: 'Roll Selected (2)' })).toBeInTheDocument()
+
+    moveTo(STOP.m120)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Roll All (2 Titles)' })).toBeInTheDocument())
   })
 })
