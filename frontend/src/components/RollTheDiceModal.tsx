@@ -488,7 +488,15 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                       ? 'Checking runtimes…'
                       : selected.size > 0 ? `${selected.size} / ${MAX_PICKS} selected` : ''}
                   </span>
+                  {/* key on the label so React remounts a fresh node whenever the CTA
+                      text/width changes. The button is otherwise reused in place, and on
+                      mobile browsers (Safari and Chrome alike) mutating a composited
+                      element's text while opacity animates over the .flip-overlay
+                      backdrop-filter leaves the old label painted underneath — two stacked
+                      buttons, or a left-edge fragment when a wider label shrinks. A remount
+                      tears the old node down and invalidates its paint region. (#370) */}
                   <button
+                    key={cta.label}
                     className="flip-go-btn"
                     disabled={cta.disabled}
                     onClick={cta.onClick}
