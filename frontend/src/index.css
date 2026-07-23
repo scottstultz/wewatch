@@ -2477,6 +2477,61 @@ div.people-row-photo {
   margin-top: 8px;
 }
 
+/* Time-window chips (#359) — one wrapping row, so five windows plus "Any time"
+   stay one glance rather than a menu. */
+.flip-window-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 16px;
+}
+
+.flip-window-chip {
+  padding: 5px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.flip-window-chip:hover {
+  border-color: rgba(148, 163, 184, 0.5);
+  color: #f8fafc;
+}
+
+.flip-window-chip-active {
+  border-color: #7dd3fc;
+  background: #7dd3fc;
+  color: #0f1720;
+  font-weight: 600;
+}
+
+.flip-window-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 4px;
+  color: #94a3b8;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
+.flip-tile-runtime {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.85);
+  color: #e2e8f0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
 .flip-back-btn {
   align-self: flex-start;
   padding: 4px 0;

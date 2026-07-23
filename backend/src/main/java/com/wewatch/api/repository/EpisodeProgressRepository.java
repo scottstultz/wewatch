@@ -39,6 +39,16 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		"WHERE ep2.watchlistEntryId = ep.watchlistEntryId AND ep2.watched = true)")
 	List<LastWatchedEpisode> findLastWatchedByEntryIds(@Param("entryIds") List<Long> entryIds);
 
+	/**
+	 * The episode after the furthest one watched, for entries that have watched at least one —
+	 * "where am I up to on a show I've started".
+	 *
+	 * <p>The inner join to {@code last_watched_pos} is what scopes it: an entry with nothing
+	 * ticked yields no row at all. That is right for the progress summary, which has nothing to
+	 * say about a show the user has never opened. It is <em>not</em> right for "what would I put
+	 * on next" — see {@link #findNextUnwatchedEpisodeByEntryIds}, which answers that question and
+	 * is the one to reach for when an untouched show should still offer episode 1.
+	 */
 	@Query(nativeQuery = true, value = """
 		WITH episode_order AS (
 		    SELECT we.id AS watchlist_entry_id,
@@ -73,6 +83,57 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		WHERE eo.pos = lw.max_pos + 1
 		""")
 	List<NextEpisode> findNextEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
+
+	/**
+	 * The episode the user would actually put on next (#359) — the same walk as
+	 * {@link #findNextEpisodeByEntryIds}, except a show with nothing watched yields its
+	 * <em>first</em> episode rather than no row.
+	 *
+	 * <p>Two characters carry that difference: the {@code LEFT JOIN} onto {@code last_watched_pos}
+	 * and the {@code COALESCE(lw.max_pos, 0)}. Most of a "Want to Watch" list has never been
+	 * started, so under the inner-join version the runtime-aware picker would find no TV to offer
+	 * there at all.
+	 *
+	 * <p>Deliberately a sibling rather than a change to the query above: that one feeds
+	 * {@code EpisodeProgressSummaryService}, whose contract is that an unstarted show has no
+	 * progress to report. Answering a different question needs a different query, not a shared one
+	 * with two meanings. A caught-up show still returns nothing from either — there is no next
+	 * episode to fit in an evening.
+	 */
+	@Query(nativeQuery = true, value = """
+		WITH episode_order AS (
+		    SELECT we.id AS watchlist_entry_id,
+		           ec.season_number, ec.episode_number,
+		           ec.name, ec.air_date, ec.runtime_minutes,
+		           ROW_NUMBER() OVER (
+		               PARTITION BY we.id
+		               ORDER BY ec.air_date ASC NULLS LAST,
+		                        ec.season_number ASC,
+		                        ec.episode_number ASC
+		           ) AS pos
+		    FROM watchlist_entries we
+		    JOIN titles t ON t.id = we.title_id
+		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = t.external_id
+		    WHERE we.id IN (:entryIds)
+		),
+		last_watched_pos AS (
+		    SELECT eo.watchlist_entry_id, MAX(eo.pos) AS max_pos
+		    FROM episode_order eo
+		    JOIN episode_progress ep
+		        ON ep.watchlist_entry_id = eo.watchlist_entry_id
+		       AND ep.season_number = eo.season_number
+		       AND ep.episode_number = eo.episode_number
+		    WHERE ep.watched = true
+		    GROUP BY eo.watchlist_entry_id
+		)
+		SELECT eo.watchlist_entry_id AS entryId, eo.season_number AS seasonNumber,
+		       eo.episode_number AS episodeNumber, eo.name AS name,
+		       eo.air_date AS airDate, eo.runtime_minutes AS runtimeMinutes
+		FROM episode_order eo
+		LEFT JOIN last_watched_pos lw ON lw.watchlist_entry_id = eo.watchlist_entry_id
+		WHERE eo.pos = COALESCE(lw.max_pos, 0) + 1
+		""")
+	List<NextEpisode> findNextUnwatchedEpisodeByEntryIds(@Param("entryIds") List<Long> entryIds);
 
 	/**
 	 * One row per watched episode on a watchlist: the show's TMDB id and that episode's runtime
