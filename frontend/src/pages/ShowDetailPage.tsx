@@ -1,15 +1,18 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
+import TitleCard, { cardKey } from '../components/TitleCard'
+import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import type {
   EpisodeDetail,
   EpisodeProgress,
   SeasonSummary,
   TitleDetailResponse,
   TitleRating,
+  TitleSearchResponse,
   WatchlistEntryResponse,
 } from '../types/api'
 
@@ -65,6 +68,28 @@ function ShowDetailPage() {
   const [progress, setProgress] = useState<Map<string, EpisodeProgress>>(new Map())
   const [allProgress, setAllProgress] = useState<EpisodeProgress[]>([])
 
+  // "More Like This" (#363) — the #358 tab, second consumer. Lazily fetched
+  // only when the user opens the tab; held in state so toggling doesn't refetch.
+  const [recommendations, setRecommendations] = useState<TitleSearchResponse[] | null>(null)
+  const [recsRequested, setRecsRequested] = useState(false)
+  const [recsLoading, setRecsLoading] = useState(false)
+  // The tiles stay hidden until the watchlist has reconciled once, so an
+  // optimistic add can't be clobbered by an in-flight reconcile (#305).
+  const [seeded, setSeeded] = useState(false)
+  // Bound to watchlistId, not selectedWatchlistId: the page reads and writes
+  // everything else against the ?wl= list, and seeding from one list while
+  // mutating another would send that list's entryId to the wrong watchlist.
+  const {
+    cardStatus,
+    setCardStatus,
+    setEntryIds,
+    pickingKey,
+    handleAddToWatchlist,
+    togglePicker,
+    handleChangeStatus: handleCardChangeStatus,
+    handleRemove,
+  } = useTitleCardActions(api, watchlistId)
+
   const [isLoadingEntry, setIsLoadingEntry] = useState(true)
   const [isLoadingSeasons, setIsLoadingSeasons] = useState(false)
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false)
@@ -90,6 +115,21 @@ function ShowDetailPage() {
     api.getWatchlistEntries(watchlistId)
       .then(entries => {
         if (cancelled) return
+
+        // Seed the "More Like This" grid from the same fetch that resolves the
+        // entry (#363) — one call drives both. Merge only, never delete keys, so
+        // an add still in flight survives a re-run.
+        setCardStatus(prev => {
+          const next = { ...prev }
+          entries.forEach(e => { next[`${e.externalSource}-${e.externalId}`] = e.status })
+          return next
+        })
+        setEntryIds(prev => {
+          const next = { ...prev }
+          entries.forEach(e => { next[`${e.externalSource}-${e.externalId}`] = e.id })
+          return next
+        })
+
         const found = entries.find(e => e.id === entryId)
         if (!found) {
           setError('Entry not found in this watchlist.')
@@ -108,9 +148,10 @@ function ShowDetailPage() {
         setError('Failed to load entry.')
         setIsLoadingEntry(false)
       })
+      .finally(() => { if (!cancelled) setSeeded(true) })
 
     return () => { cancelled = true }
-  }, [api, watchlistId, entryId, navigate])
+  }, [api, watchlistId, entryId, navigate, setCardStatus, setEntryIds])
 
   // ── Load title details once we have the entry ─────────────
   // Details enrich the header; the tracker still works if this fails.
@@ -125,6 +166,65 @@ function ShowDetailPage() {
 
     return () => { cancelled = true }
   }, [api, entry])
+
+  // ── "More Like This" (#363) ────────────────────────────────
+  // Lazy: only once the user opens the tab (recsRequested), and only once per
+  // mount — the result is held in state so toggling doesn't refetch. The page
+  // bails to /library for any non-TV entry, so the type is always 'TV'.
+
+  useEffect(() => {
+    if (!recsRequested || !entry || recommendations !== null) return
+    let cancelled = false
+    setRecsLoading(true)
+
+    api.getRecommendations('TV', entry.externalId)
+      .then(recs => { if (!cancelled) setRecommendations(recs) })
+      .catch(() => { if (!cancelled) setRecommendations([]) })
+      .finally(() => { if (!cancelled) setRecsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [recsRequested, entry, recommendations, api])
+
+  // Stable identity matters: the panel's trigger effect lists this in its deps.
+  const showMoreLikeThis = useCallback(() => setRecsRequested(true), [])
+
+  function openTitle(title: TitleSearchResponse) {
+    // No fromLibrary state: the target's back button falls through to
+    // navigate(-1) and returns here rather than skipping to the Library list.
+    navigate(
+      `/title/${title.type.toLowerCase()}/${title.externalSource}/${title.externalId}`,
+      { state: { title } },
+    )
+  }
+
+  // Always passed to the panel so the tab is present; the fetch fires only when
+  // it's opened. An empty result shows a caption rather than hiding the tab — a
+  // lazy tab can't hide without a non-lazy probe (#358).
+  function renderMoreLikeThis() {
+    if (!seeded || recsLoading || recommendations === null) {
+      return <p className="search-status">Loading…</p>
+    }
+    if (recommendations.length === 0) {
+      return <p className="search-status">No similar titles to show.</p>
+    }
+    return (
+      <div className="title-grid">
+        {recommendations.map(rec => (
+          <TitleCard
+            key={cardKey(rec)}
+            title={rec}
+            status={cardStatus[cardKey(rec)] ?? 'idle'}
+            isPicking={pickingKey === cardKey(rec)}
+            onAdd={handleAddToWatchlist}
+            onChangeStatus={handleCardChangeStatus}
+            onTogglePicker={togglePicker}
+            onOpen={openTitle}
+            onRemove={handleRemove}
+          />
+        ))}
+      </div>
+    )
+  }
 
   // ── Load seasons once we have the entry ────────────────────
 
@@ -450,8 +550,15 @@ function ShowDetailPage() {
         </div>
       </section>
 
-      {/* Overview / Cast */}
-      {detail && <OverviewCastPanel overview={detail.overview} cast={detail.cast} />}
+      {/* Overview / Cast / More Like This */}
+      {detail && (
+        <OverviewCastPanel
+          overview={detail.overview}
+          cast={detail.cast}
+          moreLikeThis={renderMoreLikeThis()}
+          onShowMoreLikeThis={showMoreLikeThis}
+        />
+      )}
 
       {/* Season tabs */}
       {isLoadingSeasons ? (
