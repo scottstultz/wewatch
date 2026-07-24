@@ -135,8 +135,12 @@ class ProviderContextResolver {
 					TmdbTitleCache cached = cachedById.get(t.externalId());
 					List<Integer> mine = cached != null ? ctx.streamableOn(cached) : List.of();
 					return mine.isEmpty() ? t
+						// Canonical 10-arg form on purpose: the shorter overloads null
+						// popularity, and this rebuild sits on exactly the shelves the
+						// suggestion pipeline scores (#374).
 						: new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),
-							t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), mine);
+							t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), mine,
+							t.popularity());
 				})
 				.toList(),
 			shelf.kind(),
