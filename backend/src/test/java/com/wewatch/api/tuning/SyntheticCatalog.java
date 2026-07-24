@@ -332,7 +332,10 @@ final class SyntheticCatalog {
 	}
 
 	private TitleSearchResponse toResponse(SynTitle t) {
+		// Carries popularity (#374) so a future obscurity gate can actually see it
+		// in the harness — a null here would make every synthetic candidate fail
+		// such a gate and read as a broken stage rather than an unwired fixture.
 		return new TitleSearchResponse(t.tmdbId(), "tmdb", t.type(), t.name(),
-			null, t.releaseDate(), null, t.genreIds());
+			null, t.releaseDate(), null, t.genreIds(), null, t.popularity());
 	}
 }

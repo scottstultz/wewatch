@@ -373,7 +373,9 @@ public class TmdbClient {
 			item.overview(),
 			releaseDate,
 			posterUrl,
-			item.genreIds() != null ? item.genreIds() : List.of()
+			item.genreIds() != null ? item.genreIds() : List.of(),
+			null,
+			item.popularity()
 		);
 	}
 

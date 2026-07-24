@@ -505,7 +505,9 @@ class TitleControllerTest {
 				"A thief who steals corporate secrets.",
 				LocalDate.parse("2010-07-16"),
 				"https://image.tmdb.org/t/p/w500/poster.jpg",
-				null
+				null,
+				null,
+				87.5
 			)
 		);
 
@@ -527,6 +529,9 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.titles[0].name").value("Inception"))
 			.andExpect(jsonPath("$.titles[0].releaseDate").value("2010-07-16"))
 			.andExpect(jsonPath("$.titles[0].posterUrl").value("https://image.tmdb.org/t/p/w500/poster.jpg"))
+			// popularity is a pipeline-internal signal and must never reach a client (#374).
+			// The fixture above carries 87.5, so this fails the moment @JsonIgnore comes off.
+			.andExpect(jsonPath("$.titles[0].popularity").doesNotExist())
 			.andExpect(jsonPath("$.people[0].id").value(12345))
 			.andExpect(jsonPath("$.people[0].name").value("Leonardo DiCaprio"))
 			.andExpect(jsonPath("$.people[0].profileUrl").value("https://image.tmdb.org/t/p/w185/leo.jpg"));
