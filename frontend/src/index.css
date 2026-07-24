@@ -256,6 +256,23 @@ a {
   background: rgba(37, 99, 235, 0.22);
 }
 
+/* Unseen "Returning this week" count on the Home nav entry (#360). */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(251, 191, 36, 0.18);
+  color: #fbbf24;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
 @media (min-width: 720px) {
   .page-frame {
     padding: 24px 24px 32px;

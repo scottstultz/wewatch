@@ -23,6 +23,7 @@ const mockCreateApiClient = vi.mocked(createApiClient)
 const mockApi = {
   getWatchlists: vi.fn(),
   getWatchlistEntries: vi.fn(),
+  getReturningEpisodes: vi.fn().mockResolvedValue([]),
   getPerson: vi.fn(),
   findOrCreateTitle: vi.fn(),
   addToWatchlist: vi.fn(),

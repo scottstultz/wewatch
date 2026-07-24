@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type { ReactNode } from 'react'
 import HomePage from './HomePage'
+import { ReturningNotificationsProvider, useReturningNotifications } from '../contexts/ReturningNotificationsContext'
 import { WatchlistProvider } from '../contexts/WatchlistContext'
+import { getSeenReturning } from '../services/returningSeenStorage'
 import type { ApiClient } from '../services/api'
 import type { ReturningEpisode, WatchlistEntryResponse, WatchlistResponse } from '../types/api'
 
@@ -67,18 +70,29 @@ const severanceReturning: ReturningEpisode = {
   runtimeMinutes: 52,
 }
 
-function renderHome() {
+// The returning data (and the nav badge's unseen count) now live in ReturningNotificationsProvider;
+// HomePage reads them from context, so the panel tests render inside it.
+function renderHome(extra?: ReactNode) {
   render(
     <MemoryRouter>
       <WatchlistProvider>
-        <HomePage />
+        <ReturningNotificationsProvider>
+          <HomePage />
+          {extra}
+        </ReturningNotificationsProvider>
       </WatchlistProvider>
     </MemoryRouter>,
   )
 }
 
+function UnseenProbe() {
+  const { unseenCount } = useReturningNotifications()
+  return <span data-testid="unseen-count">{unseenCount}</span>
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   mockApi.getWatchlists.mockResolvedValue([watchlist])
   mockApi.getWatchlistEntries.mockResolvedValue([severanceEntry])
   mockApi.getReturningEpisodes.mockResolvedValue([])
@@ -134,5 +148,19 @@ describe('HomePage — Returning this week (#321)', () => {
     await waitFor(() => {
       expect(mockApi.getReturningEpisodes).toHaveBeenCalledWith(1)
     })
+  })
+
+  it('clears the unseen indicator once the panel is viewed (#360)', async () => {
+    mockApi.getReturningEpisodes.mockResolvedValue([severanceReturning])
+
+    renderHome(<UnseenProbe />)
+
+    // The panel rendering means Home has been viewed; HomePage marks the episode seen.
+    await screen.findByText('Returning this week')
+    await waitFor(() => {
+      expect(screen.getByTestId('unseen-count')).toHaveTextContent('0')
+    })
+    // The per-device marker was persisted, so the nav badge stays cleared on the next load.
+    expect(getSeenReturning(1)).toEqual(new Set(['10:2:4']))
   })
 })

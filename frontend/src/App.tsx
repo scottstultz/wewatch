@@ -2,6 +2,7 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
 
 import AppLayout from './components/AppLayout'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { ReturningNotificationsProvider } from './contexts/ReturningNotificationsContext'
 import { WatchlistProvider } from './contexts/WatchlistContext'
 import DiscoverPage from './pages/DiscoverPage'
 import HomePage from './pages/HomePage'
@@ -30,7 +31,9 @@ function App() {
           <Route
             element={
               <WatchlistProvider>
-                <AppLayout />
+                <ReturningNotificationsProvider>
+                  <AppLayout />
+                </ReturningNotificationsProvider>
               </WatchlistProvider>
             }
           >

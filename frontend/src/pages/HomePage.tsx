@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
+import { useReturningNotifications } from '../contexts/ReturningNotificationsContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import { formatEpisodeCode, formatUpcomingDate } from '../utils/episodeLabels'
 import type { ReturningEpisode, WatchlistEntryResponse } from '../types/api'
@@ -45,9 +46,11 @@ function TileRow({ entry, onClick, showStatusBadge, subtitle }: TileRowProps) {
 function HomePage() {
   const api = useApi()
   const { selectedWatchlist } = useWatchlists()
+  // "Returning this week" data (and its fault tolerance) lives in the provider now, so the nav
+  // badge and this panel share one fetch. markAllSeen clears the badge once the panel is viewed.
+  const { returning, markAllSeen } = useReturningNotifications()
   const navigate = useNavigate()
   const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
-  const [returning, setReturning] = useState<ReturningEpisode[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -58,22 +61,18 @@ function HomePage() {
     setIsLoading(true)
     setError(null)
 
-    Promise.all([
-      api.getWatchlistEntries(selectedWatchlist.id),
-      // "Returning this week" is an extra, not the page: if it fails, drop the panel
-      // rather than failing Home along with it.
-      api.getReturningEpisodes(selectedWatchlist.id).catch(() => [] as ReturningEpisode[]),
-    ])
-      .then(([data, upcoming]) => {
-        if (cancelled) return
-        setEntries(data)
-        setReturning(upcoming)
-      })
+    api.getWatchlistEntries(selectedWatchlist.id)
+      .then(data => { if (!cancelled) setEntries(data) })
       .catch(() => { if (!cancelled) setError('Failed to load watchlist data.') })
       .finally(() => { if (!cancelled) setIsLoading(false) })
 
     return () => { cancelled = true }
   }, [api, selectedWatchlist])
+
+  // Landing on Home with returning data present counts as viewing the panel: clear the nav badge.
+  useEffect(() => {
+    if (returning.length > 0) markAllSeen()
+  }, [returning, markAllSeen])
 
   const wantToWatchCount = entries.filter(e => e.status === 'WANT_TO_WATCH').length
   const watchingCount = entries.filter(e => e.status === 'WATCHING').length

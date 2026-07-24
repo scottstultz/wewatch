@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useReturningNotifications } from '../contexts/ReturningNotificationsContext'
 import TmdbAttribution from './TmdbAttribution'
 import WeWatchLogo from './WeWatchLogo'
 
@@ -15,6 +16,15 @@ const navigationItems = [
 
 function AppLayout() {
   const { user, signOut } = useAuth()
+  const { unseenCount } = useReturningNotifications()
+
+  // Only the Home entry carries the "Returning this week" unseen badge (#360).
+  const badgeFor = (to: string) =>
+    to === '/home' && unseenCount > 0 ? (
+      <span className="nav-badge" aria-label={`${unseenCount} returning this week`}>
+        {unseenCount}
+      </span>
+    ) : null
 
   return (
     <div className="shell">
@@ -33,6 +43,7 @@ function AppLayout() {
                 }
               >
                 {item.label}
+                {badgeFor(item.to)}
               </NavLink>
             ))}
           </nav>
@@ -69,6 +80,7 @@ function AppLayout() {
               }
             >
               <span>{item.label}</span>
+              {badgeFor(item.to)}
             </NavLink>
           ))}
         </nav>
