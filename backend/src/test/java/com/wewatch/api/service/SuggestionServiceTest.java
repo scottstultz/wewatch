@@ -1246,23 +1246,6 @@ class SuggestionServiceTest {
 	}
 
 	@Test
-	void hiddenGemsShelfSortsByRatingWithModerateVoteFloor() {
-		stubPopulatedWatchlistWithGenres();
-		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
-			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
-		// lenient: other discover variants hit this method with non-matching args
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
-			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
-
-		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
-
-		assertThat(shelves).anySatisfy(shelf -> {
-			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
-			assertThat(shelf.reason()).isEqualTo("Hidden gems");
-		});
-	}
-
-	@Test
 	void trendingShelfRanksByGenreProfileAffinity() {
 		// The owned titles' cached genre 99 builds the taste profile; per-seed
 		// and discover sources return nothing, so only trending can fill
@@ -1302,7 +1285,6 @@ class SuggestionServiceTest {
 
 		Set<SuggestionShelfResponse.ShelfKind> exploration = Set.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
-			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
 			SuggestionShelfResponse.ShelfKind.TRENDING,
 			SuggestionShelfResponse.ShelfKind.PERSON,
 			SuggestionShelfResponse.ShelfKind.KEYWORD);
@@ -1336,29 +1318,6 @@ class SuggestionServiceTest {
 	}
 
 	@Test
-	void hiddenGemsDrawsFromDeepBandSkippingTheStaticHead() {
-		// Only the hidden-gems discover variant fills, so the exploration rotation
-		// always reaches it and exercises its page draw every day (#249)
-		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
-			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("gem-" + i)).toList());
-
-		for (int d = 0; d < 40; d++) {
-			serviceAt(DAY_1.plus(Duration.ofDays(d))).topPicks(WATCHLIST_ID);
-		}
-
-		ArgumentCaptor<Integer> page = ArgumentCaptor.forClass(Integer.class);
-		verify(tmdbClient, atLeastOnce()).discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
-			isNull(), isNull(), isNull(), isNull(), page.capture());
-		// Every draw lands in the mid-deep band [4, 18] — never the static top-rated
-		// head (pages 1–3) that is identical for everyone with the same genre profile
-		assertThat(page.getAllValues()).allSatisfy(p -> assertThat(p).isBetween(4, 18));
-		assertThat(page.getAllValues()).doesNotContain(1, 2, 3);
-		// And the page actually rotates across days rather than pinning to one deep page
-		assertThat(new HashSet<>(page.getAllValues())).hasSizeGreaterThan(1);
-	}
-
-	@Test
 	void sameGenreDiscoverPageFillsTheShelfWithoutGenreCapping() {
 		// Genre-profile discover is filtered to the user's top genres by construction,
 		// so a full page shares one genre; exempt from the cluster cap (#265), the
@@ -1376,18 +1335,18 @@ class SuggestionServiceTest {
 
 	@Test
 	void discoverExplorationShelvesSkipTheCapButTrendingKeepsIt() {
-		// Hidden gems is discover-backed (genre-filtered → exempt, #265) while
+		// New releases is discover-backed (genre-filtered → exempt, #265) while
 		// trending carries a real genre mix and stays diversified
 		stubPopulatedWatchlistWithGenres();
-		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt()))
-			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("gem-" + i, List.of(99))).toList());
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(20), eq("popularity.desc"), notNull(), notNull(), isNull(), isNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("nr-" + i, List.of(99))).toList());
 		lenient().when(tmdbClient.getTrending(any(), anyInt()))
 			.thenAnswer(inv -> IntStream.rangeClosed(1, 20).mapToObj(i -> scored("t-" + i, List.of(99))).toList());
 
 		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
 
 		assertThat(shelves).anySatisfy(shelf -> {
-			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.NEW_RELEASES);
 			assertThat(shelf.titles()).hasSize(12);
 		});
 		assertThat(shelves).anySatisfy(shelf -> {

@@ -17,9 +17,8 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.tmdb.TmdbClient;
 
 // Exploration shelves (#235) trade similarity for discovery: recent releases,
-// well-rated titles outside the popularity head, this week's trending, a
-// recurring person (#269), and a favorite theme (#271) — still deduped and
-// recency-demoted like every other shelf.
+// this week's trending, a recurring person (#269), and a favorite theme (#271)
+// — still deduped and recency-demoted like every other shelf.
 //
 // Each kind costs TMDB calls, so only a rotating subset appears on a given day:
 // the kinds are tried in a daily-shuffled order and the first MAX_EXPLORATION_SHELVES
@@ -32,11 +31,6 @@ class ExplorationShelfBuilder {
 	private static final int MAX_EXPLORATION_SHELVES = 2;
 	// Trending/week thins into obscurity fast, so keep its draw shallow.
 	private static final int MAX_TRENDING_FETCH_PAGE = 3;
-	// Hidden gems draw from a mid-deep band so the shelf skips the static top-rated head
-	// (pages 1–3 of vote_average.desc are identical for everyone with the same genres)
-	// without reaching the emptiest deep pages that just trigger the page-1 fallback.
-	private static final int HIDDEN_GEM_MIN_FETCH_PAGE = 4;
-	private static final int HIDDEN_GEM_MAX_FETCH_PAGE = 18;
 	// A single keyword's catalog is far thinner than a genre's — niche themes run
 	// out within a few pages — so the keyword shelf (#271) draws shallow like the
 	// seed feeds; its main rotation lever is which keyword the day picks anyway.
@@ -45,9 +39,6 @@ class ExplorationShelfBuilder {
 	// Recent releases haven't had time to accumulate votes, so the floor is far
 	// below the genre-profile discover floor of 100
 	private static final int NEW_RELEASE_VOTE_COUNT_GTE = 20;
-	// High enough to keep vote_average.desc from surfacing obscure noise, low
-	// enough to reach below the popularity head
-	private static final int HIDDEN_GEM_VOTE_COUNT_GTE = 200;
 	// A filmography includes shorts and bit parts; a modest floor keeps the
 	// person shelf to titles a general audience has actually seen
 	private static final int PERSON_SHELF_VOTE_COUNT_GTE = 50;
@@ -65,7 +56,6 @@ class ExplorationShelfBuilder {
 	List<SuggestionShelfResponse> build(SuggestionContext ctx) {
 		List<SuggestionShelfResponse.ShelfKind> order = new ArrayList<>(List.of(
 			SuggestionShelfResponse.ShelfKind.NEW_RELEASES,
-			SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS,
 			SuggestionShelfResponse.ShelfKind.TRENDING,
 			SuggestionShelfResponse.ShelfKind.PERSON,
 			SuggestionShelfResponse.ShelfKind.KEYWORD));
@@ -93,14 +83,12 @@ class ExplorationShelfBuilder {
 		// person feeds don't support it and stay unfiltered
 		boolean providerFiltered = providers.enabled()
 			&& (kind == SuggestionShelfResponse.ShelfKind.NEW_RELEASES
-				|| kind == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS
 				|| kind == SuggestionShelfResponse.ShelfKind.KEYWORD);
 
-		// Page draw is per-kind (#249): discover-backed kinds go deeper, hidden gems
-		// draws from a mid-deep band, trending stays shallow, PERSON spends its draw
-		// picking the person instead of a page, and KEYWORD draws a keyword plus a
-		// shallow page. A fixed draw count per kind either way, so daily
-		// reproducibility (#231/#248) is preserved.
+		// Page draw is per-kind (#249): discover-backed kinds go deeper, trending
+		// stays shallow, PERSON spends its draw picking the person instead of a page,
+		// and KEYWORD draws a keyword plus a shallow page. A fixed draw count per
+		// kind either way, so daily reproducibility (#231/#248) is preserved.
 		List<TitleSearchResponse> candidates;
 		String label;
 		try {
@@ -114,16 +102,6 @@ class ExplorationShelfBuilder {
 						DiscoverPolicy.SORT_POPULARITY, today.minusDays(NEW_RELEASE_WINDOW_DAYS), today,
 						providers.region(), providers.providerIdList(), p), page);
 					label = "New in your genres";
-				}
-				case HIDDEN_GEMS -> {
-					if (topGenres.isEmpty()) return null;
-					int page = HIDDEN_GEM_MIN_FETCH_PAGE
-						+ ctx.rng().nextInt(HIDDEN_GEM_MAX_FETCH_PAGE - HIDDEN_GEM_MIN_FETCH_PAGE + 1);
-					candidates = TmdbPaging.fetchPageWithFallback(p -> tmdbClient.discover(
-						type, topGenres, List.of(), HIDDEN_GEM_VOTE_COUNT_GTE,
-						DiscoverPolicy.SORT_VOTE_AVERAGE, null, null,
-						providers.region(), providers.providerIdList(), p), page);
-					label = "Hidden gems";
 				}
 				case PERSON -> {
 					// Movie-only (TMDB's TV discover has no people filter) and always
