@@ -1,6 +1,7 @@
 package com.wewatch.api.dto;
 
 import java.time.Instant;
+import java.util.List;
 
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.TitleType;
@@ -32,6 +33,13 @@ public record WatchlistEntryResponse(
 	@Schema(description = "The caller's own thumbs rating for this title (#273) — personal to the caller, "
 		+ "not shared with other watchlist members. Null if the caller hasn't rated the title.",
 		allowableValues = {"UP", "DOWN"})
-	Rating myRating
+	Rating myRating,
+	// TMDB genre ids from the title cache (#381), so a client can filter or label without a
+	// second call. Always present; empty when the title isn't cached yet, or when its cached
+	// row belongs to the other medium (see TmdbCacheService.genreIdsByTitleId).
+	@Schema(description = "TMDB genre ids for this title, from our own title cache (#381). Empty — "
+		+ "never null — when the title has not been cached yet, so a caller filtering on genre can "
+		+ "treat it as 'no known genres' rather than handling a missing field.")
+	List<Integer> genreIds
 ) {
 }

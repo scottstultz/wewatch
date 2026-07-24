@@ -55,6 +55,7 @@ const severanceEntry: WatchlistEntryResponse = {
   completedAt: null,
   episodeProgress: null,
   myRating: null,
+  genreIds: [],
 }
 
 const severanceReturning: ReturningEpisode = {
