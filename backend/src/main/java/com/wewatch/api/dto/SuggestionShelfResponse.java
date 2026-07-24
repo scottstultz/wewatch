@@ -26,8 +26,8 @@ public record SuggestionShelfResponse(
 		+ "the watchlist), FINISHED_SEED (similar to a title the members finished), MORE_PICKS "
 		+ "(aggregate catch-all pooling leftovers from under-filled per-seed/finished-seed shelves), "
 		+ "GENRE_PROFILE (discover feed filtered to the members' top genres), NEW_RELEASES "
-		+ "(recent discover releases), HIDDEN_GEMS (highly rated but lower-visibility discover "
-		+ "results), TRENDING (TMDB trending/week), PERSON (cast/director affinity), KEYWORD "
+		+ "(recent discover releases), HIDDEN_GEMS (reserved — no builder currently emits it), "
+		+ "TRENDING (TMDB trending/week), PERSON (cast/director affinity), KEYWORD "
 		+ "(a keyword from the taste profile), FRANCHISE (next unreleased/unwatched entry in a "
 		+ "collection the members finished), BOTH_WATCH (streamable on a service every member of a "
 		+ "shared list has)")

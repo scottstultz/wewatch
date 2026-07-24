@@ -221,7 +221,7 @@ harness build.
 | `BothWatchShelfBuilder` | `BOTH_WATCH` (#322) — mixed TV + movie discover against the members' shared services |
 | `SeedShelfBuilder` | `PER_SEED` (#232), `FINISHED_SEED` (#235), and the `MORE_PICKS` catch-all (#266) — one class because they share the leftover pool |
 | `GenreShelfBuilder` | `GENRE_PROFILE`, one shelf per medium |
-| `ExplorationShelfBuilder` | `NEW_RELEASES`, `HIDDEN_GEMS`, `TRENDING`, `PERSON`, `KEYWORD` and their daily rotation (#235) |
+| `ExplorationShelfBuilder` | `NEW_RELEASES`, `TRENDING`, `PERSON`, `KEYWORD` and their daily rotation (#235) |
 | `DiscoverPolicy` | The discover page depth, vote floor, and sort orders the genre and exploration builders must agree on |
 | `TmdbPaging` | The day-seeded page draw's empty-deep-page fallback to page 1 (#249) |
 
@@ -255,9 +255,6 @@ epoch day injectable in tests. Three things are day-seeded:
   Recommendations/similar stay shallow (`MAX_SEED_FETCH_PAGE = 3` — those endpoints genuinely
   run out). Discover-backed shelves (genre-profile, `NEW_RELEASES`) draw pages 1–6
   (`MAX_DISCOVER_FETCH_PAGE`). `TRENDING` stays shallow (1–3, `trending/week` thins fast).
-  `HIDDEN_GEMS` draws from a mid-deep band [4, 18] — pages 1–3 of `vote_average.desc` are
-  identical for every user with the same genre profile, so skipping them is what makes the
-  shelf feel distinct, while page 18+ is thin enough to trigger the page-1 fallback too often.
   A deep page that comes back empty falls back to page 1. TMDB call budget per compute stays
   bounded regardless of depth: one page per feed, doubling only on a fallback.
 
@@ -331,8 +328,8 @@ flows through, which is why cross-cutting shelf policy lives here rather than in
 
 - **Genre-cluster diversification** (#265): a same-genre cap (`MAX_PER_GENRE_CLUSTER = 4`)
   applies only to feeds with a real genre mix — per-seed recommendations/similar,
-  `FINISHED_SEED`, `TRENDING`. Discover-backed shelves (`GENRE_PROFILE`, `NEW_RELEASES`,
-  `HIDDEN_GEMS`) are exempt: they're already filtered to the user's top genres by construction,
+  `FINISHED_SEED`, `TRENDING`. Discover-backed shelves (`GENRE_PROFILE`, `NEW_RELEASES`)
+  are exempt: they're already filtered to the user's top genres by construction,
   so the cap used to chop a 20-result page down to ~4 and starve the shelf. The cap keys on a
   candidate's full genre set — it's skipped only when *every* genre the candidate carries is
   already saturated — rather than TMDB's arbitrary first-listed genre, so a candidate bringing
@@ -403,7 +400,7 @@ fall out through the shared `seen` set, so the shelf naturally empties once the 
 complete.
 
 **Keyword shelves** (#271, `KEYWORD`) and **person shelves** (#269, `PERSON`) join the
-day-rotated exploration slot alongside `TRENDING`, `NEW_RELEASES`, and `HIDDEN_GEMS`, capped at
+day-rotated exploration slot alongside `TRENDING` and `NEW_RELEASES`, capped at
 `MAX_EXPLORATION_SHELVES = 2` per compute (#235) — a kind that can't fill yields its slot to the
 next. Both are exempt from genre diversification, matching `FRANCHISE`, since their theme (the
 keyword or the person) is the shelf's coherence axis rather than genre mix. `KEYWORD` picks one
@@ -413,6 +410,21 @@ rotation comes from the keyword draw, not page depth; it's discover-backed and t
 the watch-provider filter below. `PERSON` is movie-only (TMDB's TV discover has no `with_people`
 filter), always page 1 since filmographies are shallow, and labels itself "Directed by X" when
 the person directs at least as often as they act, "More with X" otherwise.
+
+**The rotating `HIDDEN_GEMS` kind was removed in #375**, taking the rotation from five kinds to
+four. It was a genre-filtered `vote_average.desc` discover query on a page drawn from a mid-deep
+band [4, 18], handed straight to `filler.fill` with no taste ranking — "obscure" approximated by
+page depth, never reading TMDB's `popularity` at all. `ShelfKind.HIDDEN_GEMS` stays on the enum
+and no builder emits it until #376 gives the name to a properly scored shelf.
+
+⚠️ **The removal is deliberately not byte-identical in the tuning output.**
+`Collections.shuffle(order, ctx.rng())` consumes `size - 1` draws, so a four-element shuffle takes
+3 where five took 4 — a different daily permutation for every user — and on days `HIDDEN_GEMS` used
+to win the 2-of-5 lottery its page draw disappears and a different kind fills the slot. The
+invariant that *was* checked: the diff touches exploration shelves and nothing else. Franchise,
+both-watch, seed, genre, and the pooled catch-all all build before `explorationShelves.build(ctx)`
+in `SuggestionService.compute`, so they take their rng draws first and cannot be perturbed by
+anything downstream. Zero non-exploration shelves moved across all three kind-bearing reports.
 
 ### Watch providers (#270)
 
