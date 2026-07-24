@@ -146,7 +146,23 @@ final class SyntheticCatalog {
 		// long tail, like the real catalog
 		int voteCount = (int) (20 * Math.pow(10, rng.nextDouble() * 3));
 		double voteAverage = 5.0 + rng.nextDouble() * 4.5;
-		double popularity = rng.nextDouble() * 500;
+		// Scaled to TMDB's real popularity range (#376), which until now nothing
+		// read as an absolute — every feed only ever *sorted* by it, so the old
+		// 0..500 band was never calibrated. The hidden-gems ceiling compares
+		// against the value itself, and against a 0..500 band the shipped ceiling
+		// would reject ~96% of the universe: the shelf would never fill and the
+		// fixture would read as a broken stage rather than an uncalibrated catalog.
+		// 0..31.25 puts the median at 15.6, against 16.4 measured over live
+		// vote_average.desc discover pages.
+		//
+		// The divisor MUST stay a power of two. Dividing by 16 is exact in binary
+		// floating point, so every popularity-ordered feed — trending,
+		// discoverByPerson, discoverByKeyword, and the popularity.desc discover
+		// that feeds GenreShelfBuilder — sorts bit-identically to before. Genre
+		// shelves build *above* the #376 insertion point, so a rescale that
+		// perturbed their order would break the re-baseline invariant for a reason
+		// unrelated to the new stage.
+		double popularity = rng.nextDouble() * 500 / 16;
 
 		// ~10% of the universe lands inside the NEW_RELEASES 60-day window at
 		// BASE_DAY so that shelf has stock; the rest spreads over three decades

@@ -1,0 +1,53 @@
+{
+  "name": "hidden-gems",
+  "description": "A sharply concentrated movie profile (sci-fi/thriller/action, five of six entries MOVIE) built for #376: dominantType is MOVIE and dominantGenres is narrow, so the hidden-gems discover feed has a deep pool and the shelf builds every day. Provider-blind on purpose — the popularity ceiling is the only thing thinning the page here, so the fixture shows the gate's own fill rate; compare against shared-household, where provider filtering and the gate compound on the same page.",
+  "watchlistId": 1007,
+  "members": [
+    { "userId": 8, "region": null, "providerIds": null }
+  ],
+  "entries": [
+    {
+      "titleId": 10701, "tmdbId": "w7-m1", "type": "MOVIE", "name": "The Velvet Protocol",
+      "status": "WATCHING", "ageDays": 3, "rating": "UP",
+      "genreIds": [878, 53], "keywordIds": [101, 131],
+      "castIds": [905, 918, 926], "directorIds": [937],
+      "voteCount": 2600, "providerIds": null, "releaseDate": "2024-02-16"
+    },
+    {
+      "titleId": 10702, "tmdbId": "w7-m2", "type": "MOVIE", "name": "Broken Meridian",
+      "status": "WATCHED", "ageDays": 9, "rating": "UP",
+      "genreIds": [878, 28], "keywordIds": [131, 126],
+      "castIds": [905, 919, 927], "directorIds": [937],
+      "voteCount": 1800, "providerIds": null, "releaseDate": "2022-08-05"
+    },
+    {
+      "titleId": 10703, "tmdbId": "w7-m3", "type": "MOVIE", "name": "The Frozen Compass",
+      "status": "WANT_TO_WATCH", "ageDays": 15, "rating": null,
+      "genreIds": [53, 9648], "keywordIds": [102, 130],
+      "castIds": [920, 928, 933], "directorIds": [938],
+      "voteCount": 740, "providerIds": null, "releaseDate": "2023-05-19"
+    },
+    {
+      "titleId": 10704, "tmdbId": "w7-m4", "type": "MOVIE", "name": "Radiant Divide",
+      "status": "WATCHING", "ageDays": 22, "rating": null,
+      "genreIds": [878, 12], "keywordIds": [126, 139],
+      "castIds": [905, 921, 929], "directorIds": [939],
+      "voteCount": 190, "providerIds": null, "releaseDate": "2021-11-30"
+    },
+    {
+      "titleId": 10705, "tmdbId": "w7-m5", "type": "MOVIE", "name": "The Silent Vault",
+      "status": "WATCHED", "ageDays": 40, "rating": null,
+      "genreIds": [53, 28], "keywordIds": [101, 119],
+      "castIds": [922, 930, 934], "directorIds": [938],
+      "voteCount": 3100, "providerIds": null, "releaseDate": "2020-03-08"
+    },
+    {
+      "titleId": 10706, "tmdbId": "w7-t1", "type": "TV", "name": "Distant Requiem",
+      "status": "WANT_TO_WATCH", "ageDays": 58, "rating": null,
+      "genreIds": [878, 18], "keywordIds": [130, 111],
+      "castIds": [923, 931, 935], "directorIds": [940],
+      "voteCount": 420, "providerIds": null, "releaseDate": "2019-10-11"
+    }
+  ],
+  "dismissed": []
+}

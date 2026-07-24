@@ -63,6 +63,21 @@ public class SuggestionTuningProperties {
 	// window.
 	private double recencyDemotion = 16.0;
 
+	// ── Hidden-gems obscurity gate (#376) ─────────────────────
+	// Strict upper bound on TMDB popularity for the "Hidden gems for you"
+	// shelf. Calibrated against live TMDB: over 360 titles sampled from
+	// vote_average.desc discover pages (vote_count.gte=200, three movie and
+	// three TV genres, pages 1/3/6) the median popularity was 16.4, so 20 keeps
+	// a little over half the feed — obscure enough to mean something, loose
+	// enough to leave ~11 of 20 candidates per page before dedup and provider
+	// filtering thin it further.
+	//
+	// TMDB popularity is unbounded and inflates over time, so an absolute
+	// ceiling ages. That is the accepted trade: it was chosen over a
+	// percentile-of-page gate because it is interpretable and re-tunable
+	// without a code change, and this property is the escape hatch.
+	private double hiddenGemPopularityCeiling = 20.0;
+
 	public double getWatchedProfileWeight() {
 		return watchedProfileWeight;
 	}
@@ -181,5 +196,13 @@ public class SuggestionTuningProperties {
 
 	public void setRecencyDemotion(double recencyDemotion) {
 		this.recencyDemotion = recencyDemotion;
+	}
+
+	public double getHiddenGemPopularityCeiling() {
+		return hiddenGemPopularityCeiling;
+	}
+
+	public void setHiddenGemPopularityCeiling(double hiddenGemPopularityCeiling) {
+		this.hiddenGemPopularityCeiling = hiddenGemPopularityCeiling;
 	}
 }

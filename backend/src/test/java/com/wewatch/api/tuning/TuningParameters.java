@@ -42,6 +42,7 @@ record TuningParameters(String name, SuggestionTuningProperties properties) {
 		p.setHalfLifeDays(src.getHalfLifeDays());
 		p.setDecayFloor(src.getDecayFloor());
 		p.setRecencyDemotion(src.getRecencyDemotion());
+		p.setHiddenGemPopularityCeiling(src.getHiddenGemPopularityCeiling());
 		return p;
 	}
 }

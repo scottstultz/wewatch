@@ -83,10 +83,14 @@ class SuggestionServiceTest {
 	// days of DAY_1, so their decay stays ~1 and the pre-#274 score calibrations
 	// in these tests still hold
 	private SuggestionService serviceAt(Instant now) {
+		return serviceAt(now, new SuggestionTuningProperties());
+	}
+
+	private SuggestionService serviceAt(Instant now, SuggestionTuningProperties tuning) {
 		return new SuggestionService(
 			watchlistEntryRepository, watchlistMemberRepository, userRepository, titleService, tmdbClient,
 			tmdbTitleCacheRepository, suggestionImpressionService, suggestionDismissalService,
-			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), new SuggestionTuningProperties(), 30L, 1000L);
+			titleRatingService, Clock.fixed(now, ZoneOffset.UTC), tuning, 30L, 1000L);
 	}
 
 	private void stubEmptyWatchlist() {
@@ -1243,6 +1247,160 @@ class SuggestionServiceTest {
 		// The window is the 60 days ending "today" on the fixed clock
 		verify(tmdbClient, atLeastOnce()).discover(eq(TitleType.TV), eq(List.of(99)), eq(List.of()), eq(20),
 			eq("popularity.desc"), eq(LocalDate.of(2026, 5, 4)), eq(LocalDate.of(2026, 7, 3)), isNull(), isNull(), anyInt());
+	}
+
+	// ── Hidden gems (#376) ────────────────────────────────────
+
+	@Test
+	void hiddenGemsShelfSortsByRatingWithModerateVoteFloor() {
+		stubPopulatedWatchlistWithGenres();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		stubHiddenGemsDiscover(IntStream.rangeClosed(1, 12).mapToObj(i -> gem("gem-" + i, 5.0)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+			assertThat(shelf.reason()).isEqualTo("Hidden gems for you");
+		});
+		// Well-rated rather than popular, and off the long tail of barely-rated titles
+		verify(tmdbClient, atLeastOnce()).discover(eq(TitleType.TV), eq(List.of(99)), eq(List.of()),
+			eq(200), eq("vote_average.desc"), isNull(), isNull(), isNull(), isNull(), anyInt());
+	}
+
+	@Test
+	void hiddenGemsExcludesTitlesAtOrAboveThePopularityCeiling() {
+		// The default ceiling is 20.0 and the bound is strict: 19.9 is a gem,
+		// 20.0 is not. Eight passers keep the shelf clear of MIN_SHELF_SIZE so a
+		// short shelf can only mean the gate cut something it shouldn't have.
+		stubPopulatedWatchlistWithGenres();
+		List<TitleSearchResponse> page = new ArrayList<>();
+		IntStream.rangeClosed(1, 8).forEach(i -> page.add(gem("gem-under-" + i, 19.9)));
+		IntStream.rangeClosed(1, 8).forEach(i -> page.add(gem("gem-at-" + i, 20.0)));
+		IntStream.rangeClosed(1, 4).forEach(i -> page.add(gem("gem-over-" + i, 412.5)));
+		stubHiddenGemsDiscover(page);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(hiddenGemIds(shelves)).hasSize(8).allSatisfy(id ->
+			assertThat(id).startsWith("gem-under-"));
+	}
+
+	@Test
+	void hiddenGemsExcludesCandidatesWithUnknownPopularity() {
+		// Only TMDB-sourced feeds populate popularity (#374). A null can't answer
+		// the one question this shelf asks, so it is excluded rather than admitted
+		// — admitting it would let the most popular titles in through the gap.
+		stubPopulatedWatchlistWithGenres();
+		List<TitleSearchResponse> page = new ArrayList<>();
+		IntStream.rangeClosed(1, 4).forEach(i -> page.add(gem("gem-known-" + i, 3.0)));
+		IntStream.rangeClosed(1, 12).forEach(i -> page.add(scored("gem-unknown-" + i, List.of(99))));
+		stubHiddenGemsDiscover(page);
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(hiddenGemIds(shelves)).hasSize(4).allSatisfy(id ->
+			assertThat(id).startsWith("gem-known-"));
+	}
+
+	@Test
+	void hiddenGemsBailsWithoutFetchingWhenThereIsNoGenreProfile() {
+		// stubPopulatedWatchlist (no cache rows) leaves dominantGenres empty. The
+		// bail must also come before the page draw — that half is guarded by the
+		// tuning harness's re-baseline invariant (nothing above the exploration
+		// stage may move), the same mechanism #375 used, since a rng draw is not
+		// observable through the TmdbClient mock.
+		stubPopulatedWatchlist();
+		when(tmdbClient.getRecommendations(any(), anyString(), anyInt()))
+			.thenAnswer(inv -> candidatesFor(inv.getArgument(1)));
+		stubHiddenGemsDiscover(IntStream.rangeClosed(1, 12).mapToObj(i -> gem("gem-" + i, 1.0)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).noneMatch(s -> s.kind() == SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+		verify(tmdbClient, never()).discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
+			any(), any(), any(), any(), anyInt());
+	}
+
+	@Test
+	void hiddenGemsShelfIsProviderFilteredForAConfiguredMember() {
+		// One member, so the #322 both-watch shelf can't claim the pool first
+		stubPopulatedWatchlistWithGenres();
+		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(List.of(7L));
+		when(userRepository.findAllById(List.of(7L)))
+			.thenReturn(List.of(providerUser(7L, "US", List.of(8, 9))));
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
+				isNull(), isNull(), eq("US"), notNull(), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> gem("gem-" + i, 4.0)).toList());
+
+		List<SuggestionShelfResponse> shelves = serviceAt(DAY_1).topPicks(WATCHLIST_ID);
+
+		assertThat(shelves).anySatisfy(shelf -> {
+			assertThat(shelf.kind()).isEqualTo(SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+			assertThat(shelf.providerFiltered()).isTrue();
+		});
+	}
+
+	@Test
+	void hiddenGemsCeilingDoesNotChangeRngConsumption() {
+		// The load-bearing half of "rank first, gate second". jitterByCandidate
+		// draws once per distinct candidate, so gating before ranking would make
+		// the draw count a function of the ceiling *value* — and every shelf built
+		// after this stage would then move for every user whenever the ceiling was
+		// re-tuned. Ranking the full page pins the draw count to page size.
+		//
+		// Trending is stubbed from a disjoint pool, so its shelf can only differ if
+		// the rng stream reached it at a different position.
+		stubPopulatedWatchlistWithGenres();
+		stubHiddenGemsDiscover(IntStream.rangeClosed(1, 20)
+			.mapToObj(i -> gem("gem-" + i, i * 2.0))
+			.toList());
+		lenient().when(tmdbClient.getTrending(eq(TitleType.TV), anyInt()))
+			.thenAnswer(inv -> IntStream.rangeClosed(1, 12).mapToObj(i -> scored("trend-" + i, List.of(99))).toList());
+
+		List<SuggestionShelfResponse> strict = serviceAt(DAY_1, ceiling(10.0)).topPicks(WATCHLIST_ID);
+		List<SuggestionShelfResponse> loose = serviceAt(DAY_1, ceiling(30.0)).topPicks(WATCHLIST_ID);
+
+		// The ceilings genuinely differ, so the run below is a real comparison
+		assertThat(hiddenGemIds(strict)).hasSize(4);
+		assertThat(hiddenGemIds(loose)).hasSize(12);
+		// ...yet everything downstream of the gate is untouched
+		assertThat(shelfIds(loose, SuggestionShelfResponse.ShelfKind.TRENDING))
+			.isEqualTo(shelfIds(strict, SuggestionShelfResponse.ShelfKind.TRENDING))
+			.isNotEmpty();
+	}
+
+	private SuggestionTuningProperties ceiling(double popularityCeiling) {
+		SuggestionTuningProperties tuning = new SuggestionTuningProperties();
+		tuning.setHiddenGemPopularityCeiling(popularityCeiling);
+		return tuning;
+	}
+
+	private void stubHiddenGemsDiscover(List<TitleSearchResponse> page) {
+		lenient().when(tmdbClient.discover(any(), any(), any(), eq(200), eq("vote_average.desc"),
+				isNull(), isNull(), isNull(), isNull(), anyInt()))
+			.thenReturn(page);
+	}
+
+	// A candidate carrying the profile genre and an explicit TMDB popularity —
+	// candidate()/scored() use the shorter constructors, which leave it null (#374)
+	private TitleSearchResponse gem(String externalId, double popularity) {
+		return new TitleSearchResponse(externalId, "TMDB", TitleType.TV, "Title " + externalId,
+			null, null, null, List.of(99), null, popularity);
+	}
+
+	private List<String> hiddenGemIds(List<SuggestionShelfResponse> shelves) {
+		return shelfIds(shelves, SuggestionShelfResponse.ShelfKind.HIDDEN_GEMS);
+	}
+
+	private List<String> shelfIds(List<SuggestionShelfResponse> shelves,
+			SuggestionShelfResponse.ShelfKind kind) {
+		return shelves.stream()
+			.filter(s -> s.kind() == kind)
+			.flatMap(s -> s.titles().stream())
+			.map(TitleSearchResponse::externalId)
+			.toList();
 	}
 
 	@Test

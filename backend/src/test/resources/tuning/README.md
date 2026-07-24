@@ -116,9 +116,9 @@ a time.
 ## Adding a fixture watchlist
 
 Drop a JSON file in `watchlists/`. It's loaded automatically (files are sorted
-by `name`). Aim for a regime not already covered — the current six are
+by `name`). Aim for a regime not already covered — the current seven are
 `sparse-profile`, `rich-single-genre`, `genre-mixed`, `heavily-rated`,
-`stale-history`, `shared-household`.
+`stale-history`, `shared-household`, `hidden-gems`.
 
 ```jsonc
 {

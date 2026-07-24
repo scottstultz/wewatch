@@ -221,6 +221,7 @@ harness build.
 | `BothWatchShelfBuilder` | `BOTH_WATCH` (#322) — mixed TV + movie discover against the members' shared services |
 | `SeedShelfBuilder` | `PER_SEED` (#232), `FINISHED_SEED` (#235), and the `MORE_PICKS` catch-all (#266) — one class because they share the leftover pool |
 | `GenreShelfBuilder` | `GENRE_PROFILE`, one shelf per medium |
+| `HiddenGemsShelfBuilder` | `HIDDEN_GEMS` (#376) — taste-ranked, then gated to an absolute popularity ceiling |
 | `ExplorationShelfBuilder` | `NEW_RELEASES`, `TRENDING`, `PERSON`, `KEYWORD` and their daily rotation (#235) |
 | `DiscoverPolicy` | The discover page depth, vote floor, and sort orders the genre and exploration builders must agree on |
 | `TmdbPaging` | The day-seeded page draw's empty-deep-page fallback to page 1 (#249) |
@@ -414,8 +415,8 @@ the person directs at least as often as they act, "More with X" otherwise.
 **The rotating `HIDDEN_GEMS` kind was removed in #375**, taking the rotation from five kinds to
 four. It was a genre-filtered `vote_average.desc` discover query on a page drawn from a mid-deep
 band [4, 18], handed straight to `filler.fill` with no taste ranking — "obscure" approximated by
-page depth, never reading TMDB's `popularity` at all. `ShelfKind.HIDDEN_GEMS` stays on the enum
-and no builder emits it until #376 gives the name to a properly scored shelf.
+page depth, never reading TMDB's `popularity` at all. `ShelfKind.HIDDEN_GEMS` stayed on the enum,
+emitted by nothing, until #376 gave the name to a properly scored shelf (below).
 
 ⚠️ **The removal is deliberately not byte-identical in the tuning output.**
 `Collections.shuffle(order, ctx.rng())` consumes `size - 1` draws, so a four-element shuffle takes
@@ -425,6 +426,80 @@ invariant that *was* checked: the diff touches exploration shelves and nothing e
 both-watch, seed, genre, and the pooled catch-all all build before `explorationShelves.build(ctx)`
 in `SuggestionService.compute`, so they take their rng draws first and cannot be perturbed by
 anything downstream. Zero non-exploration shelves moved across all three kind-bearing reports.
+
+### Hidden gems (#376)
+
+`HiddenGemsShelfBuilder` gives the `HIDDEN_GEMS` kind back to a real shelf, "Hidden gems for
+you": well-rated titles in the members' genres that they are unlikely to have heard of. It is a
+dedicated pipeline stage rather than an exploration kind, and three genuine upgrades on what #375
+removed — always-on for anyone with a genre profile instead of winning a 2-of-5 daily lottery; an
+obscurity test on TMDB's own `popularity` value instead of a discover page-depth proxy; and the
+page ranked by `CandidateScorer.rankByTasteProfile`, where the old kind passed raw discover order
+to `filler.fill`.
+
+The shape: bail if `profile.dominantGenres()` is empty (before any rng draw), draw one page from
+the standard `DiscoverPolicy.MAX_FETCH_PAGE` band, fetch a `vote_average.desc` discover page at
+`vote_count.gte=200` with the provider filter when enabled, rank the **full** page, *then* gate to
+`popularity != null && popularity < ceiling`, fill without diversification, and return null under
+`MIN_SHELF_SIZE`. The old deep [4, 18] page band is gone on purpose: that band *was* the obscurity
+filter, and with a real gate it is redundant, so the shallow pages become usable stock again.
+
+**Stage placement** is after `genreShelves`, before `explorationShelves`. Franchise, both-watch,
+seed and genre all have a stronger precision claim on the shared `seen` set, so hidden gems sits
+behind them; it sits ahead of exploration because it is always-on and taste-scored where the
+exploration kinds are a lottery. Recorded here so it isn't re-litigated silently — moving it
+changes every user's shelves.
+
+⚠️ **Gate *after* ranking, not before — the obvious order is wrong.**
+`CandidateScorer.jitterByCandidate` draws once per distinct candidate, so filtering first would
+make the number of rng draws a function of the ceiling *value*: every downstream exploration shelf
+would then shift for every user whenever anyone re-tuned the ceiling. That is a class of blast
+radius no other tuning knob has — the rest change scores, not draw counts. Ranking the full page
+pins the draw count to page size and keeps the ceiling a free knob.
+`hiddenGemsCeilingDoesNotChangeRngConsumption` pins it, and fails against the filter-first order.
+
+⚠️ **Null popularity is excluded, not admitted.** Only TMDB-sourced feeds populate the field
+(#374); a null means the candidate arrived by a path that cannot answer the question this shelf
+asks, and admitting nulls would let the most popular titles through the gap.
+
+⚠️ **The absolute ceiling will drift, and that is the accepted trade.** TMDB `popularity` is
+unbounded and inflates over time, so a fixed number ages. It was chosen over a percentile-of-page
+gate for interpretability and because it is re-tunable without a code change —
+`suggestions.tuning.hidden-gem-popularity-ceiling` is the escape hatch. The shipped 20.0 is
+calibrated, not guessed: over 360 titles sampled from live `vote_average.desc` discover pages
+(`vote_count.gte=200`, three movie and three TV genres, pages 1/3/6) the median popularity was
+16.4, so 20 keeps a little over half the feed and leaves ~11 of 20 candidates per page before
+dedup and provider filtering thin it. The distribution is uneven in ways worth knowing before
+re-tuning: TV is far more popular than movies on this feed (median 24.5 vs 10.6), and page 1 is
+the popular end (median 28.8 vs ~11–14 deeper), so TV page 1 is the tight cell (~4 of 20 pass).
+
+⚠️ **Provider filtering and the gate compound** — both thin the same page, so provider-configured
+lists hit the `MIN_SHELF_SIZE` bail more often. In the harness they still fill (7 and 6 titles on
+the two provider-configured fixtures). If it ever bails too often the lever is the ceiling, not
+dropping the provider filter and not a second page top-up — a top-up costs an extra rng draw and
+would move every user's exploration shelves.
+
+⚠️ **`SyntheticCatalog`'s popularity band was rescaled, and the divisor must stay a power of two.**
+Until #376 nothing read popularity as an absolute — every feed only *sorted* by it — so the old
+uniform 0..500 band was never calibrated against TMDB. Against it the shipped ceiling would reject
+~96% of the universe and the shelf would never fill, which would read as a broken stage rather
+than an uncalibrated fixture. It is now `rng.nextDouble() * 500 / 16` (0..31.25, median 15.6 vs
+16.4 measured live). Dividing by 16 is exact in binary floating point, so every popularity-ordered
+feed — trending, `discoverByPerson`, `discoverByKeyword`, and the `popularity.desc` discover that
+feeds `GenreShelfBuilder` — sorts bit-identically to before. That matters because genre shelves
+build *above* the insertion point: a rescale that perturbed their order would break the
+re-baseline invariant for a reason unrelated to the new stage.
+
+⚠️ **The tuning output was deliberately re-baselined, and the checked invariant is the boundary.**
+The new stage consumes one page draw ahead of `explorationShelves`, so exploration moves for
+everyone. Verified structurally rather than by eyeballing the diff (same method as #375): parse
+each report into fixture → shelf → titles and classify every change by whether its kind builds
+above or below the insertion point. Result across the six pre-existing fixtures — **0 shelves
+above the insertion point moved** (franchise, both-watch, per-seed, finished-seed, more-picks,
+genre-profile all byte-identical); every fixture gained a `HIDDEN_GEMS` shelf (3–9 titles); the
+rest of the diff is exploration rotation. Repeat that classification, not a `diff -q`, for any
+future change to this stage. New fixture `07-hidden-gems.json` covers a sharply concentrated,
+provider-blind movie profile so the gate's own fill rate is observable in isolation.
 
 ### Watch providers (#270)
 
