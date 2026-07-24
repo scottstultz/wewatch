@@ -116,7 +116,8 @@ public class WatchlistEntryController {
 		suggestionService.recompute(watchlistId);
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
-			.body(toResponse(created, title, null, callerRating(caller, created.getTitleId())));
+			.body(toResponse(created, title, null, callerRating(caller, created.getTitleId()),
+				genreIdsForSingleTitle(title)));
 	}
 
 	@GetMapping
@@ -155,8 +156,11 @@ public class WatchlistEntryController {
 		// not the watchlist; one batch read for the page
 		Map<Long, Rating> myRatings = titleRatingService.ratingsFor(caller.getId(), titleIds);
 
+		// Genre ids from the title cache (#381) — one batch read for the page, not one per entry
+		Map<Long, List<Integer>> genreIds = tmdbCacheService.genreIdsByTitleId(titlesById.values());
+
 		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId()),
-			myRatings.get(e.getTitleId())));
+			myRatings.get(e.getTitleId()), genreIds.getOrDefault(e.getTitleId(), List.of())));
 	}
 
 	@GetMapping("/{entryId}")
@@ -175,7 +179,8 @@ public class WatchlistEntryController {
 		watchlistService.requireMember(watchlistId, caller.getId());
 		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		Title title = titleService.findById(entry.getTitleId());
-		return toResponse(entry, title, summaryForSingleEntry(entry, title), callerRating(caller, entry.getTitleId()));
+		return toResponse(entry, title, summaryForSingleEntry(entry, title),
+			callerRating(caller, entry.getTitleId()), genreIdsForSingleTitle(title));
 	}
 
 	@PatchMapping("/{entryId}")
@@ -210,7 +215,8 @@ public class WatchlistEntryController {
 		// invoked after the update so shelves aren't rebuilt from the pre-update status (#198)
 		suggestionService.recompute(watchlistId);
 		Title title = titleService.findById(updated.getTitleId());
-		return toResponse(updated, title, summaryForSingleEntry(updated, title), callerRating(caller, updated.getTitleId()));
+		return toResponse(updated, title, summaryForSingleEntry(updated, title),
+			callerRating(caller, updated.getTitleId()), genreIdsForSingleTitle(title));
 	}
 
 	@DeleteMapping("/{entryId}")
@@ -247,7 +253,16 @@ public class WatchlistEntryController {
 		return titleRatingService.ratingsFor(caller.getId(), List.of(titleId)).get(titleId);
 	}
 
-	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary, Rating myRating) {
+	// The single-entry paths take the same batch read as the list, with one title in it (#381).
+	// Tolerates a null title, as toResponse already does.
+	private List<Integer> genreIdsForSingleTitle(Title title) {
+		if (title == null) return List.of();
+		return tmdbCacheService.genreIdsByTitleId(List.of(title))
+			.getOrDefault(title.getId(), List.of());
+	}
+
+	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary,
+			Rating myRating, List<Integer> genreIds) {
 		return new WatchlistEntryResponse(
 			entry.getId(),
 			entry.getWatchlistId(),
@@ -264,7 +279,8 @@ public class WatchlistEntryController {
 			entry.getStartedAt(),
 			entry.getCompletedAt(),
 			summary,
-			myRating
+			myRating,
+			genreIds
 		);
 	}
 }

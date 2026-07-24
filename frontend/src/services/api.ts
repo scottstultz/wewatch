@@ -1,5 +1,6 @@
 import type {
   EpisodeProgress,
+  GenreCatalog,
   MemberRole,
   PersonDetailResponse,
   ReturningEpisode,
@@ -206,6 +207,16 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       const response = await authedFetch(`${BASE_URL}/watch-providers/regions`)
       if (!response.ok) throw new Error(`Failed to fetch watch regions: ${response.status}`)
       return response.json() as Promise<WatchRegion[]>
+    },
+
+    // ── Genres (#381) ────────────────────────────────────────
+
+    // Both catalogs in one call. The backend degrades to empty lists on a TMDB
+    // outage rather than failing, so this rejects only on a real transport error.
+    async getGenres(): Promise<GenreCatalog> {
+      const response = await authedFetch(`${BASE_URL}/genres`)
+      if (!response.ok) throw new Error(`Failed to fetch genres: ${response.status}`)
+      return response.json() as Promise<GenreCatalog>
     },
 
     // ── Watchlist CRUD ───────────────────────────────────────

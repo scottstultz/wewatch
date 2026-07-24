@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import com.wewatch.api.dto.GenreResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.tmdb.TmdbClient;
@@ -83,5 +84,59 @@ class GenreCatalogServiceTest {
 
 		assertThat(service.genreNames()).isEmpty();
 		assertThat(service.genreNames()).containsExactly(Map.entry(18, "Drama"));
+	}
+
+	// ── per-type accessor (#381) ────────────────────────────────
+
+	@Test
+	void keepsTheTwoCatalogsApartPerType() {
+		// The merged map cannot answer this: a picker offering both "Action" (movie 28) and
+		// "Action & Adventure" (TV 10759) in one list gives the user no way to tell them apart.
+		when(tmdbClient.getGenres(TitleType.MOVIE))
+			.thenReturn(List.of(new TmdbGenre(28, "Action"), new TmdbGenre(18, "Drama")));
+		when(tmdbClient.getGenres(TitleType.TV))
+			.thenReturn(List.of(new TmdbGenre(10759, "Action & Adventure"), new TmdbGenre(18, "Drama")));
+
+		assertThat(service.genresFor(TitleType.MOVIE))
+			.containsExactly(new GenreResponse(28, "Action"), new GenreResponse(18, "Drama"));
+		assertThat(service.genresFor(TitleType.TV))
+			.containsExactly(new GenreResponse(10759, "Action & Adventure"), new GenreResponse(18, "Drama"));
+	}
+
+	@Test
+	void sortsEachCatalogByName() {
+		when(tmdbClient.getGenres(TitleType.MOVIE))
+			.thenReturn(List.of(new TmdbGenre(878, "Science Fiction"), new TmdbGenre(28, "Action")));
+		when(tmdbClient.getGenres(TitleType.TV)).thenReturn(List.of());
+
+		assertThat(service.genresFor(TitleType.MOVIE))
+			.extracting(GenreResponse::name)
+			.containsExactly("Action", "Science Fiction");
+	}
+
+	@Test
+	void bothViewsShareOneFetchPair() {
+		// The guard against someone adding a second cache for the per-type lists: the merged map
+		// and both per-type lists are three views of one TMDB fetch pair, not three fetches.
+		when(tmdbClient.getGenres(TitleType.MOVIE)).thenReturn(List.of(new TmdbGenre(18, "Drama")));
+		when(tmdbClient.getGenres(TitleType.TV)).thenReturn(List.of(new TmdbGenre(10759, "Action & Adventure")));
+
+		service.genresFor(TitleType.MOVIE);
+		service.genreNames();
+		service.genresFor(TitleType.TV);
+		service.genresFor(TitleType.MOVIE);
+
+		verify(tmdbClient, times(1)).getGenres(TitleType.MOVIE);
+		verify(tmdbClient, times(1)).getGenres(TitleType.TV);
+	}
+
+	@Test
+	void returnsAnEmptyListPerTypeWhenTmdbIsDown() {
+		// Same never-throws contract as genreNames(): a genre picker with no options is a poorer
+		// page, not a 502.
+		when(tmdbClient.getGenres(TitleType.MOVIE)).thenThrow(new TmdbApiException("boom", null));
+
+		assertThat(service.genresFor(TitleType.MOVIE)).isEmpty();
+		assertThat(service.genresFor(TitleType.TV)).isEmpty();
 	}
 }

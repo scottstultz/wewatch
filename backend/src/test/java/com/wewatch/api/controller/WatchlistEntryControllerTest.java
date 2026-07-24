@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
@@ -108,6 +109,9 @@ class WatchlistEntryControllerTest {
 		// Default: caller is a member/editor — individual tests override this to test 403/404
 		when(watchlistService.requireMember(any(), any())).thenReturn(null);
 		when(watchlistService.requireEditor(any(), any())).thenReturn(null);
+		// A Mockito mock answers null for a Map return, and the controller reads this on every
+		// response path (#381) — without a default every test in this file would NPE.
+		when(tmdbCacheService.genreIdsByTitleId(any())).thenReturn(Map.of());
 	}
 
 	private static RequestPostProcessor asUser(User user) {
@@ -324,6 +328,57 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.content[0].addedAt").value("2026-04-28T12:00:00Z"));
 
 		verify(watchlistEntryService).findByFilters(eq(10L), isNull(), any(Pageable.class));
+	}
+
+	@Test
+	void getWatchlistEntriesCarryGenreIdsFromOneBatchCacheRead() throws Exception {
+		// #381: the Library filters on these, so they ride the entry rather than costing a second
+		// round trip — and the whole page is one cache read, not one per entry. Two entries, so
+		// times(1) actually distinguishes the batch from a per-entry lookup.
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry matrix = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+		WatchlistEntry thrones = new WatchlistEntry(
+			2L, 10L, 21L, WatchStatus.WATCHING, addedAt, addedAt, null, null
+		);
+		Title tvTitle = new Title(21L, "1399", "TMDB", TitleType.TV, "Game of Thrones", null, null, null,
+			Instant.EPOCH, Instant.EPOCH);
+
+		when(titleService.findByIds(any())).thenReturn(Map.of(20L, TEST_TITLE, 21L, tvTitle));
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(matrix, thrones)));
+		when(tmdbCacheService.genreIdsByTitleId(any()))
+			.thenReturn(Map.of(20L, List.of(28, 878), 21L, List.of(10765)));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].genreIds.length()").value(2))
+			.andExpect(jsonPath("$.content[0].genreIds[0]").value(28))
+			.andExpect(jsonPath("$.content[0].genreIds[1]").value(878))
+			.andExpect(jsonPath("$.content[1].genreIds.length()").value(1))
+			.andExpect(jsonPath("$.content[1].genreIds[0]").value(10765));
+
+		verify(tmdbCacheService, times(1)).genreIdsByTitleId(any());
+	}
+
+	@Test
+	void getWatchlistEntriesReturnEmptyGenreIdsForAnUncachedTitle() throws Exception {
+		// An entry whose title has no tmdb_title_cache row must serialize [] — never null and
+		// never an error — so a client filtering on genre can treat it as "no known genres".
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry entry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(entry)));
+		when(tmdbCacheService.genreIdsByTitleId(any())).thenReturn(Map.of());
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.content[0].genreIds").isArray())
+			.andExpect(jsonPath("$.content[0].genreIds.length()").value(0));
 	}
 
 	@Test

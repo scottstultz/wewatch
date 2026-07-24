@@ -44,6 +44,21 @@ export interface WatchProvider {
   displayPriority: number
 }
 
+// ── Genres (#381) ───────────────────────────────────────────
+
+export interface Genre {
+  id: number
+  name: string
+}
+
+// TMDB's two genre catalogs, kept apart because they genuinely differ: "Action" is
+// movie id 28 and "Action & Adventure" is TV id 10759. A merged list would offer
+// both with no way to tell which medium each belongs to.
+export interface GenreCatalog {
+  movie: Genre[]
+  tv: Genre[]
+}
+
 export interface WatchRegion {
   code: string
   name: string
@@ -108,6 +123,9 @@ export interface WatchlistEntryResponse {
   episodeProgress: EpisodeProgressSummary | null
   // The caller's own thumbs rating (#273) — personal, not the entry's
   myRating: TitleRating | null
+  // TMDB genre ids from our title cache (#381). Always an array — empty, never absent,
+  // when the title isn't cached yet — so a genre filter needs no null handling.
+  genreIds: number[]
 }
 
 // ── Returning this week (#321) ──────────────────────────────

@@ -3,6 +3,7 @@ package com.wewatch.api.service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -19,6 +20,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -104,6 +106,46 @@ public class TmdbCacheService {
 
 	public Optional<TmdbTitleCache> getTitleCache(String tmdbId) {
 		return titleCacheRepository.findByTmdbId(tmdbId);
+	}
+
+	/**
+	 * Cached TMDB genre ids for a batch of titles, keyed by title id (#381).
+	 *
+	 * <p>One {@code findAllById} for the whole collection, so a page of watchlist entries costs a
+	 * single cache read rather than one per entry. Callers with a single title pass a one-element
+	 * collection and take the same path.
+	 *
+	 * <p>A title with no cache row yet — or a row cached before its genres were populated — maps to
+	 * an empty list, never null: "we don't know this title's genres" is not an error, and a caller
+	 * filtering on genre wants to skip it, not to fail.
+	 */
+	public Map<Long, List<Integer>> genreIdsByTitleId(Collection<Title> titles) {
+		List<String> externalIds = titles.stream()
+			.filter(t -> t != null && t.getExternalId() != null)
+			.map(Title::getExternalId)
+			.distinct()
+			.toList();
+		if (externalIds.isEmpty()) return Map.of();
+
+		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(externalIds).stream()
+			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
+
+		Map<Long, List<Integer>> byTitleId = new LinkedHashMap<>();
+		for (Title title : titles) {
+			if (title == null || title.getId() == null) continue;
+			byTitleId.put(title.getId(), genreIdsOf(cacheById.get(title.getExternalId()), title.getType()));
+		}
+		return byTitleId;
+	}
+
+	private List<Integer> genreIdsOf(TmdbTitleCache row, TitleType type) {
+		if (row == null || row.getGenreIds() == null) return List.of();
+		// tmdb_title_cache's key is a bare TMDB id with no medium namespace (V9), so movie 1399 and
+		// TV 1399 share one row and whichever prewarm ran last owns it. Genre ids are medium-specific:
+		// handing a movie the TV row's 10759 would label it "Action & Adventure", a genre that does
+		// not exist for movies. Fail closed to no genres rather than to wrong ones.
+		if (type == null || !type.name().equals(row.getType())) return List.of();
+		return List.copyOf(row.getGenreIds());
 	}
 
 	@Async

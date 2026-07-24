@@ -32,6 +32,7 @@ function makeEntry(id: number, name: string, type: TitleType): WatchlistEntryRes
     completedAt: null,
     episodeProgress: null,
     myRating: null,
+    genreIds: [],
   }
 }
 

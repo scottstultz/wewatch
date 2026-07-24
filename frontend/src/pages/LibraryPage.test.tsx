@@ -56,6 +56,7 @@ function makeEntry(myRating: TitleRating | null): WatchlistEntryResponse {
     completedAt: null,
     episodeProgress: null,
     myRating,
+    genreIds: [],
   }
 }
 

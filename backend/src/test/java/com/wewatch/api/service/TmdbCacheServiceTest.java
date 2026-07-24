@@ -3,6 +3,7 @@ package com.wewatch.api.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyIterable;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -27,6 +28,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
@@ -414,5 +416,76 @@ class TmdbCacheServiceTest {
 			new TmdbTvEpisode(1L, 1, "Winter Is Coming", null, "2011-04-17", null, 62),
 			new TmdbTvEpisode(2L, 2, "The Kingsroad", null, "2011-04-24", null, 56)
 		));
+	}
+
+	// ── genre ids for a batch of titles (#381) ──────────────────
+
+	@Test
+	void genreIdsByTitleIdReadsTheCacheOnceForTheWholeBatch() {
+		// One findAllById for the page is the point: a 20-entry Library page must not cost 20
+		// cache reads.
+		Title matrix = title(1L, "603", TitleType.MOVIE);
+		Title thrones = title(2L, "1399", TitleType.TV);
+		when(titleCacheRepository.findAllById(anyIterable())).thenReturn(List.of(
+			cacheRow("603", "MOVIE", List.of(28, 878)),
+			cacheRow("1399", "TV", List.of(10765, 18))));
+
+		Map<Long, List<Integer>> genreIds = service.genreIdsByTitleId(List.of(matrix, thrones));
+
+		assertThat(genreIds).containsOnly(
+			Map.entry(1L, List.of(28, 878)),
+			Map.entry(2L, List.of(10765, 18)));
+		verify(titleCacheRepository, times(1)).findAllById(anyIterable());
+	}
+
+	@Test
+	void genreIdsByTitleIdYieldsAnEmptyListForAnUncachedTitle() {
+		// "We haven't cached this title yet" is not an error, and a caller filtering on genre
+		// wants to skip the entry rather than handle a null.
+		when(titleCacheRepository.findAllById(anyIterable())).thenReturn(List.of());
+
+		assertThat(service.genreIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE))))
+			.containsOnly(Map.entry(1L, List.of()));
+	}
+
+	@Test
+	void genreIdsByTitleIdYieldsAnEmptyListWhenTheRowHasNoGenres() {
+		when(titleCacheRepository.findAllById(anyIterable()))
+			.thenReturn(List.of(cacheRow("603", "MOVIE", null)));
+
+		assertThat(service.genreIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE))))
+			.containsOnly(Map.entry(1L, List.of()));
+	}
+
+	@Test
+	void genreIdsByTitleIdRejectsARowCachedForTheOtherMedium() {
+		// tmdb_title_cache is keyed by a bare TMDB id with no medium namespace (V9), so movie 1399
+		// and TV 1399 share one row and the last prewarm wins. Genre ids are medium-specific:
+		// TV's 10759 "Action & Adventure" is not a movie genre at all. Fail closed to no genres
+		// rather than mislabelling the title.
+		when(titleCacheRepository.findAllById(anyIterable()))
+			.thenReturn(List.of(cacheRow("1399", "TV", List.of(10759))));
+
+		assertThat(service.genreIdsByTitleId(List.of(title(1L, "1399", TitleType.MOVIE))))
+			.containsOnly(Map.entry(1L, List.of()));
+	}
+
+	@Test
+	void genreIdsByTitleIdSkipsTheCacheEntirelyForAnEmptyBatch() {
+		assertThat(service.genreIdsByTitleId(List.of())).isEmpty();
+		verify(titleCacheRepository, never()).findAllById(anyIterable());
+	}
+
+	private Title title(Long id, String externalId, TitleType type) {
+		return new Title(id, externalId, "TMDB", type, "Title " + id, null, null, null,
+			Instant.EPOCH, Instant.EPOCH);
+	}
+
+	private TmdbTitleCache cacheRow(String tmdbId, String type, List<Integer> genreIds) {
+		TmdbTitleCache row = new TmdbTitleCache();
+		row.setTmdbId(tmdbId);
+		row.setType(type);
+		row.setGenreIds(genreIds);
+		return row;
 	}
 }
