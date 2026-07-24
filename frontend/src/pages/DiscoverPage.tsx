@@ -25,11 +25,14 @@ const SHELF_KIND_ORDER: Record<ShelfKind, number> = {
   PER_SEED: 1,
   FINISHED_SEED: 2,
   MORE_PICKS: 3,
-  NEW_RELEASES: 4,
+  // Hidden gems (#376) is always-on and taste-scored, so it outranks the
+  // exploration kinds below it — which rotate by lottery — and sits behind the
+  // similarity shelves that have the more precise claim
   HIDDEN_GEMS: 4,
-  TRENDING: 4,
-  PERSON: 4,
-  KEYWORD: 4,
+  NEW_RELEASES: 5,
+  TRENDING: 5,
+  PERSON: 5,
+  KEYWORD: 5,
 }
 
 interface ShelfRowProps {
@@ -435,7 +438,7 @@ function DiscoverPage() {
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
             {!suggestionsLoading && (() => {
               const sorted = [...suggestions].sort(
-                (a, b) => (SHELF_KIND_ORDER[a.kind] ?? 5) - (SHELF_KIND_ORDER[b.kind] ?? 5)
+                (a, b) => (SHELF_KIND_ORDER[a.kind] ?? 6) - (SHELF_KIND_ORDER[b.kind] ?? 6)
               )
               const shownKeys = new Set<string>()
               return sorted.map(shelf => {

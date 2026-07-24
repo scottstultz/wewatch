@@ -37,7 +37,7 @@ import com.wewatch.api.tmdb.TmdbClient;
  * Builds the per-watchlist suggestion shelves. This class owns the cache and the
  * order of the pipeline; the stages themselves live in package-private
  * collaborators ({@link TasteProfileBuilder}, {@link CandidateScorer},
- * {@link ShelfFiller}, and the five shelf builders), which are constructed here
+ * {@link ShelfFiller}, and the six shelf builders), which are constructed here
  * rather than injected so this constructor stays the single wiring point.
  *
  * <p>Stage order is behavior, not style. Shelves are built strongest-first
@@ -63,6 +63,7 @@ public class SuggestionService {
 	private final BothWatchShelfBuilder bothWatchShelves;
 	private final SeedShelfBuilder seedShelves;
 	private final GenreShelfBuilder genreShelves;
+	private final HiddenGemsShelfBuilder hiddenGemShelves;
 	private final ExplorationShelfBuilder explorationShelves;
 
 	// In-process cache: assumes a single backend instance. If the app ever scales
@@ -107,6 +108,7 @@ public class SuggestionService {
 		this.bothWatchShelves = new BothWatchShelfBuilder(tmdbClient, scorer, filler);
 		this.seedShelves = new SeedShelfBuilder(tmdbClient, scorer, filler);
 		this.genreShelves = new GenreShelfBuilder(tmdbClient, filler);
+		this.hiddenGemShelves = new HiddenGemsShelfBuilder(tmdbClient, scorer, filler, tuning);
 		this.explorationShelves = new ExplorationShelfBuilder(tmdbClient, scorer, filler);
 
 		this.cache = Caffeine.newBuilder()
@@ -159,6 +161,15 @@ public class SuggestionService {
 
 		shelves.addAll(seedShelves.build(ctx));
 		shelves.addAll(genreShelves.build(ctx));
+
+		// "Hidden gems for you" (#376) sits behind franchise, both-watch, seed and
+		// genre — all of which have a stronger precision claim on the shared dedup
+		// set — but ahead of exploration, because it is always-on and taste-scored
+		// where the exploration kinds are a daily lottery. Placement is a judgment
+		// call and moving it changes every user's shelves.
+		SuggestionShelfResponse hiddenGems = hiddenGemShelves.build(ctx);
+		if (hiddenGems != null) shelves.add(hiddenGems);
+
 		shelves.addAll(explorationShelves.build(ctx));
 
 		// Availability badges (#270): annotate served titles with which of the
