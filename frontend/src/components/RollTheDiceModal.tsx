@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApi } from '../contexts/AuthContext'
 import type { TitleType, TonightPick, WatchlistEntryResponse } from '../types/api'
 
-const MAX_PICKS = 6
+// A roll needs at least two things to choose between. There is deliberately no upper
+// bound (#372): narrowing to 8 or 10 candidates is a legitimate way to use the picker,
+// and the old cap of 6 only ever showed up as tiles greying out mid-selection.
 export const MIN_PICKS = 2
 
 // "What can I finish tonight?" (#359). The windows people actually think in: a sitcom,
@@ -238,7 +240,7 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
     setSelected(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-      else if (next.size < MAX_PICKS) next.add(id)
+      else next.add(id)
       return next
     })
   }
@@ -450,7 +452,6 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                 <div className={`flip-select-grid${isChecking ? ' flip-select-grid-checking' : ''}`}>
                   {visibleEntries.map(entry => {
                     const isSelected = selected.has(entry.id)
-                    const atCap = selected.size >= MAX_PICKS && !isSelected
                     const pick = pickByEntryId.get(entry.id)
                     return (
                       <button
@@ -462,7 +463,9 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                         // flight and some of them won't survive the new one, so they must
                         // not be selectable. `disabled` rather than the stylesheet's
                         // pointer-events alone: that leaves them keyboard-reachable (#368).
-                        disabled={atCap || isChecking}
+                        // Since #372 this is the *only* reason a tile is disabled — never
+                        // for how many are already picked.
+                        disabled={isChecking}
                         onClick={() => toggle(entry.id)}
                         title={entry.name ?? undefined}
                       >
@@ -479,14 +482,15 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
                 </div>
 
                 <div className="flip-actions">
-                  {/* Only once something is selected — otherwise the cap is noise. The
-                      in-flight message rides this slot on purpose (#368): it is already
-                      rendered unconditionally, so borrowing it costs no height, and a
-                      check has cleared the selection it would otherwise displace. */}
+                  {/* Only once something is selected — a count of zero is noise. It reads
+                      as a plain tally rather than a budget (#372): there is no ceiling to
+                      count towards. The in-flight message rides this slot on purpose
+                      (#368): it is already rendered unconditionally, so borrowing it costs
+                      no height, and a check has cleared the selection it would displace. */}
                   <span className="flip-count" aria-live="polite">
                     {isChecking
                       ? 'Checking runtimes…'
-                      : selected.size > 0 ? `${selected.size} / ${MAX_PICKS} selected` : ''}
+                      : selected.size > 0 ? `${selected.size} selected` : ''}
                   </span>
                   {/* key on the label so React remounts a fresh node whenever the CTA
                       text/width changes. The button is otherwise reused in place, and on

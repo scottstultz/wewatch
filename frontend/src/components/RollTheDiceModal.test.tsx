@@ -298,6 +298,36 @@ describe('RollTheDiceModal — roll CTA (#366)', () => {
   })
 })
 
+describe('RollTheDiceModal — no selection cap (#372)', () => {
+  // Seven movies: one more than the cap #372 removed, so the 7th click is the assertion.
+  const SEVEN_MOVIES = ['Arrival', 'Brazil', 'Coco', 'Dune', 'Elf', 'Fargo', 'Gattaca']
+    .map((name, i) => makeEntry(10 + i, name, 'MOVIE'))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.getTonightPicks.mockResolvedValue([])
+  })
+
+  it('lets a selection grow past six, with no tile disabled for being late to it', () => {
+    renderModal(SEVEN_MOVIES)
+
+    for (const entry of SEVEN_MOVIES) fireEvent.click(tile(entry.name!))
+
+    // Pre-#372 the 7th click was a no-op and the unpicked tiles greyed out at six
+    expect(screen.getByRole('button', { name: 'Roll Selected (7)' })).toBeEnabled()
+    for (const entry of SEVEN_MOVIES) expect(tile(entry.name!)).toBeEnabled()
+  })
+
+  it('counts the selection without counting towards a ceiling', () => {
+    renderModal(SEVEN_MOVIES)
+
+    for (const entry of SEVEN_MOVIES) fireEvent.click(tile(entry.name!))
+
+    expect(screen.getByText('7 selected')).toBeInTheDocument()
+    expect(screen.queryByText(/\d+\s*\/\s*\d+ selected/)).not.toBeInTheDocument()
+  })
+})
+
 describe('RollTheDiceModal — slider does not resize the modal (#368)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
