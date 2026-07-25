@@ -2992,3 +2992,156 @@ div.people-row-photo {
     gap: 8px;
   }
 }
+
+/* ── Genre filter (#382) ────────────────────────────────────────────────── */
+
+/* The Library's search field and the Genres trigger share one row. .hero-copy is a
+   grid, so this drops in as a single grid child. */
+.library-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.library-filter-row .search-input-wrapper {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.genre-filter {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.genre-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  color: #cbd5e1;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+@media (hover: hover) {
+  .genre-filter-trigger:hover {
+    border-color: rgba(125, 211, 252, 0.5);
+    color: #f1f5f9;
+  }
+}
+
+.genre-filter-trigger[aria-expanded='true'] {
+  border-color: rgba(125, 211, 252, 0.5);
+  color: #f1f5f9;
+}
+
+/* Anchored right, not left: the trigger sits at the right edge of the filter row, so a
+   left-anchored panel would run off a narrow viewport. */
+.genre-filter-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: min(320px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 10px;
+  background: #1e293b;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.genre-filter-search .search-input {
+  font-size: 0.875rem;
+  padding: 8px 32px 8px 12px;
+}
+
+/* Only the checkbox list scrolls — the search field and the Clear/Apply footer stay put. */
+.genre-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 4px 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* No ellipsis here, unlike .provider-chip-name: TMDB ships "Science Fiction",
+   "Sci-Fi & Fantasy" and "Action & Adventure", and truncating those makes them
+   ambiguous. They wrap to a second line instead. */
+.genre-filter-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 2px;
+  color: #cbd5e1;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .genre-filter-option:hover {
+    color: #f1f5f9;
+  }
+}
+
+/* The app's first native checkboxes. accent-color alone only tints the *checked* fill —
+   an unchecked box keeps the UA's light default and reads as a white chiclet on this dark
+   panel. color-scheme flips the whole control dark. Scoped to the checkbox rather than
+   :root on purpose: at :root it would restyle every input and select in the app. */
+.genre-filter-option input[type='checkbox'] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: #7dd3fc;
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.genre-filter-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.genre-filter-clear {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.genre-filter-apply {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #f8fafc;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .genre-filter-clear:hover {
+    color: #e2e8f0;
+  }
+
+  .genre-filter-apply:hover {
+    background: #1d4ed8;
+  }
+}
