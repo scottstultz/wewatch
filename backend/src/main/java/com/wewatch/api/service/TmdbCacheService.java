@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -109,17 +110,20 @@ public class TmdbCacheService {
 	}
 
 	/**
-	 * Cached TMDB genre ids for a batch of titles, keyed by title id (#381).
+	 * Genre and provider ids from the title cache for a batch of titles, keyed by title id
+	 * (#381, #392).
 	 *
 	 * <p>One {@code findAllById} for the whole collection, so a page of watchlist entries costs a
-	 * single cache read rather than one per entry. Callers with a single title pass a one-element
-	 * collection and take the same path.
+	 * single cache read rather than one per entry — for both fields, which is why they're bundled
+	 * into one method instead of two identical batch reads. Callers with a single title pass a
+	 * one-element collection and take the same path.
 	 *
-	 * <p>A title with no cache row yet — or a row cached before its genres were populated — maps to
-	 * an empty list, never null: "we don't know this title's genres" is not an error, and a caller
-	 * filtering on genre wants to skip it, not to fail.
+	 * <p>Provider ids are intersected with {@code myProviderIds} in {@code region} so a badge means
+	 * "on a service you have" (#392), matching {@code ProviderContextResolver.badgeShelf}. A title
+	 * with no cache row yet, or with no matching services, maps to an empty list, never null.
 	 */
-	public Map<Long, List<Integer>> genreIdsByTitleId(Collection<Title> titles) {
+	public Map<Long, TitleCacheIds> cacheIdsByTitleId(
+			Collection<Title> titles, String region, Collection<Integer> myProviderIds) {
 		List<String> externalIds = titles.stream()
 			.filter(t -> t != null && t.getExternalId() != null)
 			.map(Title::getExternalId)
@@ -130,22 +134,38 @@ public class TmdbCacheService {
 		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(externalIds).stream()
 			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
 
-		Map<Long, List<Integer>> byTitleId = new LinkedHashMap<>();
+		ProviderContext providerContext = new ProviderContext(
+			region, myProviderIds != null ? Set.copyOf(myProviderIds) : Set.of());
+
+		Map<Long, TitleCacheIds> byTitleId = new LinkedHashMap<>();
 		for (Title title : titles) {
 			if (title == null || title.getId() == null) continue;
-			byTitleId.put(title.getId(), genreIdsOf(cacheById.get(title.getExternalId()), title.getType()));
+			TmdbTitleCache row = cacheById.get(title.getExternalId());
+			byTitleId.put(title.getId(), new TitleCacheIds(
+				genreIdsOf(row, title.getType()),
+				providerIdsOf(row, title.getType(), providerContext)));
 		}
 		return byTitleId;
 	}
 
+	// tmdb_title_cache's key is a bare TMDB id with no medium namespace (V9), so movie 1399 and
+	// TV 1399 share one row and whichever prewarm ran last owns it. Both genre and provider ids
+	// are medium-specific: handing a movie the TV row's data would mislabel it. Fail closed to
+	// empty rather than to wrong data.
 	private List<Integer> genreIdsOf(TmdbTitleCache row, TitleType type) {
 		if (row == null || row.getGenreIds() == null) return List.of();
-		// tmdb_title_cache's key is a bare TMDB id with no medium namespace (V9), so movie 1399 and
-		// TV 1399 share one row and whichever prewarm ran last owns it. Genre ids are medium-specific:
-		// handing a movie the TV row's 10759 would label it "Action & Adventure", a genre that does
-		// not exist for movies. Fail closed to no genres rather than to wrong ones.
 		if (type == null || !type.name().equals(row.getType())) return List.of();
 		return List.copyOf(row.getGenreIds());
+	}
+
+	private List<Integer> providerIdsOf(TmdbTitleCache row, TitleType type, ProviderContext ctx) {
+		if (row == null || type == null || !type.name().equals(row.getType())) return List.of();
+		return ctx.streamableOn(row);
+	}
+
+	// Bundles genre and provider ids from one cache read (#392) — see cacheIdsByTitleId.
+	public record TitleCacheIds(List<Integer> genreIds, List<Integer> providerIds) {
+		public static final TitleCacheIds EMPTY = new TitleCacheIds(List.of(), List.of());
 	}
 
 	@Async

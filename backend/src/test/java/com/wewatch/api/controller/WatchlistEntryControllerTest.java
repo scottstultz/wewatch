@@ -110,8 +110,8 @@ class WatchlistEntryControllerTest {
 		when(watchlistService.requireMember(any(), any())).thenReturn(null);
 		when(watchlistService.requireEditor(any(), any())).thenReturn(null);
 		// A Mockito mock answers null for a Map return, and the controller reads this on every
-		// response path (#381) — without a default every test in this file would NPE.
-		when(tmdbCacheService.genreIdsByTitleId(any())).thenReturn(Map.of());
+		// response path (#381, #392) — without a default every test in this file would NPE.
+		when(tmdbCacheService.cacheIdsByTitleId(any(), any(), any())).thenReturn(Map.of());
 	}
 
 	private static RequestPostProcessor asUser(User user) {
@@ -153,7 +153,9 @@ class WatchlistEntryControllerTest {
 			.andExpect(jsonPath("$.type").value("MOVIE"))
 			.andExpect(jsonPath("$.posterUrl").value("/poster.jpg"))
 			.andExpect(jsonPath("$.addedAt").value("2026-04-28T12:00:00Z"))
-			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
+			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"))
+			.andExpect(jsonPath("$.providerIds").isArray())
+			.andExpect(jsonPath("$.providerIds.length()").value(0));
 
 		verify(watchlistEntryService).create(any(WatchlistEntry.class));
 	}
@@ -331,10 +333,10 @@ class WatchlistEntryControllerTest {
 	}
 
 	@Test
-	void getWatchlistEntriesCarryGenreIdsFromOneBatchCacheRead() throws Exception {
-		// #381: the Library filters on these, so they ride the entry rather than costing a second
-		// round trip — and the whole page is one cache read, not one per entry. Two entries, so
-		// times(1) actually distinguishes the batch from a per-entry lookup.
+	void getWatchlistEntriesCarryGenreAndProviderIdsFromOneBatchCacheRead() throws Exception {
+		// #381/#392: the Library filters/badges on these, so they ride the entry rather than
+		// costing a second round trip — and the whole page is one cache read, not one per entry.
+		// Two entries, so times(1) actually distinguishes the batch from a per-entry lookup.
 		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
 		WatchlistEntry matrix = new WatchlistEntry(
 			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
@@ -348,24 +350,30 @@ class WatchlistEntryControllerTest {
 		when(titleService.findByIds(any())).thenReturn(Map.of(20L, TEST_TITLE, 21L, tvTitle));
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(matrix, thrones)));
-		when(tmdbCacheService.genreIdsByTitleId(any()))
-			.thenReturn(Map.of(20L, List.of(28, 878), 21L, List.of(10765)));
+		when(tmdbCacheService.cacheIdsByTitleId(any(), any(), any()))
+			.thenReturn(Map.of(
+				20L, new TmdbCacheService.TitleCacheIds(List.of(28, 878), List.of(8)),
+				21L, new TmdbCacheService.TitleCacheIds(List.of(10765), List.of(1899))));
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.content[0].genreIds.length()").value(2))
 			.andExpect(jsonPath("$.content[0].genreIds[0]").value(28))
 			.andExpect(jsonPath("$.content[0].genreIds[1]").value(878))
+			.andExpect(jsonPath("$.content[0].providerIds.length()").value(1))
+			.andExpect(jsonPath("$.content[0].providerIds[0]").value(8))
 			.andExpect(jsonPath("$.content[1].genreIds.length()").value(1))
-			.andExpect(jsonPath("$.content[1].genreIds[0]").value(10765));
+			.andExpect(jsonPath("$.content[1].genreIds[0]").value(10765))
+			.andExpect(jsonPath("$.content[1].providerIds[0]").value(1899));
 
-		verify(tmdbCacheService, times(1)).genreIdsByTitleId(any());
+		verify(tmdbCacheService, times(1)).cacheIdsByTitleId(any(), any(), any());
 	}
 
 	@Test
-	void getWatchlistEntriesReturnEmptyGenreIdsForAnUncachedTitle() throws Exception {
-		// An entry whose title has no tmdb_title_cache row must serialize [] — never null and
-		// never an error — so a client filtering on genre can treat it as "no known genres".
+	void getWatchlistEntriesReturnEmptyGenreAndProviderIdsForAnUncachedTitle() throws Exception {
+		// An entry whose title has no tmdb_title_cache row must serialize [] for both fields —
+		// never null and never an error — so a client filtering or badging can treat it as
+		// "nothing known" rather than handling a missing field.
 		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
 		WatchlistEntry entry = new WatchlistEntry(
 			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
@@ -373,12 +381,52 @@ class WatchlistEntryControllerTest {
 
 		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
 			.thenReturn(new PageImpl<>(List.of(entry)));
-		when(tmdbCacheService.genreIdsByTitleId(any())).thenReturn(Map.of());
+		when(tmdbCacheService.cacheIdsByTitleId(any(), any(), any())).thenReturn(Map.of());
 
 		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.content[0].genreIds").isArray())
-			.andExpect(jsonPath("$.content[0].genreIds.length()").value(0));
+			.andExpect(jsonPath("$.content[0].genreIds.length()").value(0))
+			.andExpect(jsonPath("$.content[0].providerIds").isArray())
+			.andExpect(jsonPath("$.content[0].providerIds.length()").value(0));
+	}
+
+	@Test
+	void getWatchlistEntriesResolvesTheCallersRegionAndServicesForBadging() throws Exception {
+		// #392: badges mean "on a service *you* have" — the controller must pass the caller's
+		// own configured region/services into the batch read, defaulting the region the same way
+		// TitleController does for /titles/detail.
+		User configuredCaller = new User(11L, "configured@example.com", "Configured User",
+			Instant.EPOCH, Instant.EPOCH, "google", "sub-456");
+		configuredCaller.setWatchRegion("GB");
+		configuredCaller.setWatchProviderIds(List.of(8, 9));
+
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry entry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(entry)));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(configuredCaller)))
+			.andExpect(status().isOk());
+
+		verify(tmdbCacheService).cacheIdsByTitleId(any(), eq("GB"), eq(List.of(8, 9)));
+	}
+
+	@Test
+	void getWatchlistEntriesDefaultsTheRegionWhenTheCallerHasNoneConfigured() throws Exception {
+		Instant addedAt = Instant.parse("2026-04-28T12:00:00Z");
+		WatchlistEntry entry = new WatchlistEntry(
+			1L, 10L, 20L, WatchStatus.WANT_TO_WATCH, addedAt, addedAt, null, null
+		);
+		when(watchlistEntryService.findByFilters(eq(10L), isNull(), any(Pageable.class)))
+			.thenReturn(new PageImpl<>(List.of(entry)));
+
+		mockMvc.perform(get("/api/watchlists/10/entries").with(asUser(TEST_USER)))
+			.andExpect(status().isOk());
+
+		verify(tmdbCacheService).cacheIdsByTitleId(any(), eq("US"), isNull());
 	}
 
 	@Test

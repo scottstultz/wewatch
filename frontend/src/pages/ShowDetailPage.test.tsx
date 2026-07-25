@@ -68,6 +68,7 @@ const entry: WatchlistEntryResponse = {
   episodeProgress: null,
   myRating: null,
   genreIds: [],
+  providerIds: [],
 }
 
 // The overview is load-bearing: without it (and with no cast) More Like This
