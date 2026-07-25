@@ -1144,6 +1144,16 @@ div.people-row-photo {
   overflow: hidden;
 }
 
+/* Filmography filter and order controls share one row, and wrap onto two on a
+   narrow viewport rather than squeezing either group (#402) */
+.person-filmography-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .cast-name {
   color: #e2e8f0;
   font-size: 0.8125rem;
