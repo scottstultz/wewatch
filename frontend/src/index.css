@@ -3165,3 +3165,57 @@ div.people-row-photo {
     background: #1d4ed8;
   }
 }
+
+/* ── Genre browsing on Discover (#384) ──────────────────────────────────── */
+
+/* Same row shape as the Library's, but with the medium toggle on the left and the
+   Genres trigger pushed to the right edge — which is also where .genre-filter-panel
+   anchors itself (right: 0), so the panel can't run off a narrow viewport. */
+.discover-filter-row {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.browse-load-more {
+  justify-self: start;
+  padding: 10px 22px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 20px;
+  background: transparent;
+  color: #e2e8f0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.browse-load-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .browse-load-more:not(:disabled):hover {
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.45);
+  }
+}
+
+/* An action inside a sentence — "…in Comedy + Romance. Clear genres" — so it reads
+   as part of the text rather than as a second button competing with the panel's. */
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #93c5fd;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+@media (hover: hover) {
+  .link-button:hover {
+    color: #bfdbfe;
+  }
+}

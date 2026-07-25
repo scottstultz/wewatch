@@ -78,6 +78,20 @@ final class HarnessTmdbClient extends TmdbClient {
 			releasedAfter, releasedBefore, watchRegion, watchProviderIds, page);
 	}
 
+	// The AND-join overload (#384) belongs to genre browsing, which is a standalone
+	// service and deliberately not a pipeline stage. Nothing the harness runs may
+	// reach it — and if a shelf builder is ever re-pointed at it, the real
+	// TmdbClient would issue live HTTP calls from an offline harness. Fail loudly
+	// instead: this is the guard that keeps that mistake from being silent.
+	@Override
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, String genreJoin,
+			List<Integer> keywordIds, int voteCountGte, String sortBy, java.time.LocalDate releasedAfter,
+			java.time.LocalDate releasedBefore, String watchRegion, List<Integer> watchProviderIds, int page) {
+		throw new UnsupportedOperationException(
+			"The genre-join discover overload is not part of the suggestion pipeline (#384); "
+				+ "the harness intercepts the delegating signature only.");
+	}
+
 	@Override
 	public List<TitleSearchResponse> discoverByPerson(int personId, int voteCountGte, int page) {
 		return catalog.discoverByPerson(personId, voteCountGte, page);

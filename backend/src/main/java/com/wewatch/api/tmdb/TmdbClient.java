@@ -20,6 +20,12 @@ import com.wewatch.api.model.TitleType;
 @Component
 public class TmdbClient {
 
+	// TMDB's with_genres separators: "|" matches any of the ids, "," requires all
+	// of them. Named because the difference between the two is one character and
+	// the whole behavior of a feed (#384).
+	public static final String GENRE_JOIN_OR = "|";
+	public static final String GENRE_JOIN_AND = ",";
+
 	private static final String POSTER_BASE_URL = "https://image.tmdb.org/t/p/w500";
 	private static final String STILL_BASE_URL = "https://image.tmdb.org/t/p/w300";
 	private static final String PROVIDER_LOGO_BASE_URL = "https://image.tmdb.org/t/p/w92";
@@ -156,12 +162,33 @@ public class TmdbClient {
 	// first_air_date for TV — TMDB uses different field names per media type.
 	// With a watch region and provider ids (#270), results are restricted to
 	// titles streamable (flatrate) on any of those services in that region.
+	//
+	// Genres are OR-ed (|): every suggestion shelf wants "any of the user's top
+	// genres", not "all of them". Genre browsing (#384) wants the opposite and
+	// calls the overload below with a comma; this signature stays the one every
+	// pipeline stage uses, so none of them had to change.
 	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, List<Integer> keywordIds,
 			int voteCountGte, String sortBy, LocalDate releasedAfter, LocalDate releasedBefore,
 			String watchRegion, List<Integer> watchProviderIds, int pageNumber) {
+		return discover(type, genreIds, GENRE_JOIN_OR, keywordIds, voteCountGte, sortBy,
+			releasedAfter, releasedBefore, watchRegion, watchProviderIds, pageNumber);
+	}
+
+	// genreJoin picks TMDB's with_genres semantics: "|" is OR (any), "," is AND
+	// (all). Same compile-compat trick as TitleSearchResponse's constructors
+	// (#374) — the logic lives here and the shorter signature delegates, so all
+	// 29 existing call sites kept OR untouched.
+	//
+	// ⚠️ Keep the pipeline on the delegating signature. HarnessTmdbClient (the
+	// offline tuning harness) overrides *that* one; a shelf builder re-pointed at
+	// this overload would slip past the harness and issue real HTTP calls during
+	// `./mvnw test -Ptuning`. The harness overrides this method to throw, so that
+	// mistake fails loudly instead of silently going to the network.
+	public List<TitleSearchResponse> discover(TitleType type, List<Integer> genreIds, String genreJoin,
+			List<Integer> keywordIds, int voteCountGte, String sortBy, LocalDate releasedAfter,
+			LocalDate releasedBefore, String watchRegion, List<Integer> watchProviderIds, int pageNumber) {
 		String mediaType = type == TitleType.MOVIE ? "movie" : "tv";
-		// Use OR (|) so results match any of the user's top genres/keywords rather than requiring all
-		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining("|"));
+		String genres = genreIds.stream().map(String::valueOf).collect(Collectors.joining(genreJoin));
 		String uriStr = "/3/discover/{mediaType}?with_genres={genres}&sort_by={sortBy}&vote_count.gte={voteCount}&language=en-US&page={page}";
 		if (!keywordIds.isEmpty()) {
 			String keywords = keywordIds.stream().map(String::valueOf).collect(Collectors.joining("|"));

@@ -183,7 +183,14 @@ public class SuggestionService {
 
 	// Gathers everything the stages read. Returns null for an empty watchlist —
 	// there is nothing to suggest from.
-	private SuggestionContext loadContext(Long watchlistId) {
+	//
+	// Package-private rather than private so GenreBrowseService (#384) can build a
+	// context of its own per browse request: it wants exactly these inputs — the
+	// taste profile, the provider union, and a `seen` set already seeded with owned
+	// titles, dismissals and thumbs-downs. ⚠️ Each call mints a *fresh* day-seeded
+	// rng, which is precisely why browse is a standalone service and not a pipeline
+	// stage: it draws from its own stream, so no shelf moves.
+	SuggestionContext loadContext(Long watchlistId) {
 		List<WatchlistEntry> allEntries = watchlistEntryRepository
 			.findByWatchlistId(watchlistId, null, Pageable.unpaged())
 			.getContent();

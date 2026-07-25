@@ -122,6 +122,23 @@ class ProviderContextResolver {
 			.toList();
 	}
 
+	// The same badges for a bare title list — what the genre browse feed serves
+	// (#384). Browse badges but deliberately does *not* provider-filter: two
+	// AND-ed genres already narrow hard, and stacking a provider filter on top is
+	// how browse ends up empty and reads as broken.
+	List<TitleSearchResponse> badge(List<TitleSearchResponse> titles, ProviderContext ctx) {
+		if (titles.isEmpty() || !ctx.enabled()) return titles;
+
+		List<String> ids = titles.stream().map(TitleSearchResponse::externalId).distinct().toList();
+		Map<String, TmdbTitleCache> cachedById = new HashMap<>();
+		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
+			cachedById.put(cached.getTmdbId(), cached);
+		}
+		if (cachedById.isEmpty()) return titles;
+
+		return badgeTitles(titles, cachedById, ctx);
+	}
+
 	private SuggestionShelfResponse badgeShelf(
 		SuggestionShelfResponse shelf,
 		Map<String, TmdbTitleCache> cachedById,
@@ -130,20 +147,28 @@ class ProviderContextResolver {
 		if (!ctx.enabled()) return shelf;
 		return new SuggestionShelfResponse(
 			shelf.reason(),
-			shelf.titles().stream()
-				.map(t -> {
-					TmdbTitleCache cached = cachedById.get(t.externalId());
-					List<Integer> mine = cached != null ? ctx.streamableOn(cached) : List.of();
-					return mine.isEmpty() ? t
-						// Canonical 10-arg form on purpose: the shorter overloads null
-						// popularity, and this rebuild sits on exactly the shelves the
-						// suggestion pipeline scores (#374).
-						: new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),
-							t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), mine,
-							t.popularity());
-				})
-				.toList(),
+			badgeTitles(shelf.titles(), cachedById, ctx),
 			shelf.kind(),
 			shelf.providerFiltered());
+	}
+
+	// One place rebuilds a badged title, so the canonical 10-arg constructor stays
+	// the only form used here: the shorter overloads null popularity, and this
+	// rebuild sits on exactly the feeds the suggestion pipeline scores (#374).
+	private List<TitleSearchResponse> badgeTitles(
+		List<TitleSearchResponse> titles,
+		Map<String, TmdbTitleCache> cachedById,
+		ProviderContext ctx
+	) {
+		return titles.stream()
+			.map(t -> {
+				TmdbTitleCache cached = cachedById.get(t.externalId());
+				List<Integer> mine = cached != null ? ctx.streamableOn(cached) : List.of();
+				return mine.isEmpty() ? t
+					: new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),
+						t.overview(), t.releaseDate(), t.posterUrl(), t.genreIds(), mine,
+						t.popularity());
+			})
+			.toList();
 	}
 }

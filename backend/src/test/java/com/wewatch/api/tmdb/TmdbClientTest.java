@@ -247,6 +247,45 @@ class TmdbClientTest {
 		assertThat(results.get(0).name()).isEqualTo("Inception");
 	}
 
+	// The delegating signature every shelf builder uses must keep OR semantics. TMDB
+	// reads "|" as any-of and "," as all-of, so this one character decides whether a
+	// genre shelf means "sci-fi or thriller" (right) or "both at once" (a far smaller,
+	// wrongly-narrowed pool).
+	@Test
+	void discoverJoinsGenresWithOrByDefault() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("with_genres=28%7C878"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		tmdbClient.discover(TitleType.MOVIE, List.of(28, 878), List.of(), 100,
+			"popularity.desc", null, null, null, null, 1);
+
+		server.verify();
+	}
+
+	// Genre browsing (#384) sends the AND form. Both halves of this were verified
+	// against the live API before it was written: with_genres=10749%2C35 returns 1,926
+	// movies whose whole first page carries both genres, where 10749|35 returns 10,072
+	// of which one does.
+	//
+	// ⚠️ The expected value is the *encoded* comma. Spring's URI builder escapes it
+	// (asserting on a raw "," fails), and since the codebase had only ever sent "|"
+	// there was no precedent for what reaches TMDB — which is the whole reason this
+	// asserts on the wire form rather than on the argument.
+	@Test
+	void discoverJoinsGenresWithAndWhenAskedTo() {
+		server.expect(requestTo(allOf(
+			containsString("/3/discover/movie"),
+			containsString("with_genres=10749%2C35"))))
+			.andRespond(withSuccess(MOVIE_JSON, MediaType.APPLICATION_JSON));
+
+		tmdbClient.discover(TitleType.MOVIE, List.of(10749, 35), TmdbClient.GENRE_JOIN_AND,
+			List.of(), 100, "popularity.desc", null, null, null, null, 1);
+
+		server.verify();
+	}
+
 	@Test
 	void discoverUsesFirstAirDateWindowForTv() {
 		server.expect(requestTo(allOf(

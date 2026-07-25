@@ -39,5 +39,5 @@ schemas and status codes.
 | Watchlists | `/api/watchlists` | Create/manage shared watchlists and membership |
 | Watchlist Entries | `/api/watchlists/{watchlistId}/entries` | Titles on a watchlist and their status |
 | Episode Progress | `/api/watchlists/{watchlistId}/entries/{entryId}/episodes` | Per-episode and bulk-season watched state |
-| Suggestions | `/api/suggestions` | Personalized Discover shelves and dismissals |
+| Suggestions | `/api/suggestions` | Personalized Discover shelves, dismissals, and the taste-ranked genre browse feed |
 | Watch Providers | `/api/watch-providers` | Streaming providers by region |
