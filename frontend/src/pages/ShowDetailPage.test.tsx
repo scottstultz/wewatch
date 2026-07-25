@@ -7,6 +7,7 @@ import type { ApiClient } from '../services/api'
 import type {
   TitleDetailResponse,
   TitleSearchResponse,
+  WatchProvider,
   WatchlistEntryResponse,
   WatchlistResponse,
 } from '../types/api'
@@ -110,6 +111,13 @@ function makeRec(externalId: string, name: string): TitleSearchResponse {
 const houseOfDragon = makeRec('94997', 'House of the Dragon')
 const rings = makeRec('84773', 'The Rings of Power')
 
+// One provider with a logo and one without, so the conditional <img> is
+// exercised in both directions (#390).
+const providers: WatchProvider[] = [
+  { id: 384, name: 'Max', logoUrl: 'https://image.tmdb.org/t/p/original/max.jpg', displayPriority: 0 },
+  { id: 15, name: 'Hulu', logoUrl: null, displayPriority: 1 },
+]
+
 function renderPage() {
   return render(
     <MemoryRouter initialEntries={['/library/10?wl=1']}>
@@ -131,6 +139,35 @@ beforeEach(() => {
   mockApi.getSeasonDetail.mockResolvedValue({ seasonNumber: 1, name: 'Season 1', overview: null, posterUrl: null, episodes: [] })
   mockApi.getEpisodeProgress.mockResolvedValue([])
   mockApi.getRecommendations.mockResolvedValue([])
+})
+
+describe('ShowDetailPage "Where to watch" (#390)', () => {
+  it('renders the providers and the JustWatch attribution for a streaming show', async () => {
+    // Spread the shared fixture so the load-bearing overview survives (see above).
+    mockApi.getTitleDetail.mockResolvedValue({ ...detail, watchProviders: providers })
+    const { container } = renderPage()
+
+    expect(await screen.findByRole('heading', { name: 'Where to watch' })).toBeInTheDocument()
+    expect(screen.getByText('Max')).toBeInTheDocument()
+    expect(screen.getByText('Hulu')).toBeInTheDocument()
+    // Only the provider that has one renders a logo.
+    expect(container.querySelectorAll('.provider-badge-logo')).toHaveLength(1)
+    expect(screen.getByRole('link', { name: 'JustWatch' })).toHaveAttribute(
+      'href',
+      'https://www.justwatch.com',
+    )
+    // The panel rides the detail call the page already makes (#390).
+    expect(mockApi.getTitleDetail).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits the panel entirely when the show has no flatrate providers', async () => {
+    // The shared fixture already carries watchProviders: [].
+    renderPage()
+    await screen.findByRole('heading', { name: 'Game of Thrones' })
+
+    expect(screen.queryByRole('heading', { name: 'Where to watch' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'JustWatch' })).not.toBeInTheDocument()
+  })
 })
 
 describe('ShowDetailPage "More Like This" (#363)', () => {
