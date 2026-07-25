@@ -37,6 +37,7 @@ import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.TitleRatingService;
 import com.wewatch.api.service.TitleService;
 import com.wewatch.api.service.TmdbCacheService;
+import com.wewatch.api.service.TmdbCacheService.TitleCacheIds;
 import com.wewatch.api.service.WatchlistEntryService;
 import com.wewatch.api.service.WatchlistService;
 
@@ -117,7 +118,7 @@ public class WatchlistEntryController {
 		return ResponseEntity
 			.created(URI.create("/api/watchlists/" + watchlistId + "/entries/" + created.getId()))
 			.body(toResponse(created, title, null, callerRating(caller, created.getTitleId()),
-				genreIdsForSingleTitle(title)));
+				cacheIdsForSingleTitle(title, caller)));
 	}
 
 	@GetMapping
@@ -156,11 +157,13 @@ public class WatchlistEntryController {
 		// not the watchlist; one batch read for the page
 		Map<Long, Rating> myRatings = titleRatingService.ratingsFor(caller.getId(), titleIds);
 
-		// Genre ids from the title cache (#381) — one batch read for the page, not one per entry
-		Map<Long, List<Integer>> genreIds = tmdbCacheService.genreIdsByTitleId(titlesById.values());
+		// Genre and provider ids from the title cache (#381, #392) — one batch read for the page,
+		// not one per entry
+		Map<Long, TitleCacheIds> cacheIds = tmdbCacheService.cacheIdsByTitleId(
+			titlesById.values(), watchRegion(caller), caller.getWatchProviderIds());
 
 		return entries.map(e -> toResponse(e, titlesById.get(e.getTitleId()), summaries.get(e.getId()),
-			myRatings.get(e.getTitleId()), genreIds.getOrDefault(e.getTitleId(), List.of())));
+			myRatings.get(e.getTitleId()), cacheIds.getOrDefault(e.getTitleId(), TitleCacheIds.EMPTY)));
 	}
 
 	@GetMapping("/{entryId}")
@@ -180,7 +183,7 @@ public class WatchlistEntryController {
 		WatchlistEntry entry = watchlistEntryService.findById(watchlistId, entryId);
 		Title title = titleService.findById(entry.getTitleId());
 		return toResponse(entry, title, summaryForSingleEntry(entry, title),
-			callerRating(caller, entry.getTitleId()), genreIdsForSingleTitle(title));
+			callerRating(caller, entry.getTitleId()), cacheIdsForSingleTitle(title, caller));
 	}
 
 	@PatchMapping("/{entryId}")
@@ -216,7 +219,7 @@ public class WatchlistEntryController {
 		suggestionService.recompute(watchlistId);
 		Title title = titleService.findById(updated.getTitleId());
 		return toResponse(updated, title, summaryForSingleEntry(updated, title),
-			callerRating(caller, updated.getTitleId()), genreIdsForSingleTitle(title));
+			callerRating(caller, updated.getTitleId()), cacheIdsForSingleTitle(title, caller));
 	}
 
 	@DeleteMapping("/{entryId}")
@@ -253,16 +256,23 @@ public class WatchlistEntryController {
 		return titleRatingService.ratingsFor(caller.getId(), List.of(titleId)).get(titleId);
 	}
 
-	// The single-entry paths take the same batch read as the list, with one title in it (#381).
-	// Tolerates a null title, as toResponse already does.
-	private List<Integer> genreIdsForSingleTitle(Title title) {
-		if (title == null) return List.of();
-		return tmdbCacheService.genreIdsByTitleId(List.of(title))
-			.getOrDefault(title.getId(), List.of());
+	// The caller's watch region (#392), defaulting the way TitleController does for
+	// /titles/detail — availability is region-scoped and the page needs some region before
+	// the user configures one.
+	private String watchRegion(User caller) {
+		return caller.getWatchRegion() != null ? caller.getWatchRegion() : TitleController.DEFAULT_WATCH_REGION;
+	}
+
+	// The single-entry paths take the same batch read as the list, with one title in it
+	// (#381, #392). Tolerates a null title, as toResponse already does.
+	private TitleCacheIds cacheIdsForSingleTitle(Title title, User caller) {
+		if (title == null) return TitleCacheIds.EMPTY;
+		return tmdbCacheService.cacheIdsByTitleId(List.of(title), watchRegion(caller), caller.getWatchProviderIds())
+			.getOrDefault(title.getId(), TitleCacheIds.EMPTY);
 	}
 
 	private WatchlistEntryResponse toResponse(WatchlistEntry entry, Title title, EpisodeProgressSummary summary,
-			Rating myRating, List<Integer> genreIds) {
+			Rating myRating, TitleCacheIds cacheIds) {
 		return new WatchlistEntryResponse(
 			entry.getId(),
 			entry.getWatchlistId(),
@@ -280,7 +290,8 @@ public class WatchlistEntryController {
 			entry.getCompletedAt(),
 			summary,
 			myRating,
-			genreIds
+			cacheIds.genreIds(),
+			cacheIds.providerIds()
 		);
 	}
 }

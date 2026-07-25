@@ -17,6 +17,10 @@ const mockApi = {
   // The dice modal calls this on open (#359). A missing method throws synchronously inside
   // its effect and takes the whole render down, the same way an absent getGenres did in #382.
   getTonightPicks: vi.fn(),
+  // The provider-badge effect (#392) calls both on mount; a missing method throws
+  // synchronously the same way, same failure mode as getGenres/getTonightPicks above.
+  getMe: vi.fn(),
+  getWatchProviders: vi.fn(),
 }
 
 vi.mock('../contexts/AuthContext', async importOriginal => ({
@@ -64,6 +68,7 @@ function makeEntry(
     episodeProgress: null,
     myRating,
     genreIds: [],
+    providerIds: [],
     ...overrides,
   }
 }
@@ -90,6 +95,9 @@ beforeEach(() => {
   mockApi.clearTitleRating.mockResolvedValue(undefined)
   mockApi.getGenres.mockResolvedValue({ movie: [], tv: [] })
   mockApi.getTonightPicks.mockResolvedValue([])
+  // No streaming services configured by default (#392) — badges hidden unless a test opts in
+  mockApi.getMe.mockResolvedValue({ id: 1, email: 'user@example.com', displayName: 'Test User', watchRegion: null, watchProviderIds: null })
+  mockApi.getWatchProviders.mockResolvedValue([])
 })
 
 describe('LibraryPage thumbs ratings (#273)', () => {
@@ -345,5 +353,76 @@ describe('LibraryPage roll the dice with a genre filter (#383)', () => {
     expect(within(dialog).getByText('The Matrix')).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Roll All (3 Titles)' })).toBeEnabled()
     expect(within(dialog).queryByText(/· \d+ titles?$/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Provider availability badges (#392) ───────────────────────
+
+const NETFLIX = { id: 8, name: 'Netflix', logoUrl: 'https://img/netflix.jpg', displayPriority: 1 }
+const HULU = { id: 15, name: 'Hulu', logoUrl: 'https://img/hulu.jpg', displayPriority: 2 }
+const DISNEY = { id: 337, name: 'Disney Plus', logoUrl: 'https://img/disney.jpg', displayPriority: 3 }
+const HBO = { id: 1899, name: 'Max', logoUrl: 'https://img/max.jpg', displayPriority: 4 }
+
+function configureServices(watchProviderIds: number[]) {
+  mockApi.getMe.mockResolvedValue({
+    id: 1, email: 'user@example.com', displayName: 'Test User', watchRegion: 'US', watchProviderIds,
+  })
+  mockApi.getWatchProviders.mockResolvedValue([NETFLIX, HULU, DISNEY, HBO])
+}
+
+describe('LibraryPage provider badges (#392)', () => {
+  it('renders a badge for a service the entry carries', async () => {
+    configureServices([8])
+    await renderLibrary(makeEntry(null, { providerIds: [8] }))
+
+    const logo = await screen.findByAltText('Netflix')
+    expect(logo).toHaveAttribute('src', 'https://img/netflix.jpg')
+    expect(screen.getByRole('link', { name: 'JustWatch' })).toBeInTheDocument()
+  })
+
+  it('caps badges at 3, same as Discover', async () => {
+    configureServices([8, 15, 337, 1899])
+    mockApi.getWatchlistEntries.mockResolvedValue([makeEntry(null, { providerIds: [8, 15, 337, 1899] })])
+    const { container } = render(
+      <MemoryRouter>
+        <WatchlistProvider>
+          <LibraryPage />
+        </WatchlistProvider>
+      </MemoryRouter>,
+    )
+    await screen.findByText('The Matrix')
+
+    await waitFor(() => expect(container.querySelectorAll('.provider-badge-logo')).toHaveLength(3))
+  })
+
+  it('shows no badges and no JustWatch attribution when the user has no services configured', async () => {
+    // Default beforeEach state: getMe resolves with no watchRegion/watchProviderIds. Even
+    // though the entry itself carries providerIds, the backend never populates that for an
+    // unconfigured caller — this pins the client degrading the same way if it ever did.
+    await renderLibrary(makeEntry(null, { providerIds: [8] }))
+
+    await waitFor(() => expect(mockApi.getMe).toHaveBeenCalled())
+    expect(document.querySelector('.provider-badge-logo')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'JustWatch' })).not.toBeInTheDocument()
+  })
+
+  it('shows no badges when the provider fetch fails, degrading rather than breaking the page', async () => {
+    mockApi.getMe.mockResolvedValue({
+      id: 1, email: 'user@example.com', displayName: 'Test User', watchRegion: 'US', watchProviderIds: [8],
+    })
+    mockApi.getWatchProviders.mockRejectedValue(new Error('network down'))
+
+    await renderLibrary(makeEntry(null, { providerIds: [8] }))
+
+    await waitFor(() => expect(mockApi.getWatchProviders).toHaveBeenCalled())
+    expect(document.querySelector('.provider-badge-logo')).not.toBeInTheDocument()
+  })
+
+  it('ignores a provider id the badge lookup does not recognize', async () => {
+    configureServices([8])
+    await renderLibrary(makeEntry(null, { providerIds: [8, 999] }))
+
+    await screen.findByAltText('Netflix')
+    expect(document.querySelectorAll('.provider-badge-logo')).toHaveLength(1)
   })
 })

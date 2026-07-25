@@ -40,6 +40,13 @@ public record WatchlistEntryResponse(
 	@Schema(description = "TMDB genre ids for this title, from our own title cache (#381). Empty — "
 		+ "never null — when the title has not been cached yet, so a caller filtering on genre can "
 		+ "treat it as 'no known genres' rather than handling a missing field.")
-	List<Integer> genreIds
+	List<Integer> genreIds,
+	// Which of the caller's configured streaming services carry this title (#392), from the
+	// same title cache read as genreIds. Personal to the caller, like myRating — two members
+	// of a shared list with different services see different badges here.
+	@Schema(description = "Which of the caller's own configured streaming services carry this title "
+		+ "(#392). Empty — never null — when the title isn't cached yet, its cached row belongs to "
+		+ "the other medium, or the caller has no streaming services configured.")
+	List<Integer> providerIds
 ) {
 }

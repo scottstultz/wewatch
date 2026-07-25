@@ -58,7 +58,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 public class TitleController {
 
 	private static final String TMDB_SOURCE = "TMDB";
-	private static final String DEFAULT_WATCH_REGION = "US";
+	// Package-private so WatchlistEntryController (#392) reuses it rather than a second literal
+	static final String DEFAULT_WATCH_REGION = "US";
 	private static final int CAST_LIMIT = 10;
 
 	private final TitleService titleService;

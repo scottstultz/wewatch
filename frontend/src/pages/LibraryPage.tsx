@@ -4,13 +4,14 @@ import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
 import GenreFilter from '../components/GenreFilter'
+import JustWatchAttribution from '../components/JustWatchAttribution'
 import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal, { MIN_PICKS } from '../components/RollTheDiceModal'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import ThumbsRating from '../components/ThumbsRating'
 import { formatUpcomingDate } from '../utils/episodeLabels'
 import { mergeGenreCatalog, presentGenres } from '../utils/genreCatalog'
-import type { GenreCatalog, TitleRating, WatchlistEntryResponse, WatchStatus } from '../types/api'
+import type { GenreCatalog, TitleRating, WatchlistEntryResponse, WatchProvider, WatchStatus } from '../types/api'
 
 const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'All' },
@@ -76,6 +77,10 @@ function LibraryPage() {
   const [pickingEntry, setPickingEntry] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [genreCatalog, setGenreCatalog] = useState<GenreCatalog | null>(null)
+  // id -> provider lookup for availability badges (#392), mirroring DiscoverPage's own
+  // effect (#270); stays null when the user has no streaming services configured, which
+  // hides all badge UI
+  const [providersById, setProvidersById] = useState<Map<number, WatchProvider> | null>(null)
 
   // Write one search param while preserving the others. The tab handler used to call
   // setSearchParams({ status }), which replaces the *whole* query string — it would drop
@@ -126,6 +131,21 @@ function LibraryPage() {
       .then(data => { if (!cancelled) setGenreCatalog(data) })
       .catch(() => { if (!cancelled) setGenreCatalog(null) })
 
+    return () => { cancelled = true }
+  }, [api])
+
+  // Provider badges (#392), mirroring DiscoverPage.tsx's own effect (#270). Badges are
+  // decoration, so a failure here degrades to no badges rather than a broken page.
+  useEffect(() => {
+    let cancelled = false
+    api.getMe()
+      .then(user => {
+        if (cancelled || !user.watchRegion || !user.watchProviderIds?.length) return
+        return api.getWatchProviders(user.watchRegion).then(list => {
+          if (!cancelled) setProvidersById(new Map(list.map(p => [p.id, p])))
+        })
+      })
+      .catch(() => { /* badges are decoration — fail silently */ })
     return () => { cancelled = true }
   }, [api])
 
@@ -411,6 +431,11 @@ function LibraryPage() {
               const action = entryActions[entry.id]
               const isTv = entry.type === 'TV'
               const clickable = entry.type === 'TV' || entry.type === 'MOVIE'
+              // Availability badges (#392), capped at 3 like Discover's TitleCard
+              const badgeProviders = (providersById ? entry.providerIds : [])
+                .map(id => providersById?.get(id))
+                .filter((p): p is WatchProvider => p != null)
+                .slice(0, 3)
               return (
                 <article key={entry.id} className={`title-card${isTv ? ' title-card-tv' : ''}`}>
                   {entry.posterUrl ? (
@@ -428,6 +453,13 @@ function LibraryPage() {
                       onClick={clickable ? () => openEntry(entry) : undefined}
                       style={clickable ? { cursor: 'pointer' } : undefined}
                     />
+                  )}
+                  {badgeProviders.length > 0 && (
+                    <div className="provider-badge-row" aria-label="Streaming on your services">
+                      {badgeProviders.map(p => (
+                        p.logoUrl && <img key={p.id} className="provider-badge-logo" src={p.logoUrl} alt={p.name} title={p.name} loading="lazy" />
+                      ))}
+                    </div>
                   )}
                   <div className="title-card-body">
                     <span className="title-type-badge">
@@ -485,6 +517,8 @@ function LibraryPage() {
             })}
           </div>
         )}
+
+        {providersById && visible.length > 0 && <JustWatchAttribution />}
       </section>
 
       {canRoll && (

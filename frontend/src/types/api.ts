@@ -132,6 +132,10 @@ export interface WatchlistEntryResponse {
   // TMDB genre ids from our title cache (#381). Always an array — empty, never absent,
   // when the title isn't cached yet — so a genre filter needs no null handling.
   genreIds: number[]
+  // Which of the caller's own configured streaming services carry this title (#392), from
+  // the same title cache read as genreIds. Always an array — empty, never absent, when the
+  // title isn't cached yet or the caller has no services configured.
+  providerIds: number[]
 }
 
 // ── Returning this week (#321) ──────────────────────────────

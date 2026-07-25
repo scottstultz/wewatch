@@ -418,62 +418,94 @@ class TmdbCacheServiceTest {
 		));
 	}
 
-	// ── genre ids for a batch of titles (#381) ──────────────────
+	// ── genre and provider ids for a batch of titles (#381, #392) ──
+
+	private static final String REGION = "US";
 
 	@Test
-	void genreIdsByTitleIdReadsTheCacheOnceForTheWholeBatch() {
+	void cacheIdsByTitleIdReadsTheCacheOnceForTheWholeBatch() {
 		// One findAllById for the page is the point: a 20-entry Library page must not cost 20
 		// cache reads.
 		Title matrix = title(1L, "603", TitleType.MOVIE);
 		Title thrones = title(2L, "1399", TitleType.TV);
 		when(titleCacheRepository.findAllById(anyIterable())).thenReturn(List.of(
-			cacheRow("603", "MOVIE", List.of(28, 878)),
-			cacheRow("1399", "TV", List.of(10765, 18))));
+			cacheRow("603", "MOVIE", List.of(28, 878), Map.of(REGION, List.of(8))),
+			cacheRow("1399", "TV", List.of(10765, 18), Map.of(REGION, List.of(1899)))));
 
-		Map<Long, List<Integer>> genreIds = service.genreIdsByTitleId(List.of(matrix, thrones));
+		Map<Long, TmdbCacheService.TitleCacheIds> cacheIds =
+			service.cacheIdsByTitleId(List.of(matrix, thrones), REGION, List.of(8, 1899));
 
-		assertThat(genreIds).containsOnly(
-			Map.entry(1L, List.of(28, 878)),
-			Map.entry(2L, List.of(10765, 18)));
+		assertThat(cacheIds).containsOnly(
+			Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28, 878), List.of(8))),
+			Map.entry(2L, new TmdbCacheService.TitleCacheIds(List.of(10765, 18), List.of(1899))));
 		verify(titleCacheRepository, times(1)).findAllById(anyIterable());
 	}
 
 	@Test
-	void genreIdsByTitleIdYieldsAnEmptyListForAnUncachedTitle() {
+	void cacheIdsByTitleIdYieldsEmptyForAnUncachedTitle() {
 		// "We haven't cached this title yet" is not an error, and a caller filtering on genre
-		// wants to skip the entry rather than handle a null.
+		// or provider wants to skip the entry rather than handle a null.
 		when(titleCacheRepository.findAllById(anyIterable())).thenReturn(List.of());
 
-		assertThat(service.genreIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE))))
-			.containsOnly(Map.entry(1L, List.of()));
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
+			.containsOnly(Map.entry(1L, TmdbCacheService.TitleCacheIds.EMPTY));
 	}
 
 	@Test
-	void genreIdsByTitleIdYieldsAnEmptyListWhenTheRowHasNoGenres() {
+	void cacheIdsByTitleIdYieldsEmptyWhenTheRowHasNoGenresOrProviders() {
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("603", "MOVIE", null)));
+			.thenReturn(List.of(cacheRow("603", "MOVIE", null, null)));
 
-		assertThat(service.genreIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE))))
-			.containsOnly(Map.entry(1L, List.of()));
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
+			.containsOnly(Map.entry(1L, TmdbCacheService.TitleCacheIds.EMPTY));
 	}
 
 	@Test
-	void genreIdsByTitleIdRejectsARowCachedForTheOtherMedium() {
+	void cacheIdsByTitleIdRejectsARowCachedForTheOtherMedium() {
 		// tmdb_title_cache is keyed by a bare TMDB id with no medium namespace (V9), so movie 1399
-		// and TV 1399 share one row and the last prewarm wins. Genre ids are medium-specific:
-		// TV's 10759 "Action & Adventure" is not a movie genre at all. Fail closed to no genres
-		// rather than mislabelling the title.
+		// and TV 1399 share one row and the last prewarm wins. Genre and provider ids are both
+		// medium-specific: TV's 10759 "Action & Adventure" is not a movie genre at all, and TV's
+		// providers aren't necessarily where the movie streams. Fail closed rather than mislabel.
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("1399", "TV", List.of(10759))));
+			.thenReturn(List.of(cacheRow("1399", "TV", List.of(10759), Map.of(REGION, List.of(8)))));
 
-		assertThat(service.genreIdsByTitleId(List.of(title(1L, "1399", TitleType.MOVIE))))
-			.containsOnly(Map.entry(1L, List.of()));
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "1399", TitleType.MOVIE)), REGION, List.of(8)))
+			.containsOnly(Map.entry(1L, TmdbCacheService.TitleCacheIds.EMPTY));
 	}
 
 	@Test
-	void genreIdsByTitleIdSkipsTheCacheEntirelyForAnEmptyBatch() {
-		assertThat(service.genreIdsByTitleId(List.of())).isEmpty();
+	void cacheIdsByTitleIdSkipsTheCacheEntirelyForAnEmptyBatch() {
+		assertThat(service.cacheIdsByTitleId(List.of(), REGION, List.of(8))).isEmpty();
 		verify(titleCacheRepository, never()).findAllById(anyIterable());
+	}
+
+	@Test
+	void cacheIdsByTitleIdIntersectsProvidersWithTheCallersServices() {
+		// The row streams on providers 8 and 9 in this region; the caller only has 8 configured.
+		// A badge means "on a service you have", not "available at all" (#392).
+		when(titleCacheRepository.findAllById(anyIterable()))
+			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of(REGION, List.of(8, 9)))));
+
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
+			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of(8))));
+	}
+
+	@Test
+	void cacheIdsByTitleIdYieldsNoProvidersForARegionTheRowDoesNotCarry() {
+		when(titleCacheRepository.findAllById(anyIterable()))
+			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of("GB", List.of(8)))));
+
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
+			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of())));
+	}
+
+	@Test
+	void cacheIdsByTitleIdYieldsNoProvidersWhenTheCallerHasNoneConfigured() {
+		when(titleCacheRepository.findAllById(anyIterable()))
+			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of(REGION, List.of(8)))));
+
+		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, null))
+			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of())));
 	}
 
 	private Title title(Long id, String externalId, TitleType type) {
@@ -481,11 +513,13 @@ class TmdbCacheServiceTest {
 			Instant.EPOCH, Instant.EPOCH);
 	}
 
-	private TmdbTitleCache cacheRow(String tmdbId, String type, List<Integer> genreIds) {
+	private TmdbTitleCache cacheRow(
+			String tmdbId, String type, List<Integer> genreIds, Map<String, List<Integer>> watchProviders) {
 		TmdbTitleCache row = new TmdbTitleCache();
 		row.setTmdbId(tmdbId);
 		row.setType(type);
 		row.setGenreIds(genreIds);
+		row.setWatchProviders(watchProviders);
 		return row;
 	}
 }
