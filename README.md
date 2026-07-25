@@ -18,6 +18,8 @@ TMDB caching, and the suggestion pipeline.
 - Shelves rotate daily, with a soft recency penalty so recently shown titles sink instead
   of repeating
 - "Not interested" dismissal on suggestion tiles (undoable, applies across all your lists)
+- Browse TMDB by genre with a Movies/TV toggle — multi-select is AND ("Romance + Comedy" is
+  rom-coms), ranked against the watchlist's taste profile, excluding what's already on the list
 - "Roll the dice" random picker for choosing what to watch next
 
 ### Ratings
@@ -276,6 +278,8 @@ Shipped work is listed below; the live backlog is tracked in
   watchlist has, ranked by their blended taste profile
 - Stats page — watch time, movies/shows/episodes finished, and a genre breakdown per watchlist
 - Installable on mobile — web app manifest, home-screen icons, standalone launch (no offline support)
+- Genre as a first-class filter — filter the Library by genre, narrow a dice roll to it, and browse
+  Discover by it (multi-select is AND)
 
 ### Planned
 - Advanced filtering and sorting

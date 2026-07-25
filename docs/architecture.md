@@ -1315,3 +1315,136 @@ container. Verified by pointing `BACKEND_URL` at an echo server that prints the 
 `https` in → `https` forwarded (the bug: was `http`), `http` → `http`, **no header → `http`** (compose),
 `https, http` → `https`, and `gopher://evil` → `http`, not the junk. HSTS still fires for an `https` edge
 hop and still stays silent locally.
+
+## Browse Discover by genre (#384)
+
+Discover could answer two questions: "does TMDB have *this title*?" (search) and "what should we
+watch?" (shelves). It could not answer "show me sci-fi we'd like" — a category request, which is the
+one question a recommender is best placed to answer, since the taste profile that powers the shelves
+answers it directly. `GET /api/suggestions/browse?watchlistId=&type=&genres=&page=` →
+`GenreBrowseService` is that answer. Fourth and last phase of the genre epic (#385), after #381
+(plumbing), #382 (the Library filter and the shared `GenreFilter`) and #383 (the dice).
+
+Selecting genres is what puts Discover into a medium-scoped mode. **With nothing selected nothing
+changes**: the text search is still the all-medium multi search, and an empty box still renders the
+shelves.
+
+| query | genres | renders | medium |
+|---|---|---|---|
+| — | — | suggestion shelves | all |
+| "matrix" | — | multi-search results | all |
+| — | Romance + Comedy | taste-ranked browse feed | toggle |
+| "matrix" | Sci-Fi | search results, filtered client-side | toggle |
+
+### It is not a pipeline stage, and that is the whole design
+
+The suggestion stages share one dedup set and one day-seeded `Random`, so stage order is behavior:
+adding a draw or reordering silently moves every user's shelves. Browse therefore follows the
+`RecommendationService` / `TonightService` pattern — a standalone `@Service` that calls
+`SuggestionService.loadContext` (widened from `private` to package-private) to build its **own**
+`SuggestionContext` per request. Each call mints a fresh rng, so browse draws from its own stream and
+`./mvnw test -Ptuning` came back byte-identical across all four output files.
+
+`loadContext` is exactly the right seam because it already assembles everything browse wants: the
+taste profile, the provider union, and a `seen` set seeded with owned titles, dismissals (#268) and
+thumbs-downs (#322). Nothing new had to be loaded, and no exclusion rule got a second
+implementation to drift from the first.
+
+Three deliberate departures from how shelves are built:
+
+- **Badges, no provider filter.** Two AND-ed genres already narrow hard; stacking
+  `with_watch_providers` on top is how browse ends up empty and reads as broken. The ranking still
+  *boosts* streamable titles through `CandidateScorer`'s cache signals — a boost is not a filter.
+  Verified live: for `28,878,12` the feed returns 20 titles of which exactly 1 (Superman, `[9, 1899]`)
+  is on the member's services. Provider-filtering would have returned that one title.
+- **No `ShelfFiller`.** It applies the impression recency penalty, genre diversification and
+  shelf-size floors, and it mutates the shared `seen` set. That is all shelf shaping. A browse grid is
+  a paged answer to a question the user just asked, and yesterday's impressions have no claim on it.
+- **Ranking is within a page.** TMDB paginates by popularity, so page 2 holds less popular titles
+  than page 1 however they score. "Load more" appends a second ranked page; the alternative is
+  fetching all six pages up front to rank globally.
+
+### `TmdbClient.discover` gained an overload, not a parameter
+
+`with_genres` reads `|` as any-of and `,` as all-of. Shelves want OR ("any of your top genres");
+browse wants AND ("a romantic comedy"). The logic moved into an 11-arg overload taking the join
+separator and the existing 10-arg signature delegates with `"|"` — the same compile-compat trick
+#374 used for `TitleSearchResponse`'s constructors, so all 29 existing call sites were untouched.
+
+⚠️ **The pipeline must stay on the delegating signature.** `HarnessTmdbClient` (the offline tuning
+harness) overrides *that* one; a shelf builder re-pointed at the overload would slip past the harness
+and issue real HTTP calls during `./mvnw test -Ptuning`. The harness now overrides the overload to
+throw `UnsupportedOperationException`, so that mistake fails loudly instead of quietly going to the
+network.
+
+⚠️ **The AND join reaches TMDB percent-encoded.** Spring's URI builder escapes the comma to `%2C`
+(a test asserting a raw `,` fails), and the codebase had only ever sent `|` — so there was no
+precedent for what actually goes over the wire. Both forms were checked against the live API before
+the test was written: `with_genres=10749%2C35` returns 1,926 movies whose entire first page carries
+both genres, where `10749|35` returns 10,072 of which one does. `TmdbClientTest` asserts the wire
+form, not the argument.
+
+### No cross-medium canonical genre list, deliberately
+
+TMDB splits three concepts by medium — Action + Adventure vs Action & Adventure, Science Fiction +
+Fantasy vs Sci-Fi & Fantasy, War vs War & Politics — and TV's catalog has no Romance, Horror or
+Thriller at all. A canonical cross-medium list would need an OR nested inside the AND (`(878|14),35`),
+whose precedence TMDB does not document, and would make "Action & Adventure" silently mean *or* on
+the movie side. A Movies/TV toggle avoids all of it: each panel shows one medium's real catalog and
+AND works as documented.
+
+The consequence is that toggling the medium can empty a real selection. The frontend says so —
+"Those genres aren't in TMDB's TV catalog…" with a one-click Clear — rather than falling back to the
+shelves as though nothing had been asked. Note the *API* is permissive here: TMDB accepts a
+movie-only genre id on a TV discover call and returns results, so medium scoping is a UI decision,
+not a validation rule (`type=TV&genres=10749` returns TV rows, verified live).
+
+### Frontend
+
+`DiscoverPage` gains the `GenreFilter` from #382 plus a Movies/TV toggle reusing `.library-tab`, both
+in one `.discover-filter-row`. State lives in the URL (`?q=`, `?genres=`, `?medium=`) so
+back-navigation and refresh restore it (#241). Three traps:
+
+⚠️ **`setQuery` had the #382 bug.** It called `setSearchParams(q ? { q } : {})`, which replaces the
+*whole* query string — invisible while `?q=` was the only param, and fatal once `?genres=` and
+`?medium=` exist: every keystroke dropped the selection. Both writers now go through
+`updateSearchParams`, which rebuilds from the current params.
+
+⚠️ **A vanished genre is handled by intersection, not by pruning the URL** — #382's reasoning
+exactly. A prune effect would need gating on "the catalog has loaded" or a cold deep link is wiped
+before the fetch lands, and it would add a `set-state-in-effect` warning. Intersecting also means
+Movies → TV → Movies gives the movie genres back.
+
+⚠️ **The browse effect depends on the selection as a *string*.** `activeGenreIds` is a fresh array
+every render, so an effect depending on it re-fires forever; `genresParam` (the joined ids) is
+parsed back inside the effect. The mode also waits on `catalogSettled` — without it a deep-linked
+`?genres=` flashes shelves for one round trip and fetches a shelf compute it will throw away, which
+also records impressions that would sink those titles tomorrow (#264).
+
+Apply writes `?medium=` alongside `?genres=`, so a shared browse URL always carries the medium it was
+built for and cannot be re-derived out from under the recipient.
+
+### Testing
+
+`GenreBrowseServiceTest` (14) covers the AND join, the exclusions, badges-without-filtering, ranking
+by taste profile, the cache key (including that the same ids in a different order are one entry), the
+depth cap, the empty-genre rejection, and that `topPicks` is never called. `SuggestionControllerTest`
++8 and `TmdbClientTest` +2. **Proven guards**: flipping the join to `|` fails
+`browseJoinsGenresWithAndAndServesTheRankedPage` and nothing else.
+
+Frontend `DiscoverPage.test.tsx` +12. **Three proven guards**, each failing exactly one test when
+reverted: restoring the whole-query-string `setSearchParams` (the typing test), letting the
+suggestions effect run in browse mode (the "never fetches both" test), and removing the cross-medium
+notice (its own test). ⚠️ The #305 reconcile test pins the *property*, not the `browseSeeded` flag —
+the seed rides the same `Promise.all` as the titles, so tiles structurally cannot paint first and the
+test still passes with the gate deleted (verified). Same shape as #363; don't read it as covering the
+gate.
+
+Verified live against local Postgres and the real TMDB key (`?watchlistId=2`, 15 owned titles):
+20/20 results carry both requested genres; `popularity` stays out of the JSON (#374's `@JsonIgnore`
+holds on the new endpoint); four genre pairs whose TMDB page 1 offers an owned title (Top Gun, Top
+Gun: Maverick, The Punisher: One Last Kill, Scream 7) return it in **none** of them; pages 1 and 2
+have zero overlap; `page=6` → 200, `page=7` → 400, `page=0` → 400; non-member → 403, no token → 401.
+The dev DB has no dismissals or thumbs-down ratings, so only the *owned* third of `seen` was
+exercised live — the other two come from `loadContext`, shared with the shelves and covered by unit
+tests.

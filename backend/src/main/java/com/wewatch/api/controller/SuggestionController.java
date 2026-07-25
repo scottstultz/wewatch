@@ -17,7 +17,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.wewatch.api.dto.SuggestionDismissalRequest;
 import com.wewatch.api.dto.SuggestionShelfResponse;
+import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
+import com.wewatch.api.service.GenreBrowseService;
 import com.wewatch.api.service.SuggestionDismissalService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.WatchlistService;
@@ -34,15 +37,18 @@ public class SuggestionController {
 
 	private final SuggestionService suggestionService;
 	private final SuggestionDismissalService suggestionDismissalService;
+	private final GenreBrowseService genreBrowseService;
 	private final WatchlistService watchlistService;
 
 	public SuggestionController(
 		SuggestionService suggestionService,
 		SuggestionDismissalService suggestionDismissalService,
+		GenreBrowseService genreBrowseService,
 		WatchlistService watchlistService
 	) {
 		this.suggestionService = suggestionService;
 		this.suggestionDismissalService = suggestionDismissalService;
+		this.genreBrowseService = genreBrowseService;
 		this.watchlistService = watchlistService;
 	}
 
@@ -66,6 +72,36 @@ public class SuggestionController {
 	) {
 		watchlistService.requireMember(watchlistId, caller.getId());
 		return ResponseEntity.ok(suggestionService.topPicks(watchlistId));
+	}
+
+	@GetMapping("/browse")
+	@Operation(summary = "Browse TMDB by genre, ranked for a watchlist",
+		description = "Member-only. Returns one page (20) of titles carrying **every** given genre "
+			+ "(TMDB's AND semantics), ranked against the watchlist members' taste profile and with "
+			+ "titles already on the list — or dismissed, or thumbs-downed by any member — removed. "
+			+ "Results carry streaming-availability badges but are **not** filtered by provider: two "
+			+ "AND-ed genres narrow hard enough on their own. Genre ids are medium-specific, so "
+			+ "`type` selects which catalog they are read against (see GET /api/genres).")
+	@ApiResponses({
+		@ApiResponse(responseCode = "200", description = "One ranked page; empty when nothing matches"),
+		@ApiResponse(responseCode = "400", description = "No genres given, or `page` outside 1–6"),
+		@ApiResponse(responseCode = "401", description = "Missing or invalid Authorization header"),
+		@ApiResponse(responseCode = "403", description = "Caller is not a member of the watchlist"),
+		@ApiResponse(responseCode = "404", description = "Watchlist not found"),
+		@ApiResponse(responseCode = "502", description = "TMDB API request failed")
+	})
+	public ResponseEntity<List<TitleSearchResponse>> browseByGenre(
+		@RequestParam Long watchlistId,
+		// A query param, not a path variable: a {type} path variable receives
+		// lowercase movie/tv and misses the case-sensitive TitleType binding — the
+		// same shape /titles/recommendations and /titles/detail take (#358).
+		@RequestParam TitleType type,
+		@RequestParam List<Integer> genres,
+		@RequestParam(defaultValue = "1") int page,
+		@AuthenticationPrincipal User caller
+	) {
+		watchlistService.requireMember(watchlistId, caller.getId());
+		return ResponseEntity.ok(genreBrowseService.browse(watchlistId, type, genres, page));
 	}
 
 	// Dismissals are self-scoped (#268): no watchlist in the route — the exclusion

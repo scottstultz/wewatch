@@ -2,15 +2,26 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Link, useNavigate, useNavigationType, useSearchParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
+import GenreFilter from '../components/GenreFilter'
 import JustWatchAttribution from '../components/JustWatchAttribution'
 import { PersonSilhouette } from '../components/OverviewCastPanel'
 import TitleCard, { cardKey } from '../components/TitleCard'
 import type { AddHandler, CardStatus, DismissHandler, OpenHandler, RemoveHandler, ToggleHandler } from '../components/TitleCard'
 import { useTitleCardActions } from '../hooks/useTitleCardActions'
-import type { PersonSearchResult, ShelfKind, SuggestionShelf, TitleSearchResponse, WatchProvider } from '../types/api'
+import { catalogFor } from '../utils/genreCatalog'
+import type { GenreCatalog, PersonSearchResult, ShelfKind, SuggestionShelf, TitleSearchResponse, TitleType, WatchlistEntryResponse, WatchProvider } from '../types/api'
 
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
+
+// Mirrors DiscoverPolicy.MAX_FETCH_PAGE — the browse endpoint rejects anything
+// deeper, so "Load more" stops here rather than asking for a 400 (#384)
+const MAX_BROWSE_PAGE = 6
+
+const MEDIUM_TABS: { value: TitleType; label: string }[] = [
+  { value: 'MOVIE', label: 'Movies' },
+  { value: 'TV', label: 'TV' },
+]
 
 // Franchise continuation first — the highest-precision suggestion class (#272)
 // outranks everything else. Similarity shelves next, the pooled catch-all
@@ -119,10 +130,26 @@ function DiscoverPage() {
   const { watchlists, selectedWatchlistId, selectWatchlist } = useWatchlists()
   const navigate = useNavigate()
   const navigationType = useNavigationType()
-  // Search query lives in the URL (?q=) so back-navigation and refresh restore it (#241)
+  // Search query lives in the URL (?q=) so back-navigation and refresh restore it
+  // (#241). Genre browsing (#384) puts ?genres= and ?medium= there for the same reason.
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
-  const setQuery = (q: string) => setSearchParams(q ? { q } : {}, { replace: true })
+
+  // Write params while preserving the others. This used to be
+  // setSearchParams(q ? { q } : {}), which replaces the *whole* query string — with
+  // ?q= the only param that was invisible, but it drops ?genres= and ?medium= on
+  // every keystroke. Same bug #382 fixed on LibraryPage; same fix.
+  const updateSearchParams = useCallback((updates: Record<string, string | null>) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) next.set(key, value)
+        else next.delete(key)
+      }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+  const setQuery = (q: string) => updateSearchParams({ q: q || null })
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [results, setResults] = useState<TitleSearchResponse[]>([])
   // Person hits for the slim "People" row above the title grid (#356)
@@ -142,6 +169,28 @@ function DiscoverPage() {
   } = useTitleCardActions(api, selectedWatchlistId)
   const [suggestions, setSuggestions] = useState<SuggestionShelf[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  // ── Genre browsing (#384) ──
+  const [genreCatalog, setGenreCatalog] = useState<GenreCatalog | null>(null)
+  // Whether the catalog call has settled either way. Which mode the page is in
+  // depends on the catalog (a selected id is only real if that medium has it), so
+  // without this a deep-linked ?genres= flashes shelves for one round trip and
+  // fetches them for nothing.
+  const [catalogSettled, setCatalogSettled] = useState(false)
+  // The selected watchlist's entries, kept only to pick the toggle's default
+  // medium; every mode that needs them for reconciling fetches its own copy.
+  const [entries, setEntries] = useState<WatchlistEntryResponse[]>([])
+  const [browseResults, setBrowseResults] = useState<TitleSearchResponse[]>([])
+  const [browsePage, setBrowsePage] = useState(1)
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [browseAppending, setBrowseAppending] = useState(false)
+  const [browseError, setBrowseError] = useState<string | null>(null)
+  // #305 reconcile-before-paint: tiles stay unmounted until the cardStatus/entryIds
+  // seed has landed once, or an optimistic add can be reverted to "+" by a
+  // reconcile that lands after it
+  const [browseSeeded, setBrowseSeeded] = useState(false)
+  // A page that came back empty is the end of the feed — TMDB has fewer than six
+  // pages for a narrow AND far more often than for a single genre
+  const [browseExhausted, setBrowseExhausted] = useState(false)
   // Optimistically hidden "Not interested" tiles (#268) — the backend excludes
   // them from the next compute; this filters the already-fetched shelves
   const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set())
@@ -168,6 +217,108 @@ function DiscoverPage() {
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current)
   }, [])
 
+  // The genre catalog, once (#384). The backend degrades to empty lists on a TMDB
+  // outage rather than failing, so this rejects only on a real transport error —
+  // and either way an absent catalog just hides the filter, leaving the page as it
+  // was before this feature.
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.resolve()
+      .then(() => api.getGenres())
+      .then(data => { if (!cancelled) setGenreCatalog(data) })
+      .catch(() => { if (!cancelled) setGenreCatalog(null) })
+      .finally(() => { if (!cancelled) setCatalogSettled(true) })
+
+    return () => { cancelled = true }
+  }, [api])
+
+  // ── Which mode the page is in (#384) ──
+  //
+  // Selecting genres is what puts Discover into a medium-scoped mode. With none
+  // selected nothing here changes: the text search stays the all-medium multi
+  // search and an empty box still renders the suggestion shelves.
+  const hasQuery = query.trim().length > 0
+  // The list's own lean, so a household that mostly watches TV doesn't have to
+  // toggle every time. Falls back to Movies before the entries land.
+  const dominantMedium: TitleType | null = entries.length === 0
+    ? null
+    : entries.filter(e => e.type === 'TV').length > entries.filter(e => e.type === 'MOVIE').length
+      ? 'TV'
+      : 'MOVIE'
+  const paramMedium = searchParams.get('medium')
+  const medium: TitleType = paramMedium === 'TV' || paramMedium === 'MOVIE'
+    ? paramMedium
+    : dominantMedium ?? 'MOVIE'
+  // The whole catalog for this medium, not the genres present on some list: this
+  // browses TMDB, so every genre it has is on offer.
+  const genreOptions = catalogFor(genreCatalog, medium)
+  const urlGenreIds = (searchParams.get('genres') ?? '')
+    .split(',')
+    .filter(part => part !== '')
+    .map(Number)
+    .filter(id => Number.isInteger(id) && id > 0)
+  // Intersected, not pruned out of the URL — #382's reasoning: a prune effect would
+  // need gating on "the catalog has loaded" or it wipes a cold deep link before the
+  // fetch lands. Here it also means toggling Movies → TV → Movies gives the movie
+  // genres back rather than having quietly dropped them.
+  const optionIds = new Set(genreOptions.map(g => g.id))
+  const activeGenreIds = urlGenreIds.filter(id => optionIds.has(id))
+  // A string, so the browse effect can depend on the selection without a fresh
+  // array identity re-firing it every render
+  const genresParam = activeGenreIds.join(',')
+  const genreNamesById = new Map(genreOptions.map(g => [g.id, g.name]))
+  const activeGenreLabel = activeGenreIds
+    .map(id => genreNamesById.get(id))
+    .filter((name): name is string => !!name)
+    .join(' + ')
+
+  // Query + genres: the search stays the unchanged all-medium multi search and the
+  // genres narrow its results here. AND over `every`, so "no filter" is the no-op
+  // case for free; a title whose genre ids the search response didn't carry drops
+  // out while a filter is active, the same call the Library makes (#382).
+  const visibleResults = activeGenreIds.length > 0
+    ? results.filter(t => activeGenreIds.every(id => (t.genreIds ?? []).includes(id)))
+    : results
+  const clearGenres = () => updateSearchParams({ genres: null })
+
+  const browseMode = catalogSettled && !hasQuery && activeGenreIds.length > 0
+  // Every selected id belongs to the *other* medium — TMDB's TV catalog has no
+  // Romance, Horror or Thriller at all, so toggling can empty a real selection.
+  // Saying so beats silently falling back to shelves as if nothing was asked.
+  const crossMediumOnly =
+    catalogSettled && !hasQuery && urlGenreIds.length > 0 && activeGenreIds.length === 0
+  // Genres are in the URL but the catalog hasn't settled, so we don't know yet
+  // whether this is browse mode. Hold the shelves rather than fetch them to throw away.
+  const genresPending = !catalogSettled && urlGenreIds.length > 0
+
+  // Seeds cardStatus/entryIds for a set of freshly-fetched titles from the
+  // watchlist's entries (#305). Shared by the first browse page and each appended one.
+  const seedCardState = useCallback((
+    titles: TitleSearchResponse[],
+    watchlistEntries: WatchlistEntryResponse[],
+  ) => {
+    const entryByKey = new Map(
+      watchlistEntries.map(e => [`${e.externalSource}-${e.externalId}`, e]),
+    )
+    setCardStatus(prev => {
+      const next = { ...prev }
+      titles.forEach(title => {
+        const existing = entryByKey.get(cardKey(title))
+        if (existing) next[cardKey(title)] = existing.status
+      })
+      return next
+    })
+    setEntryIds(prev => {
+      const next = { ...prev }
+      titles.forEach(title => {
+        const existing = entryByKey.get(cardKey(title))
+        if (existing) next[cardKey(title)] = existing.id
+      })
+      return next
+    })
+  }, [setCardStatus, setEntryIds])
+
   // Search effect
   useEffect(() => {
     if (!query.trim()) {
@@ -189,6 +340,7 @@ function DiscoverPage() {
         const entryByKey = new Map(
           watchlist.map(e => [`${e.externalSource}-${e.externalId}`, e])
         )
+        setEntries(watchlist)
         setResults(data.titles)
         // People aren't watchlist entries — they get their own row and skip
         // the cardStatus/entryIds reconcile entirely (#356).
@@ -224,9 +376,12 @@ function DiscoverPage() {
     return () => clearTimeout(timer)
   }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds])
 
-  // Suggestions effect (when query is empty)
+  // Suggestions effect (when the query is empty and no genres are selected)
   useEffect(() => {
-    if (query.trim() || !selectedWatchlistId) {
+    // Browse answers the same empty-query slot when genres are selected, and the
+    // two must not both fetch: shelves the user will never see still cost a
+    // compute and record impressions that sink those titles tomorrow (#264).
+    if (query.trim() || !selectedWatchlistId || browseMode || crossMediumOnly || genresPending) {
       setSuggestions([])
       return
     }
@@ -241,6 +396,7 @@ function DiscoverPage() {
       .then(([shelves, entries]) => {
         if (cancelled) return
         setSuggestions(shelves)
+        setEntries(entries)
         const entryByKey = new Map(
           entries.map(e => [`${e.externalSource}-${e.externalId}`, e])
         )
@@ -271,7 +427,53 @@ function DiscoverPage() {
       })
 
     return () => { cancelled = true }
-  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds])
+  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds,
+    browseMode, crossMediumOnly, genresPending])
+
+  // Browse effect (#384): the first page for the current medium + genre selection.
+  // Keyed on the selection as a string rather than the id array, whose identity
+  // changes every render and would re-fire this forever.
+  useEffect(() => {
+    if (!browseMode || !selectedWatchlistId) {
+      setBrowseResults([])
+      setBrowseSeeded(false)
+      return
+    }
+
+    let cancelled = false
+    setBrowseLoading(true)
+    setBrowseError(null)
+    setBrowsePage(1)
+    setBrowseExhausted(false)
+    // Cleared, not left in place: the tiles on screen belong to the previous
+    // selection, and "Loading Comedy…" over a grid of Romance is a lie
+    setBrowseResults([])
+    setBrowseSeeded(false)
+    const genreIds = genresParam.split(',').map(Number)
+
+    Promise.all([
+      api.browseByGenre(selectedWatchlistId, medium, genreIds, 1),
+      api.getWatchlistEntries(selectedWatchlistId),
+    ])
+      .then(([titles, watchlistEntries]) => {
+        if (cancelled) return
+        setEntries(watchlistEntries)
+        // Seeded from the same promise that produced the titles, so the tiles
+        // cannot paint before the reconcile — the #363 shape, not #358's race
+        seedCardState(titles, watchlistEntries)
+        setBrowseResults(titles)
+        setBrowseExhausted(titles.length === 0)
+        setBrowseSeeded(true)
+      })
+      .catch(() => {
+        if (!cancelled) setBrowseError('Couldn’t load those genres. Please try again.')
+      })
+      .finally(() => {
+        if (!cancelled) setBrowseLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [browseMode, medium, genresParam, api, selectedWatchlistId, seedCardState])
 
   // Restore scroll on back-navigation once the content giving the page its
   // height has rendered; anything else invalidates the saved offset (#241).
@@ -285,12 +487,44 @@ function DiscoverPage() {
     }
     const contentReady = query.trim()
       ? !isLoading && searched
-      : !suggestionsLoading && suggestions.length > 0
+      : browseMode
+        ? !browseLoading && browseResults.length > 0
+        : !suggestionsLoading && suggestions.length > 0
     if (!contentReady) return
     scrollRestoredRef.current = true
     const saved = Number(sessionStorage.getItem(SCROLL_STORAGE_KEY))
     if (saved > 0) window.scrollTo(0, saved)
-  }, [navigationType, query, isLoading, searched, suggestionsLoading, suggestions.length])
+  }, [navigationType, query, isLoading, searched, suggestionsLoading, suggestions.length,
+    browseMode, browseLoading, browseResults.length])
+
+  // "Load more" appends the next page rather than replacing the grid, and stops at
+  // the endpoint's depth cap. Imperative rather than an effect keyed on the page,
+  // so nothing re-fetches page 1 on the way.
+  async function handleLoadMore() {
+    if (!selectedWatchlistId || browseAppending || browsePage >= MAX_BROWSE_PAGE) return
+    const nextPage = browsePage + 1
+    setBrowseAppending(true)
+    setBrowseError(null)
+    try {
+      const [titles, watchlistEntries] = await Promise.all([
+        api.browseByGenre(selectedWatchlistId, medium, activeGenreIds, nextPage),
+        api.getWatchlistEntries(selectedWatchlistId),
+      ])
+      seedCardState(titles, watchlistEntries)
+      // Deduped on append: pages shouldn't overlap, but a repeated key would break
+      // React's reconciliation, which is a worse failure than a missing tile
+      setBrowseResults(prev => {
+        const shown = new Set(prev.map(cardKey))
+        return [...prev, ...titles.filter(t => !shown.has(cardKey(t)))]
+      })
+      setBrowsePage(nextPage)
+      if (titles.length === 0) setBrowseExhausted(true)
+    } catch {
+      setBrowseError('Couldn’t load more titles. Please try again.')
+    } finally {
+      setBrowseAppending(false)
+    }
+  }
 
   function openTitle(title: TitleSearchResponse) {
     sessionStorage.setItem(SCROLL_STORAGE_KEY, String(window.scrollY))
@@ -365,6 +599,38 @@ function DiscoverPage() {
             )}
           </div>
 
+          {/* Movies/TV toggle + genre picker (#384). Always shown once the catalog
+              loads, because the medium is what decides which genres exist at all —
+              TMDB's TV catalog has no Romance, Horror or Thriller. With nothing
+              ticked it changes nothing about the page. */}
+          {genreOptions.length > 0 && (
+            <div className="library-filter-row discover-filter-row">
+              <div className="library-tabs">
+                {MEDIUM_TABS.map(tab => (
+                  <button
+                    key={tab.value}
+                    className={`library-tab${medium === tab.value ? ' library-tab-active' : ''}`}
+                    onClick={() => updateSearchParams({ medium: tab.value })}
+                    aria-pressed={medium === tab.value}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <GenreFilter
+                options={genreOptions}
+                selected={activeGenreIds}
+                // Writes the medium alongside the genres, so a browse URL always
+                // carries the one it was built for and can't be re-derived out from
+                // under a shared link
+                onApply={ids => updateSearchParams({
+                  genres: ids.length > 0 ? ids.join(',') : null,
+                  medium,
+                })}
+              />
+            </div>
+          )}
+
           {watchlists.length > 1 && (
             <div className="discover-watchlist-picker">
               <span className="discover-picker-label">Adding to:</span>
@@ -388,8 +654,18 @@ function DiscoverPage() {
           <>
             {isLoading && <p className="search-status">Searching…</p>}
             {error && <p className="search-status search-status-error">{error}</p>}
-            {!isLoading && searched && results.length === 0 && people.length === 0 && (
+            {!isLoading && searched && results.length === 0 && people.length === 0
+              && activeGenreIds.length === 0 && (
               <p className="search-status">No results for &ldquo;{query}&rdquo;.</p>
+            )}
+            {/* A ≤20-result search AND-ed against two genres is often empty. That has
+                to read as "no matches", not as a broken page — and the way out is
+                one click. */}
+            {!isLoading && searched && visibleResults.length === 0 && activeGenreIds.length > 0 && (
+              <p className="search-status">
+                No results for &ldquo;{query}&rdquo; in {activeGenreLabel}.{' '}
+                <button className="link-button" onClick={clearGenres}>Clear genres</button>
+              </p>
             )}
             {people.length > 0 && (
               <section className="people-row" aria-label="People">
@@ -412,9 +688,9 @@ function DiscoverPage() {
                 </div>
               </section>
             )}
-            {results.length > 0 && (
+            {visibleResults.length > 0 && (
               <div className="title-grid">
-                {results.map(title => (
+                {visibleResults.map(title => (
                   <TitleCard
                     key={cardKey(title)}
                     title={title}
@@ -432,8 +708,67 @@ function DiscoverPage() {
           </>
         )}
 
-        {/* Suggestion shelves (when query is empty) */}
-        {!query.trim() && (
+        {/* Every selected genre belongs to the other medium (#384) */}
+        {crossMediumOnly && (
+          <p className="search-status">
+            {medium === 'TV'
+              ? 'Those genres aren’t in TMDB’s TV catalog — TV has no Romance, Horror or Thriller. Pick from TV’s genres, or switch back to Movies.'
+              : 'Those genres aren’t in TMDB’s movie catalog. Pick from the movie genres, or switch back to TV.'}{' '}
+            <button className="link-button" onClick={clearGenres}>Clear genres</button>
+          </p>
+        )}
+
+        {/* Genre browse (#384): the taste-ranked feed for the selected genres */}
+        {browseMode && (
+          <>
+            {browseLoading && <p className="search-status">Finding {activeGenreLabel}…</p>}
+            {browseError && <p className="search-status search-status-error">{browseError}</p>}
+            {!browseLoading && browseSeeded && browseResults.length === 0 && (
+              <p className="search-status">
+                Nothing in {activeGenreLabel} left to suggest — everything TMDB has is
+                already on your list or dismissed. Try fewer genres.{' '}
+                <button className="link-button" onClick={clearGenres}>Clear genres</button>
+              </p>
+            )}
+            {/* Gated on the reconcile having landed once (#305) */}
+            {browseSeeded && browseResults.length > 0 && (
+              <>
+                <p className="suggestion-shelf-heading">
+                  {activeGenreLabel} · {medium === 'TV' ? 'TV' : 'Movies'}
+                </p>
+                <div className="title-grid">
+                  {browseResults.map(title => (
+                    <TitleCard
+                      key={cardKey(title)}
+                      title={title}
+                      status={cardStatus[cardKey(title)] ?? 'idle'}
+                      isPicking={pickingKey === cardKey(title)}
+                      onAdd={handleAddToWatchlist}
+                      onChangeStatus={handleChangeStatus}
+                      onTogglePicker={togglePicker}
+                      onOpen={openTitle}
+                      onRemove={handleRemove}
+                      providersById={providersById ?? undefined}
+                    />
+                  ))}
+                </div>
+                {browsePage < MAX_BROWSE_PAGE && !browseExhausted && (
+                  <button
+                    className="browse-load-more"
+                    onClick={handleLoadMore}
+                    disabled={browseAppending}
+                  >
+                    {browseAppending ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
+                {providersById && <JustWatchAttribution />}
+              </>
+            )}
+          </>
+        )}
+
+        {/* Suggestion shelves (when the query is empty and no genres are selected) */}
+        {!query.trim() && !browseMode && !crossMediumOnly && !genresPending && (
           <>
             {suggestionsLoading && <p className="search-status">Loading suggestions…</p>}
             {!suggestionsLoading && (() => {

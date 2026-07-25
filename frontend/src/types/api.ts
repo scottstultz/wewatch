@@ -14,6 +14,12 @@ export interface TitleSearchResponse {
   overview: string | null
   releaseDate: string | null
   posterUrl: string | null
+  // TMDB's genre ids for this title, in that medium's catalog (#384). The backend
+  // has always sent these; the type only declares them now that Discover filters
+  // search results by genre client-side. Optional rather than required, unlike
+  // WatchlistEntryResponse.genreIds (#381) — a required field would have churned
+  // every title fixture in the suite for a field most call sites never read.
+  genreIds?: number[]
   // Which of the viewer's streaming services carry this title (#270); only
   // populated on suggestion shelves, null/undefined elsewhere (= unknown)
   providerIds?: number[] | null

@@ -1,6 +1,7 @@
 package com.wewatch.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -35,6 +36,7 @@ import com.wewatch.api.model.TitleType;
 import com.wewatch.api.model.User;
 import com.wewatch.api.security.JwtTokenService;
 import com.wewatch.api.security.SecurityConfig;
+import com.wewatch.api.service.GenreBrowseService;
 import com.wewatch.api.service.SuggestionDismissalService;
 import com.wewatch.api.service.SuggestionService;
 import com.wewatch.api.service.UserService;
@@ -53,6 +55,9 @@ class SuggestionControllerTest {
 
 	@MockBean
 	private SuggestionDismissalService suggestionDismissalService;
+
+	@MockBean
+	private GenreBrowseService genreBrowseService;
 
 	@MockBean
 	private WatchlistService watchlistService;
@@ -169,6 +174,98 @@ class SuggestionControllerTest {
 	@Test
 	void undoDismissalRequiresAuthentication() throws Exception {
 		mockMvc.perform(delete("/api/suggestions/dismissals/1234"))
+			.andExpect(status().isUnauthorized());
+	}
+
+	// ── Genre browse (#384) ──────────────────────────────────
+
+	@Test
+	void browseReturnsTheRankedPageForTheSelectedGenres() throws Exception {
+		TitleSearchResponse title = new TitleSearchResponse("603", "TMDB", TitleType.MOVIE, "The Matrix",
+			"A hacker learns the truth.", LocalDate.of(1999, 3, 30), null, List.of(28, 878), List.of(8));
+		when(genreBrowseService.browse(42L, TitleType.MOVIE, List.of(10749, 35), 1))
+			.thenReturn(List.of(title));
+
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE&genres=10749,35")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$[0].externalId").value("603"))
+			.andExpect(jsonPath("$[0].name").value("The Matrix"))
+			.andExpect(jsonPath("$[0].type").value("MOVIE"))
+			// Badged, not provider-filtered — the badge has to reach the client or
+			// the tile can't show it
+			.andExpect(jsonPath("$[0].providerIds[0]").value(8));
+	}
+
+	@Test
+	void browseDefaultsToTheFirstPage() throws Exception {
+		when(genreBrowseService.browse(any(), any(), any(), anyInt())).thenReturn(List.of());
+
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=TV&genres=35")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk());
+
+		verify(genreBrowseService).browse(42L, TitleType.TV, List.of(35), 1);
+	}
+
+	@Test
+	void browsePassesTheRequestedPageThrough() throws Exception {
+		when(genreBrowseService.browse(any(), any(), any(), anyInt())).thenReturn(List.of());
+
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE&genres=35&page=3")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk());
+
+		verify(genreBrowseService).browse(42L, TitleType.MOVIE, List.of(35), 3);
+	}
+
+	@Test
+	void browseReturnsBadRequestWhenTheServiceRejectsThePage() throws Exception {
+		when(genreBrowseService.browse(42L, TitleType.MOVIE, List.of(35), 7))
+			.thenThrow(new IllegalArgumentException("page must be between 1 and 6"));
+
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE&genres=35&page=7")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void browseReturnsBadRequestWhenGenresAreMissing() throws Exception {
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest());
+
+		verify(genreBrowseService, never()).browse(any(), any(), any(), anyInt());
+	}
+
+	// A lowercase {type} path variable would miss the case-sensitive TitleType
+	// binding, which is why type is a query param (#358). Guard the binding itself.
+	@Test
+	void browseReturnsBadRequestForAnUnknownType() throws Exception {
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=movie&genres=35")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isBadRequest());
+
+		verify(genreBrowseService, never()).browse(any(), any(), any(), anyInt());
+	}
+
+	@Test
+	void browseReturnsForbiddenForNonMember() throws Exception {
+		doThrow(new ForbiddenException("Not a member of this watchlist"))
+			.when(watchlistService).requireMember(42L, 1L);
+
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE&genres=35")
+				.header("Authorization", "Bearer test-token"))
+			.andExpect(status().isForbidden());
+
+		// Membership is checked before the feed is built, so a non-member never
+		// reaches TMDB
+		verify(genreBrowseService, never()).browse(any(), any(), any(), anyInt());
+	}
+
+	@Test
+	void browseRequiresAuthentication() throws Exception {
+		mockMvc.perform(get("/api/suggestions/browse?watchlistId=42&type=MOVIE&genres=35"))
 			.andExpect(status().isUnauthorized());
 	}
 }

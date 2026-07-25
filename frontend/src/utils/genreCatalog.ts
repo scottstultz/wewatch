@@ -1,4 +1,18 @@
-import type { Genre, GenreCatalog } from '../types/api'
+import type { Genre, GenreCatalog, TitleType } from '../types/api'
+
+// One medium's real TMDB catalog, name-sorted (#384). Discover browses TMDB rather
+// than a loaded list, so its picker offers the whole catalog — presentGenres below
+// answers the different question the Library asks ("what's on these entries?").
+//
+// Scoped by medium and never merged, because AND across media is not expressible:
+// TV has no Romance, Horror or Thriller at all, and its Action & Adventure (10759)
+// is a different genre from a movie's Action (28). A cross-medium list would need
+// an OR nested inside the AND, whose precedence TMDB doesn't document.
+export function catalogFor(catalog: GenreCatalog | null, type: TitleType): Genre[] {
+  if (!catalog) return []
+  return [...(type === 'TV' ? catalog.tv : catalog.movie)]
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
 
 // TMDB's movie and TV catalogs flattened to one id → name map (#382). Movie wins a
 // collision, which is the same precedence StatsService.genreNames() has used since #323 —

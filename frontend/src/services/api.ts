@@ -219,6 +219,26 @@ export function createApiClient(token: string, onUnauthorized: () => void) {
       return response.json() as Promise<GenreCatalog>
     },
 
+    // One page of TMDB titles carrying *every* given genre, ranked for this
+    // watchlist (#384). Genre ids are medium-specific, so `type` says which
+    // catalog they belong to. Page is capped at 6 server-side.
+    async browseByGenre(
+      watchlistId: number,
+      type: TitleType,
+      genreIds: number[],
+      page = 1,
+    ): Promise<TitleSearchResponse[]> {
+      const params = new URLSearchParams({
+        watchlistId: String(watchlistId),
+        type,
+        genres: genreIds.join(','),
+        page: String(page),
+      })
+      const response = await authedFetch(`${BASE_URL}/suggestions/browse?${params}`)
+      if (!response.ok) throw new Error(`Failed to browse by genre: ${response.status}`)
+      return response.json() as Promise<TitleSearchResponse[]>
+    },
+
     // ── Watchlist CRUD ───────────────────────────────────────
 
     async getWatchlists(): Promise<WatchlistResponse[]> {
