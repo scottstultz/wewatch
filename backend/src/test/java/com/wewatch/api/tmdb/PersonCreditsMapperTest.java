@@ -23,6 +23,13 @@ class PersonCreditsMapperTest {
 			"/poster.jpg", List.of(35), popularity, 40, character);
 	}
 
+	// A TV credit that declares how many episodes it covers — the dedup tie-break (#401)
+	private static TmdbPersonCredit tvEpisodes(long id, String name, double popularity,
+			String character, Integer episodeCount) {
+		return new TmdbPersonCredit(id, "tv", null, name, "An overview.", null, "2016-09-15",
+			"/poster.jpg", List.of(35), popularity, 40, character, episodeCount);
+	}
+
 	private static TmdbPersonCredits cast(TmdbPersonCredit... credits) {
 		return new TmdbPersonCredits(List.of(credits), List.of());
 	}
@@ -179,6 +186,80 @@ class PersonCreditsMapperTest {
 		));
 
 		assertThat(credits).extracting(TitleSearchResponse::name).containsExactly("The Matrix");
+	}
+
+	@Test
+	void carriesTheCreditedCharacterOntoEachCredit() {
+		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
+			movie(603, "The Matrix", 92.5, "Thomas A. Anderson"),
+			tv(1408, "Swedish Dicks", 8.1, "Tex")
+		));
+
+		assertThat(credits).extracting(TitleSearchResponse::character)
+			.containsExactly("Thomas A. Anderson", "Tex");
+	}
+
+	// A blank character is a normal credit, not an error — the tile just shows no role
+	@Test
+	void blankAndMissingCharactersBecomeNullRatherThanEmptyText() {
+		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
+			movie(1, "Undetailed Film", 90.0, ""),
+			movie(2, "Also Undetailed", 80.0, "   "),
+			movie(3, "No Character At All", 70.0, null),
+			movie(4, "Padded", 60.0, "  Neo  ")
+		));
+
+		assertThat(credits).extracting(TitleSearchResponse::character)
+			.containsExactly(null, null, null, "Neo");
+	}
+
+	// Every credit on one show ties on popularity (it is a per-title score), so
+	// without this the printed role is whichever one TMDB happened to list first —
+	// live, Cranston's Family Guy tile read "Dr. Jewish (voice)" (1 episode) instead
+	// of the recurring "Bert (voice)" (4 episodes)
+	@Test
+	void dedupePrefersTheCreditCoveringTheMostEpisodes() {
+		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
+			tvEpisodes(1434, "Family Guy", 50.0, "Dr. Jewish (voice)", 1),
+			tvEpisodes(1434, "Family Guy", 50.0, "Bert (voice)", 4),
+			tvEpisodes(1434, "Family Guy", 50.0, "Man (voice)", 2)
+		));
+
+		assertThat(credits).hasSize(1);
+		assertThat(credits.get(0).character()).isEqualTo("Bert (voice)");
+	}
+
+	// Movies carry no episode count, so the popularity order still decides — and a
+	// TV credit that declares episodes must beat one that omits them entirely
+	@Test
+	void dedupeHandlesCreditsThatDeclareNoEpisodeCount() {
+		List<TitleSearchResponse> dualRole = PersonCreditsMapper.toCredits(cast(
+			movie(603, "The Matrix", 92.5, "Neo"),
+			movie(603, "The Matrix", 92.5, "Second Role")
+		));
+		assertThat(dualRole.get(0).character()).isEqualTo("Neo");
+
+		List<TitleSearchResponse> partialCounts = PersonCreditsMapper.toCredits(cast(
+			tvEpisodes(1434, "Family Guy", 50.0, "Uncounted (voice)", null),
+			tvEpisodes(1434, "Family Guy", 50.0, "Bert (voice)", 4)
+		));
+		assertThat(partialCounts.get(0).character()).isEqualTo("Bert (voice)");
+	}
+
+	// The tie-break picks the role, not the position: the winning credit must not
+	// drag the title up or down the popularity-ordered filmography
+	@Test
+	void theEpisodeTieBreakDoesNotReorderTheFilmography() {
+		List<TitleSearchResponse> credits = PersonCreditsMapper.toCredits(cast(
+			movie(1, "Blockbuster", 90.0, "Hero"),
+			tvEpisodes(1434, "Family Guy", 50.0, "Dr. Jewish (voice)", 1),
+			tvEpisodes(1434, "Family Guy", 50.0, "Bert (voice)", 4),
+			movie(2, "Obscure", 10.0, "Extra")
+		));
+
+		assertThat(credits).extracting(TitleSearchResponse::name)
+			.containsExactly("Blockbuster", "Family Guy", "Obscure");
+		assertThat(credits.get(1).character()).isEqualTo("Bert (voice)");
 	}
 
 	@Test

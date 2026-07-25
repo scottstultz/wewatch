@@ -33,7 +33,15 @@ public record TitleSearchResponse(
 	// schema. null = unknown — only TMDB-sourced feeds (TmdbClient.toResponse)
 	// populate it; person credits and fixture-built responses leave it null.
 	@JsonIgnore
-	Double popularity
+	Double popularity,
+	// The role this title credits a person with (#401), e.g. "Neo". Only
+	// PersonCreditsMapper populates it — every other call site leaves it null,
+	// which serializes as "character": null. Deliberately NOT @JsonIgnore'd,
+	// unlike popularity: the client is the only consumer, so it has to reach it.
+	@Schema(description = "The character a person is credited as on this title (#401); only "
+		+ "populated on a person's filmography (GET /api/people/{id}), null everywhere else "
+		+ "and on credits TMDB has left blank")
+	String character
 ) {
 	public TitleSearchResponse(String externalId, String externalSource, TitleType type, String name,
 			String overview, LocalDate releaseDate, String posterUrl, List<Integer> genreIds) {
@@ -45,5 +53,12 @@ public record TitleSearchResponse(
 			List<Integer> providerIds) {
 		this(externalId, externalSource, type, name, overview, releaseDate, posterUrl, genreIds,
 			providerIds, null);
+	}
+
+	public TitleSearchResponse(String externalId, String externalSource, TitleType type, String name,
+			String overview, LocalDate releaseDate, String posterUrl, List<Integer> genreIds,
+			List<Integer> providerIds, Double popularity) {
+		this(externalId, externalSource, type, name, overview, releaseDate, posterUrl, genreIds,
+			providerIds, popularity, null);
 	}
 }

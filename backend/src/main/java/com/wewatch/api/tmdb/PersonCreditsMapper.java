@@ -51,10 +51,18 @@ public final class PersonCreditsMapper {
 			.toList();
 
 		// A person can hold two credits on one title — dual roles, or a recurring
-		// TV guest arc. Keep the first, which the sort already made the best one.
+		// TV guest arc. Popularity is a per-title score, so every credit on one
+		// title ties on it and the sort above cannot pick between them; keeping
+		// the first was arbitrary, which stopped being invisible once the role is
+		// printed on the tile (#401). Prefer the credit covering the most
+		// episodes — the recurring role rather than a one-episode walk-on. Ties
+		// (and movies, which carry no episode count) keep the first, so the
+		// popularity ordering of the map itself is untouched: merge replaces a
+		// value in place without moving its insertion position.
 		Map<String, TmdbPersonCredit> deduped = new LinkedHashMap<>();
 		for (TmdbPersonCredit credit : ranked) {
-			deduped.putIfAbsent(credit.mediaType() + ":" + credit.id(), credit);
+			deduped.merge(credit.mediaType() + ":" + credit.id(), credit,
+				(kept, candidate) -> episodeCount(candidate) > episodeCount(kept) ? candidate : kept);
 		}
 
 		return deduped.values().stream()
@@ -100,6 +108,21 @@ public final class PersonCreditsMapper {
 			&& character.toLowerCase(Locale.ROOT).contains("(uncredited)");
 	}
 
+	// Absent on movie credits, and TMDB has been seen to omit it on TV ones too.
+	// Treated as zero so a credit that does declare episodes always wins the tie.
+	private static int episodeCount(TmdbPersonCredit credit) {
+		return credit.episodeCount() != null ? credit.episodeCount() : 0;
+	}
+
+	// TMDB leaves the character blank on a small share of the credits that survive
+	// the filters above (~3% live), and those are kept deliberately — on a movie a
+	// blank character usually means a real film TMDB hasn't detailed yet. Blank
+	// collapses to null so the client has one absent case to render nothing for,
+	// rather than an empty string that reads as a role.
+	private static String characterOrNull(String character) {
+		return character == null || character.isBlank() ? null : character.trim();
+	}
+
 	private static TitleSearchResponse toResponse(TmdbPersonCredit credit) {
 		boolean isMovie = "movie".equals(credit.mediaType());
 		TitleType type = isMovie ? TitleType.MOVIE : TitleType.TV;
@@ -114,7 +137,10 @@ public final class PersonCreditsMapper {
 			credit.overview(),
 			TmdbDates.parse(dateStr),
 			TmdbClient.posterUrl(credit.posterPath()),
-			credit.genreIds() != null ? credit.genreIds() : List.of()
+			credit.genreIds() != null ? credit.genreIds() : List.of(),
+			null,
+			null,
+			characterOrNull(credit.character())
 		);
 	}
 

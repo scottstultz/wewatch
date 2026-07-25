@@ -36,7 +36,12 @@ const watchlist: WatchlistResponse = {
   isDefault: true,
 }
 
-function makeCredit(externalId: string, name: string, type: 'MOVIE' | 'TV'): TitleSearchResponse {
+function makeCredit(
+  externalId: string,
+  name: string,
+  type: 'MOVIE' | 'TV',
+  character?: string | null,
+): TitleSearchResponse {
   return {
     externalId,
     externalSource: 'tmdb',
@@ -45,6 +50,7 @@ function makeCredit(externalId: string, name: string, type: 'MOVIE' | 'TV'): Tit
     overview: null,
     releaseDate: null,
     posterUrl: null,
+    character,
   }
 }
 
@@ -174,5 +180,56 @@ describe('PersonPage (#305)', () => {
     renderPage()
 
     expect(await screen.findByText('Failed to load person details.')).toBeInTheDocument()
+  })
+})
+
+describe('PersonPage credited role (#401)', () => {
+  it('renders the credited role on the tile', async () => {
+    mockApi.getPerson.mockResolvedValue({
+      ...keanu,
+      credits: [makeCredit('603', 'The Matrix', 'MOVIE', 'Thomas A. Anderson')],
+    })
+    await renderLoaded()
+
+    expect(screen.getByText('Thomas A. Anderson')).toBeInTheDocument()
+    // The role rides the call the page already makes — no second fetch for it
+    expect(mockApi.getPerson).toHaveBeenCalledTimes(1)
+  })
+
+  // ~3% of the credits surviving the backend's filters have no character; TMDB
+  // simply hasn't detailed that film's cast, so it is normal rather than an error
+  it('renders no role line for a credit with a blank or missing character', async () => {
+    mockApi.getPerson.mockResolvedValue({
+      ...keanu,
+      credits: [
+        makeCredit('603', 'The Matrix', 'MOVIE', null),
+        makeCredit('1038', 'Constantine', 'MOVIE'),
+      ],
+    })
+    await renderLoaded()
+
+    expect(screen.getByText('Constantine')).toBeInTheDocument()
+    expect(document.querySelectorAll('.title-role')).toHaveLength(0)
+  })
+
+  // The one-line clamp is CSS, which jsdom cannot see — what is assertable here
+  // is that the full text stays reachable on hover
+  it('exposes the full role on hover when it is too long for the tile', async () => {
+    const role = 'Dr. Harding Fletcher - Marriage Counselor'
+    mockApi.getPerson.mockResolvedValue({
+      ...keanu,
+      credits: [makeCredit('603', 'The Matrix', 'MOVIE', role)],
+    })
+    await renderLoaded()
+
+    expect(screen.getByText(role)).toHaveAttribute('title', role)
+  })
+
+  // TitleCard's four other consumers send no character at all
+  it('leaves tiles untouched when the response carries no role', async () => {
+    await renderLoaded()
+
+    expect(screen.getByText('The Matrix')).toBeInTheDocument()
+    expect(document.querySelectorAll('.title-role')).toHaveLength(0)
   })
 })

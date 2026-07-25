@@ -22,6 +22,19 @@ public record TmdbPersonCredit(
 	@JsonProperty("genre_ids") List<Integer> genreIds,
 	Double popularity,
 	@JsonProperty("vote_count") Integer voteCount,
-	String character
+	String character,
+	// TV-only: how many episodes this credit covers. Breaks the dedup tie when a
+	// person holds several credits on one show (#401) — popularity is a per-title
+	// score, so every credit on the same show ties on it. Null on movie credits,
+	// which carry "order" (billing position) instead.
+	@JsonProperty("episode_count") Integer episodeCount
 ) {
+	// Delegating overload so the credit fixtures built by hand keep compiling,
+	// same precedent as TitleSearchResponse's (#374).
+	public TmdbPersonCredit(long id, String mediaType, String title, String name, String overview,
+			String releaseDate, String firstAirDate, String posterPath, List<Integer> genreIds,
+			Double popularity, Integer voteCount, String character) {
+		this(id, mediaType, title, name, overview, releaseDate, firstAirDate, posterPath, genreIds,
+			popularity, voteCount, character, null);
+	}
 }

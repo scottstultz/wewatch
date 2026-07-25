@@ -840,6 +840,12 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* Load-bearing for the #401 role line, not tidying. As a grid item this box
+     defaults to min-width: auto, so a nowrap child (the role) sets its
+     min-content width to the full string and pushes the body wider than the
+     card — which .title-card's overflow: hidden then clips hard, with no
+     ellipsis. Every other child wraps, so this changes nothing else. */
+  min-width: 0;
 }
 
 .title-type-badge {
@@ -862,6 +868,21 @@ a {
   margin: 0;
   font-size: 0.8125rem;
   color: #94a3b8;
+}
+
+/* The credited role on a filmography tile (#401). Roles run long
+   ("Dr. Harding Fletcher - Marriage Counselor" is real live data) in a grid
+   that is 3 columns from 480px up, so it clamps to one line and carries the
+   full text in a title attribute. Unlike the genre labels of #382, a truncated
+   character name collides with nothing, so ellipsis is safe here. */
+.title-role {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #cbd5e1;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (min-width: 480px) {

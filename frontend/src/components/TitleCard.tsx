@@ -82,6 +82,11 @@ function TitleCard({ title, status, isPicking, onAdd, onChangeStatus, onTogglePi
         {title.releaseDate && (
           <p className="title-year">{new Date(title.releaseDate).getFullYear()}</p>
         )}
+        {/* Only a person's filmography sends this (#401); absent everywhere else,
+            and blank on the credits TMDB hasn't detailed — render nothing, not a gap */}
+        {title.character && (
+          <p className="title-role" title={title.character}>{title.character}</p>
+        )}
         {addedStatus ? (
           isPicking ? (
             <StatusPicker
