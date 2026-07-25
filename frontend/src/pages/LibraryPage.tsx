@@ -3,12 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
+import GenreFilter from '../components/GenreFilter'
 import ListManageModal from '../components/ListManageModal'
 import RollTheDiceModal, { MIN_PICKS } from '../components/RollTheDiceModal'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
 import ThumbsRating from '../components/ThumbsRating'
 import { formatUpcomingDate } from '../utils/episodeLabels'
-import type { TitleRating, WatchlistEntryResponse, WatchStatus } from '../types/api'
+import { mergeGenreCatalog, presentGenres } from '../utils/genreCatalog'
+import type { GenreCatalog, TitleRating, WatchlistEntryResponse, WatchStatus } from '../types/api'
 
 const STATUS_TABS: { value: WatchStatus | 'ALL'; label: string }[] = [
   { value: 'ALL', label: 'All' },
@@ -73,6 +75,17 @@ function LibraryPage() {
   const [entryActions, setEntryActions] = useState<Record<number, EntryAction>>({})
   const [pickingEntry, setPickingEntry] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [genreCatalog, setGenreCatalog] = useState<GenreCatalog | null>(null)
+
+  // Write one search param while preserving the others. The tab handler used to call
+  // setSearchParams({ status }), which replaces the *whole* query string — it would drop
+  // ?genres= on every tab switch, which is exactly the persistence #382 requires.
+  function setSearchParam(key: string, value: string | null) {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+  }
 
   // Create watchlist form state
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -100,6 +113,21 @@ function LibraryPage() {
 
     return () => { cancelled = true }
   }, [api, selectedWatchlistId])
+
+  // Fetch the genre catalog once (#382). The backend degrades to empty lists on a TMDB
+  // outage rather than failing, so this rejects only on a real transport error — and either
+  // way an absent catalog just means no labels, which hides the filter rather than breaking
+  // the page.
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.resolve()
+      .then(() => api.getGenres())
+      .then(data => { if (!cancelled) setGenreCatalog(data) })
+      .catch(() => { if (!cancelled) setGenreCatalog(null) })
+
+    return () => { cancelled = true }
+  }, [api])
 
   // Close manage modal and clear search when switching watchlists
   useEffect(() => {
@@ -199,8 +227,32 @@ function LibraryPage() {
     }
   }
 
+  // Genre filter (#382). Options come from the loaded entries, so only genres actually on
+  // this list are offered; the trigger is hidden entirely when that comes back empty.
+  const genreNames = mergeGenreCatalog(genreCatalog)
+  const genreOptions = presentGenres(entries.map(e => e.genreIds), genreNames)
+  const urlGenreIds = (searchParams.get('genres') ?? '')
+    .split(',')
+    .filter(part => part !== '')
+    .map(Number)
+    .filter(id => Number.isInteger(id) && id > 0)
+  // A selected genre can leave the derived list — switching watchlists, or removing the last
+  // title carrying it. Intersecting here is what stops that becoming an invisible filter on a
+  // grid that looks wrong for no visible reason. Deliberately *not* pruned out of the URL: a
+  // stale id stays inert and comes back to life if you switch back to a list that has it, and
+  // no prune effect means no cold-load race that could wipe a deep-linked ?genres= before the
+  // entries land. The next Apply rewrites the param to what's present anyway.
+  const optionIds = new Set(genreOptions.map(g => g.id))
+  const activeGenreIds = urlGenreIds.filter(id => optionIds.has(id))
+
   const visible = (activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab))
     .filter(e => (e.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    // AND, not OR: a title must carry *every* checked genre. `every` over an empty array is
+    // true, so "no filter" is the no-op case for free. An entry with no genre data (nothing
+    // cached yet, or a genuinely empty genre_ids) therefore drops out while a filter is
+    // active — the same call TonightService makes for unknown runtimes: a picker that offers
+    // something it hasn't measured is worse than one that offers less.
+    .filter(e => activeGenreIds.every(id => e.genreIds.includes(id)))
   const watchingEntries = entries.filter(e => e.status === 'WATCHING')
   const wantToWatchEntries = entries.filter(e => e.status === 'WANT_TO_WATCH')
   // Every roll is type-scoped since #366, so a list is rollable only if one *side* of
@@ -277,30 +329,40 @@ function LibraryPage() {
               <button
                 key={tab.value}
                 className={`library-tab${activeTab === tab.value ? ' library-tab-active' : ''}`}
-                onClick={() => setSearchParams({ status: tab.value }, { replace: true })}
+                onClick={() => setSearchParam('status', tab.value)}
               >
                 {tab.label}
               </button>
             ))}
           </div>
 
-          {/* Search */}
-          <div className="search-input-wrapper">
-            <input
-              className="search-input"
-              type="search"
-              placeholder="Search your library…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button
-                className="search-clear-btn"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search"
-              >
-                ✕
-              </button>
+          {/* Search + genre filter */}
+          <div className="library-filter-row">
+            <div className="search-input-wrapper">
+              <input
+                className="search-input"
+                type="search"
+                placeholder="Search your library…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              {searchQuery && (
+                <button
+                  className="search-clear-btn"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            {genreOptions.length > 0 && (
+              <GenreFilter
+                options={genreOptions}
+                selected={activeGenreIds}
+                onApply={ids => setSearchParam('genres', ids.length > 0 ? ids.join(',') : null)}
+              />
             )}
           </div>
 
@@ -316,11 +378,13 @@ function LibraryPage() {
           <p className="library-empty">
             {searchQuery.trim()
               ? `No titles match "${searchQuery.trim()}".`
-              : activeTab === 'ALL'
-                ? 'This watchlist is empty. Head to Discover to add titles.'
-                : activeTab === 'WATCHING'
-                  ? 'No titles in progress. Move a title from Want to Watch to start tracking it.'
-                  : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
+              : activeGenreIds.length > 0
+                ? 'No titles here match those genres.'
+                : activeTab === 'ALL'
+                  ? 'This watchlist is empty. Head to Discover to add titles.'
+                  : activeTab === 'WATCHING'
+                    ? 'No titles in progress. Move a title from Want to Watch to start tracking it.'
+                    : `No titles with status "${STATUS_LABELS[activeTab as WatchStatus]}".`}
           </p>
         )}
 
