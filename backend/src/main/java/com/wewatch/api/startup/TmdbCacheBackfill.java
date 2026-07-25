@@ -61,5 +61,18 @@ public class TmdbCacheBackfill {
 				tmdbCacheService.prewarmMovie(tmdbId);
 			}
 		}
+
+		// Movies cached before #270 have no watch providers, and — exactly as with runtime above —
+		// nothing else would ever fetch them: a movie cache row is never TTL-refreshed. The
+		// suggestion pipeline's badges already read this column (ProviderContextResolver
+		// .attachBadges), so a stale row silently under-badges older movies (#391).
+		// Re-prewarming rewrites the whole row, providers included.
+		List<String> moviesMissingProviders = titleCacheRepository.findMovieIdsMissingWatchProviders();
+		if (!moviesMissingProviders.isEmpty()) {
+			log.info("Backfilling watch providers for {} cached movie(s) missing them", moviesMissingProviders.size());
+			for (String tmdbId : moviesMissingProviders) {
+				tmdbCacheService.prewarmMovie(tmdbId);
+			}
+		}
 	}
 }
