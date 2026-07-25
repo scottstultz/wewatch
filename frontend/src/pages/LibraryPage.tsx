@@ -244,19 +244,36 @@ function LibraryPage() {
   // entries land. The next Apply rewrites the param to what's present anyway.
   const optionIds = new Set(genreOptions.map(g => g.id))
   const activeGenreIds = urlGenreIds.filter(id => optionIds.has(id))
+  // The names of the active genres, for the dice modal's caption (#383). Derived from
+  // `genreOptions` rather than from the catalog map so it inherits `presentGenres`' name
+  // sort — the caption then reads in the same order as the checkbox panel, for free.
+  const activeGenreNames = genreOptions.filter(g => activeGenreIds.includes(g.id)).map(g => g.name)
+
+  // AND, not OR: a title must carry *every* checked genre. `every` over an empty array is
+  // true, so "no filter" is the no-op case for free. An entry with no genre data (nothing
+  // cached yet, or a genuinely empty genre_ids) therefore drops out while a filter is
+  // active — the same call TonightService makes for unknown runtimes: a picker that offers
+  // something it hasn't measured is worse than one that offers less.
+  //
+  // One named predicate rather than an inline filter (#383): the grid and the dice must
+  // narrow by exactly the same rule, and two copies of it is how they'd drift.
+  const matchesGenres = (entry: WatchlistEntryResponse) =>
+    activeGenreIds.every(id => entry.genreIds.includes(id))
 
   const visible = (activeTab === 'ALL' ? entries : entries.filter(e => e.status === activeTab))
     .filter(e => (e.name ?? '').toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    // AND, not OR: a title must carry *every* checked genre. `every` over an empty array is
-    // true, so "no filter" is the no-op case for free. An entry with no genre data (nothing
-    // cached yet, or a genuinely empty genre_ids) therefore drops out while a filter is
-    // active — the same call TonightService makes for unknown runtimes: a picker that offers
-    // something it hasn't measured is worse than one that offers less.
-    .filter(e => activeGenreIds.every(id => e.genreIds.includes(id)))
-  const watchingEntries = entries.filter(e => e.status === 'WATCHING')
-  const wantToWatchEntries = entries.filter(e => e.status === 'WANT_TO_WATCH')
+    .filter(matchesGenres)
+  // Genre-narrowed on purpose (#383): these feed both `canRoll` and the dice modal, so a
+  // filtered Library rolls only what matches. The title search deliberately does *not* narrow
+  // them — it's transient typing rather than a committed filter, and the modal has its own
+  // search field over the grid.
+  const watchingEntries = entries.filter(e => e.status === 'WATCHING' && matchesGenres(e))
+  const wantToWatchEntries = entries.filter(e => e.status === 'WANT_TO_WATCH' && matchesGenres(e))
   // Every roll is type-scoped since #366, so a list is rollable only if one *side* of
   // the picker's toggle has enough — not if the two types add up to enough between them.
+  // Since #383 the lists arriving here are genre-narrowed, so an active filter can drop a
+  // tab below MIN_PICKS and hide the 🎲 entirely. That is intended: a roll between one
+  // candidate and itself isn't a roll.
   const rollableByType = (list: WatchlistEntryResponse[]) =>
     list.filter(e => e.type === 'MOVIE').length >= MIN_PICKS
     || list.filter(e => e.type === 'TV').length >= MIN_PICKS
@@ -484,6 +501,7 @@ function LibraryPage() {
       {showDice && selectedWatchlistId && (
         <RollTheDiceModal
           entries={activeTab === 'WANT_TO_WATCH' ? wantToWatchEntries : watchingEntries}
+          activeGenres={activeGenreNames}
           watchlistId={selectedWatchlistId}
           onClose={() => setShowDice(false)}
           onOpenEntry={(entry) => {

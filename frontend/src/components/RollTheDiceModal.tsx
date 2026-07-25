@@ -63,6 +63,11 @@ function defaultType(entries: WatchlistEntryResponse[]): TitleType {
 
 interface RollTheDiceModalProps {
   entries: WatchlistEntryResponse[]
+  // Names of the Library's active genre filter, for the read-only caption (#383). The
+  // entries arriving are *already* narrowed by it — this is a label, not a filter, and
+  // nothing here re-derives genre matching. Optional so a caller with no filter concept
+  // needs no change.
+  activeGenres?: string[]
   watchlistId: number
   onClose: () => void
   onOpenEntry: (entry: WatchlistEntryResponse) => void
@@ -99,7 +104,13 @@ function RevealCard({ entry, showBody }: { entry: WatchlistEntryResponse; showBo
   )
 }
 
-function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTheDiceModalProps) {
+function RollTheDiceModal({
+  entries,
+  activeGenres = [],
+  watchlistId,
+  onClose,
+  onOpenEntry,
+}: RollTheDiceModalProps) {
   const api = useApi()
   const [phase, setPhase] = useState<Phase>('select')
   // Resolved once at mount: flipping the toggle has to stick, so this can't be derived
@@ -328,7 +339,16 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
   // the modal collapse and re-expand on every stop the thumb crossed.
   function bodyState() {
     if (emptyType) {
-      return <p className="flip-window-note">No {typeNoun} in this list.</p>
+      // With a filter inherited from the Library (#383) there *are* movies on this list,
+      // just none in these genres — saying "in this list" blames the wrong narrowing, the
+      // same mistake that put this branch ahead of the window states in the first place.
+      return (
+        <p className="flip-window-note">
+          {activeGenres.length > 0
+            ? `No ${typeNoun} match those genres.`
+            : `No ${typeNoun} in this list.`}
+        </p>
+      )
     }
     if (hasFailed) {
       return (
@@ -382,6 +402,17 @@ function RollTheDiceModal({ entries, watchlistId, onClose, onOpenEntry }: RollTh
         {phase === 'select' && (
           <>
             <h3 className="flip-title">Roll the dice</h3>
+
+            {/* The Library's genre filter, named rather than re-derived (#383). The count is
+                what the *genre* filter left on this tab — both types, and deliberately stable
+                across slider stops: the toggle's `Movies (n)` / `TV (n)` and the CTA's
+                `Roll All (n Titles)` already report the stop, and a third number tracking
+                them would only ever duplicate or contradict them. */}
+            {activeGenres.length > 0 && (
+              <p className="flip-genre-caption">
+                {activeGenres.join(' + ')} · {entries.length} title{entries.length === 1 ? '' : 's'}
+              </p>
+            )}
 
             <div className="library-tabs flip-type-toggle" role="group" aria-label="Movies or TV">
               <button
