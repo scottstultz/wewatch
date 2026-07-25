@@ -2436,6 +2436,26 @@ div.people-row-photo {
   font-size: 0.875rem;
 }
 
+/* Read-only note naming the Library genre filter the picker inherited (#383). Its own rule
+   rather than .flip-subtitle, whose 18px bottom margin would stack with .flip-type-toggle's
+   14px top margin and push the grid down for no reason.
+
+   The line measures 19.5px, and where that 19.5px lands depends on which of the modal's three
+   height bands it is in — measured in headless Chrome at 430×900 and 1280×1024:
+     · one-line body state (nothing fits / failed check / empty side): 420px with and without
+       the caption. The min-height floor holds, so the caption is free exactly where the modal
+       is at its most fragile (#368).
+     · at the max-height: 85vh cap: modal height identical (765px / 870.4px), the grid's scroll
+       region absorbs it (439→419 / 544→524). It is the only flex: 1 1 auto child.
+     · content-sized in between: the modal really is 19.5px taller (660.5→680 / 702.5→722).
+   Posters keep their exact 2/3 ratio in every case — no grid compression (#366). This is the
+   whole reason a caption is cheap here where a control would not be. */
+.flip-genre-caption {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 0.8125rem;
+}
+
 .flip-select-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

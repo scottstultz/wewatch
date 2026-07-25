@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import LibraryPage from './LibraryPage'
 import { WatchlistProvider } from '../contexts/WatchlistContext'
@@ -14,6 +14,9 @@ const mockApi = {
   rateTitle: vi.fn(),
   clearTitleRating: vi.fn(),
   getGenres: vi.fn(),
+  // The dice modal calls this on open (#359). A missing method throws synchronously inside
+  // its effect and takes the whole render down, the same way an absent getGenres did in #382.
+  getTonightPicks: vi.fn(),
 }
 
 vi.mock('../contexts/AuthContext', async importOriginal => ({
@@ -86,6 +89,7 @@ beforeEach(() => {
   mockApi.rateTitle.mockResolvedValue(undefined)
   mockApi.clearTitleRating.mockResolvedValue(undefined)
   mockApi.getGenres.mockResolvedValue({ movie: [], tv: [] })
+  mockApi.getTonightPicks.mockResolvedValue([])
 })
 
 describe('LibraryPage thumbs ratings (#273)', () => {
@@ -290,5 +294,56 @@ describe('LibraryPage genre filter (#382)', () => {
 
     await screen.findByText('The Matrix')
     expect(screen.queryByLabelText(/selected$/)).not.toBeInTheDocument()
+  })
+})
+
+// ── Roll the dice inherits the filter (#383) ─────────────────
+//
+// Watching holds 3 movies and 1 show: The Matrix (Action, Sci-Fi), Notting Hill (Romance,
+// Comedy), Crazy Rich Asians (Romance, Comedy, Drama) and Top Gear (no genre data).
+
+const diceFab = () => screen.queryByRole('button', { name: /^Roll the dice/ })
+
+async function openDice() {
+  fireEvent.click(diceFab()!)
+  const dialog = await screen.findByRole('dialog')
+  // Opening fires the runtime-label call; let it settle before asserting on the grid
+  await waitFor(() => expect(mockApi.getTonightPicks).toHaveBeenCalledWith(1, 600))
+  return dialog
+}
+
+describe('LibraryPage roll the dice with a genre filter (#383)', () => {
+  it('rolls only the titles matching the active filter', async () => {
+    await renderGenreLibrary('/library?genres=35')
+
+    const dialog = await openDice()
+
+    expect(within(dialog).getByText('Comedy · 2 titles')).toBeInTheDocument()
+    expect(within(dialog).getByText('Notting Hill')).toBeInTheDocument()
+    expect(within(dialog).getByText('Crazy Rich Asians')).toBeInTheDocument()
+    // On the tab, but not a comedy — pre-#383 the dice rolled it anyway
+    expect(within(dialog).queryByText('The Matrix')).not.toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Roll All (2 Titles)' })).toBeEnabled()
+  })
+
+  // Deliberate behavior change, flagged in the issue: canRoll counts the *narrowed* list, so
+  // a filter that leaves one candidate per type hides the button rather than offering a roll
+  // whose outcome is already known. Same class of change as #366 making every roll type-scoped.
+  it('hides the dice when the filter drops the tab below two of a type', async () => {
+    // Drama leaves exactly one Watching movie: Crazy Rich Asians
+    await renderGenreLibrary('/library?genres=18')
+
+    expect(screen.getByText('Crazy Rich Asians')).toBeInTheDocument()
+    expect(diceFab()).not.toBeInTheDocument()
+  })
+
+  it('offers the whole tab and no caption when no filter is active', async () => {
+    await renderGenreLibrary()
+
+    const dialog = await openDice()
+
+    expect(within(dialog).getByText('The Matrix')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: 'Roll All (3 Titles)' })).toBeEnabled()
+    expect(within(dialog).queryByText(/· \d+ titles?$/)).not.toBeInTheDocument()
   })
 })

@@ -62,10 +62,11 @@ const DEFAULT_ENTRIES = [PADDINGTON, BREAKING_BAD, OBSCURE, DUNE, THE_BEAR]
 // Slider stops: 0=30m 1=45m 2=60m 3=90m 4=2h 5=Any
 const STOP = { m30: '0', m45: '1', m60: '2', m120: '4', any: '5' }
 
-function renderModal(entries = DEFAULT_ENTRIES) {
+function renderModal(entries = DEFAULT_ENTRIES, activeGenres: string[] = []) {
   return render(
     <RollTheDiceModal
       entries={entries}
+      activeGenres={activeGenres}
       watchlistId={1}
       onClose={vi.fn()}
       onOpenEntry={vi.fn()}
@@ -408,5 +409,70 @@ describe('RollTheDiceModal — slider does not resize the modal (#368)', () => {
     moveTo(STOP.m120)
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Roll All (2 Titles)' })).toBeInTheDocument())
+  })
+})
+
+describe('RollTheDiceModal — inherited genre filter (#383)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApi.getTonightPicks.mockResolvedValue([])
+  })
+
+  it('names the inherited genres and counts what it was handed', () => {
+    renderModal([PADDINGTON, DUNE, BREAKING_BAD], ['Comedy', 'Romance'])
+
+    expect(screen.getByText('Comedy + Romance · 3 titles')).toBeInTheDocument()
+  })
+
+  it('reads as one title in the singular', () => {
+    renderModal([PADDINGTON], ['Comedy'])
+
+    expect(screen.getByText('Comedy · 1 title')).toBeInTheDocument()
+  })
+
+  it('renders no caption when no filter is active', () => {
+    renderModal()
+
+    // The CTA's own count is parenthesised ("Roll All (3 Titles)"), so this can only match
+    // the caption.
+    expect(screen.queryByText(/· \d+ titles?$/)).not.toBeInTheDocument()
+  })
+
+  it('describes the filter rather than the grid, across the toggle and the slider', async () => {
+    // Only Paddington comes back for any window, so narrowing to 30m leaves the Movies side
+    // with one title and the TV side with none — while the caption must not budge.
+    mockApi.getTonightPicks.mockResolvedValue([PADDINGTON_PICK])
+    renderModal([PADDINGTON, DUNE, BREAKING_BAD], ['Comedy', 'Romance'])
+    await waitFor(() => expect(screen.getByText('95m')).toBeInTheDocument())
+
+    fireEvent.click(toggleButton('TV'))
+    expect(screen.getByText('Comedy + Romance · 3 titles')).toBeInTheDocument()
+
+    fireEvent.click(toggleButton('Movies'))
+    moveTo(STOP.m30)
+
+    // The stop landed: the toggle now counts one movie, the caption still counts the filter
+    await waitFor(() => expect(toggleButton('Movies')).toHaveTextContent('Movies (1)'))
+    expect(screen.getByText('Comedy + Romance · 3 titles')).toBeInTheDocument()
+  })
+
+  it('offers only the narrowed set to roll', () => {
+    renderModal([PADDINGTON, DUNE], ['Comedy'])
+
+    expect(screen.getByAltText('Paddington')).toBeInTheDocument()
+    expect(screen.getByAltText('Dune')).toBeInTheDocument()
+    // Excluded by the Library's filter before it ever reached the modal
+    expect(screen.queryByAltText('Some Obscure Film')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Roll All (2 Titles)' })).toBeEnabled()
+  })
+
+  it('blames the genres, not the list, for an empty side of the toggle', () => {
+    renderModal([BREAKING_BAD, THE_BEAR], ['Comedy'])
+
+    fireEvent.click(toggleButton('Movies'))
+
+    expect(screen.getByText('No movies match those genres.')).toBeInTheDocument()
+    // There *are* movies on this list — they just aren't comedies
+    expect(screen.queryByText('No movies in this list.')).not.toBeInTheDocument()
   })
 })
