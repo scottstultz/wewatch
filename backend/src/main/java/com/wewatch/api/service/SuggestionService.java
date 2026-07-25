@@ -25,6 +25,7 @@ import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
@@ -205,8 +206,17 @@ public class SuggestionService {
 			.filter(Objects::nonNull)
 			.collect(Collectors.toSet());
 
-		// Load cache entries once for genre + keyword + person profile building
-		Map<String, TmdbTitleCache> cacheByTmdbId = tmdbTitleCacheRepository.findAllById(ownedExternalIds)
+		// Load cache entries once for genre + keyword + person profile building. Keyed by the
+		// medium-scoped cache key (#394), not the bare externalId above — an owned movie and an
+		// owned show can share a TMDB id, and tmdb_title_cache holds a row for each.
+		Set<String> ownedCacheKeys = allEntries.stream()
+			.map(e -> {
+				Title title = titlesById.get(e.getTitleId());
+				return title != null ? TmdbCacheKey.of(title) : null;
+			})
+			.filter(Objects::nonNull)
+			.collect(Collectors.toSet());
+		Map<String, TmdbTitleCache> cacheByTmdbId = tmdbTitleCacheRepository.findAllById(ownedCacheKeys)
 			.stream().collect(Collectors.toMap(TmdbTitleCache::getTmdbId, c -> c));
 
 		// The recency penalty follows the user, not the list (#247): a shelf answers

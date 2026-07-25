@@ -145,7 +145,7 @@ public class TitleController {
 
 		// The caller's thumbs rating (#273) rides along when a titles row exists
 		// for this external id — pre-resolve titles have no row and no rating
-		Long titleId = titleService.findOptionalByExternalSourceAndExternalId(externalSource, externalId)
+		Long titleId = titleService.findOptionalByExternalSourceAndExternalIdAndType(externalSource, externalId, type)
 			.map(Title::getId)
 			.orElse(null);
 		Rating myRating = titleId != null
@@ -270,6 +270,7 @@ public class TitleController {
 		return toResponse(titleService.findOrCreate(
 			TMDB_SOURCE,
 			request.externalId(),
+			request.type(),
 			() -> fetchTitleFromTmdb(request.externalId(), request.type())
 		));
 	}

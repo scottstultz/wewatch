@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.repository.TitleRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.service.TmdbCacheService;
@@ -39,16 +40,24 @@ class TmdbCacheBackfillTest {
 
 	private TmdbCacheBackfill backfill;
 
+	// #394: tmdb_title_cache is now keyed by a medium-scoped cache key ("movie:550" / "tv:550"),
+	// so the "not yet cached" query takes the prefix for the medium it's checking, and the two
+	// movie-column queries take the "movie:" prefix's length to strip it back off.
+	private static final int MOVIE_PREFIX_LENGTH = TmdbCacheKey.prefix(TitleType.MOVIE).length();
+
 	@BeforeEach
 	void setUp() {
 		backfill = new TmdbCacheBackfill(titleRepository, titleCacheRepository, tmdbCacheService);
-		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV)).thenReturn(List.of());
-		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE)).thenReturn(List.of());
+		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV, TmdbCacheKey.prefix(TitleType.TV)))
+			.thenReturn(List.of());
+		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE, TmdbCacheKey.prefix(TitleType.MOVIE)))
+			.thenReturn(List.of());
 	}
 
 	@Test
 	void reprewarmsCachedMoviesThatAreMissingTheirRuntime() {
-		when(titleCacheRepository.findMovieIdsMissingRuntime()).thenReturn(List.of("603", "27205"));
+		when(titleCacheRepository.findMovieIdsMissingRuntime(MOVIE_PREFIX_LENGTH))
+			.thenReturn(List.of("603", "27205"));
 
 		backfill.backfillMissingTitles();
 
@@ -59,8 +68,9 @@ class TmdbCacheBackfillTest {
 
 	@Test
 	void reprewarmsCachedMoviesThatAreMissingTheirWatchProviders() {
-		when(titleCacheRepository.findMovieIdsMissingRuntime()).thenReturn(List.of());
-		when(titleCacheRepository.findMovieIdsMissingWatchProviders()).thenReturn(List.of("603", "27205"));
+		when(titleCacheRepository.findMovieIdsMissingRuntime(MOVIE_PREFIX_LENGTH)).thenReturn(List.of());
+		when(titleCacheRepository.findMovieIdsMissingWatchProviders(MOVIE_PREFIX_LENGTH))
+			.thenReturn(List.of("603", "27205"));
 
 		backfill.backfillMissingTitles();
 
@@ -78,7 +88,7 @@ class TmdbCacheBackfillTest {
 		// unstubbed here and below — Mockito already defaults a List return to empty, and an
 		// explicit stub would turn "the pass was deleted" into an UnnecessaryStubbingException in
 		// these two cases, burying the one test that actually proves the pass exists.
-		when(titleCacheRepository.findMovieIdsMissingRuntime()).thenReturn(List.of());
+		when(titleCacheRepository.findMovieIdsMissingRuntime(MOVIE_PREFIX_LENGTH)).thenReturn(List.of());
 
 		backfill.backfillMissingTitles();
 
@@ -87,9 +97,11 @@ class TmdbCacheBackfillTest {
 
 	@Test
 	void stillBackfillsTitlesWithNoCacheRowAtAll() {
-		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV)).thenReturn(List.of("1399"));
-		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE)).thenReturn(List.of("550"));
-		when(titleCacheRepository.findMovieIdsMissingRuntime()).thenReturn(List.of());
+		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV, TmdbCacheKey.prefix(TitleType.TV)))
+			.thenReturn(List.of("1399"));
+		when(titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE, TmdbCacheKey.prefix(TitleType.MOVIE)))
+			.thenReturn(List.of("550"));
+		when(titleCacheRepository.findMovieIdsMissingRuntime(MOVIE_PREFIX_LENGTH)).thenReturn(List.of());
 
 		backfill.backfillMissingTitles();
 

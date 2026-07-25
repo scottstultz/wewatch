@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import com.wewatch.api.model.TmdbTitleCache;
 
@@ -23,15 +24,21 @@ public interface TmdbTitleCacheRepository extends JpaRepository<TmdbTitleCache, 
 	 *
 	 * <p>Note this also re-selects movies TMDB genuinely has no runtime for, which stay null and
 	 * so are retried on each boot. That is a handful of obscure titles, one async call each.
+	 *
+	 * <p>Since #394 {@code c.tmdbId} is the medium-scoped cache key ({@code "movie:550"}), but
+	 * {@code TmdbCacheService.prewarmMovie} — like the rest of its public methods — takes the
+	 * bare TMDB id. {@code prefixLength} is {@code TmdbCacheKey.prefix(TitleType.MOVIE).length()}
+	 * so the {@code "movie:"} is stripped here rather than at every caller.
 	 */
-	@Query("SELECT c.tmdbId FROM TmdbTitleCache c WHERE c.type = 'MOVIE' AND c.runtimeMinutes IS NULL")
-	List<String> findMovieIdsMissingRuntime();
+	@Query("SELECT SUBSTRING(c.tmdbId, :prefixLength + 1) FROM TmdbTitleCache c "
+		+ "WHERE c.type = 'MOVIE' AND c.runtimeMinutes IS NULL")
+	List<String> findMovieIdsMissingRuntime(@Param("prefixLength") int prefixLength);
 
 	/**
 	 * Movies whose watch providers were never persisted — the backfill set for
 	 * {@code TmdbCacheBackfill} (#391).
 	 *
-	 * <p>Same reason as {@link #findMovieIdsMissingRuntime()}: a movie cache row is never
+	 * <p>Same reason as {@link #findMovieIdsMissingRuntime}: a movie cache row is never
 	 * TTL-refreshed, so a column added after the row was written (here V19, #270) stays null
 	 * forever without an explicit pass. The suggestion pipeline's provider badges read this
 	 * column, so a stale row silently under-badges.
@@ -42,7 +49,11 @@ public interface TmdbTitleCacheRepository extends JpaRepository<TmdbTitleCache, 
 	 * non-null JSON via {@code RegionProviderIdsConverter} — and drops out of this result. Only a
 	 * response with a null {@code results} block leaves the column untouched; those few retry on
 	 * each boot, same as the runtime case.
+	 *
+	 * <p>Same {@code movie:} stripping as {@link #findMovieIdsMissingRuntime}, and for the same
+	 * reason.
 	 */
-	@Query("SELECT c.tmdbId FROM TmdbTitleCache c WHERE c.type = 'MOVIE' AND c.watchProviders IS NULL")
-	List<String> findMovieIdsMissingWatchProviders();
+	@Query("SELECT SUBSTRING(c.tmdbId, :prefixLength + 1) FROM TmdbTitleCache c "
+		+ "WHERE c.type = 'MOVIE' AND c.watchProviders IS NULL")
+	List<String> findMovieIdsMissingWatchProviders(@Param("prefixLength") int prefixLength);
 }

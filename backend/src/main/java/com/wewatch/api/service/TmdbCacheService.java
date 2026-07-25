@@ -22,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -76,7 +77,7 @@ public class TmdbCacheService {
 
 	@Transactional
 	public List<TmdbTvSeason> getSeasons(String tmdbId) {
-		List<TmdbSeasonCache> cachedSeasons = seasonCacheRepository.findByTmdbId(tmdbId);
+		List<TmdbSeasonCache> cachedSeasons = seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(tmdbId));
 		if (!cachedSeasons.isEmpty() && !isStale(cachedSeasons.get(0).getFetchedAt())) {
 			return realSeasons(toTvSeasons(cachedSeasons));
 		}
@@ -94,7 +95,7 @@ public class TmdbCacheService {
 	@Transactional
 	public TmdbTvSeason getSeasonDetail(String tmdbId, int seasonNumber) {
 		List<TmdbEpisodeCache> cachedEpisodes =
-			episodeCacheRepository.findByTmdbIdAndSeasonNumber(tmdbId, seasonNumber);
+			episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(tmdbId), seasonNumber);
 
 		if (!cachedEpisodes.isEmpty() && !isStale(cachedEpisodes.get(0).getFetchedAt())) {
 			return toTmdbTvSeason(seasonNumber, cachedEpisodes);
@@ -103,10 +104,6 @@ public class TmdbCacheService {
 		TmdbTvSeason season = tmdbClient.getSeasonDetail(tmdbId, seasonNumber);
 		upsertEpisodeCache(tmdbId, seasonNumber, season);
 		return season;
-	}
-
-	public Optional<TmdbTitleCache> getTitleCache(String tmdbId) {
-		return titleCacheRepository.findByTmdbId(tmdbId);
 	}
 
 	/**
@@ -124,14 +121,14 @@ public class TmdbCacheService {
 	 */
 	public Map<Long, TitleCacheIds> cacheIdsByTitleId(
 			Collection<Title> titles, String region, Collection<Integer> myProviderIds) {
-		List<String> externalIds = titles.stream()
-			.filter(t -> t != null && t.getExternalId() != null)
-			.map(Title::getExternalId)
+		List<String> cacheKeys = titles.stream()
+			.filter(t -> t != null && t.getExternalId() != null && t.getType() != null)
+			.map(TmdbCacheKey::of)
 			.distinct()
 			.toList();
-		if (externalIds.isEmpty()) return Map.of();
+		if (cacheKeys.isEmpty()) return Map.of();
 
-		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(externalIds).stream()
+		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(cacheKeys).stream()
 			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
 
 		ProviderContext providerContext = new ProviderContext(
@@ -140,26 +137,23 @@ public class TmdbCacheService {
 		Map<Long, TitleCacheIds> byTitleId = new LinkedHashMap<>();
 		for (Title title : titles) {
 			if (title == null || title.getId() == null) continue;
-			TmdbTitleCache row = cacheById.get(title.getExternalId());
+			TmdbTitleCache row = cacheById.get(TmdbCacheKey.of(title));
 			byTitleId.put(title.getId(), new TitleCacheIds(
-				genreIdsOf(row, title.getType()),
-				providerIdsOf(row, title.getType(), providerContext)));
+				genreIdsOf(row),
+				providerIdsOf(row, providerContext)));
 		}
 		return byTitleId;
 	}
 
-	// tmdb_title_cache's key is a bare TMDB id with no medium namespace (V9), so movie 1399 and
-	// TV 1399 share one row and whichever prewarm ran last owns it. Both genre and provider ids
-	// are medium-specific: handing a movie the TV row's data would mislabel it. Fail closed to
-	// empty rather than to wrong data.
-	private List<Integer> genreIdsOf(TmdbTitleCache row, TitleType type) {
+	// The cache key is medium-scoped (#394), so a row found under a movie's key can never be the
+	// TV row for the same TMDB id — there is nothing left here for a type guard to catch.
+	private List<Integer> genreIdsOf(TmdbTitleCache row) {
 		if (row == null || row.getGenreIds() == null) return List.of();
-		if (type == null || !type.name().equals(row.getType())) return List.of();
 		return List.copyOf(row.getGenreIds());
 	}
 
-	private List<Integer> providerIdsOf(TmdbTitleCache row, TitleType type, ProviderContext ctx) {
-		if (row == null || type == null || !type.name().equals(row.getType())) return List.of();
+	private List<Integer> providerIdsOf(TmdbTitleCache row, ProviderContext ctx) {
+		if (row == null) return List.of();
 		return ctx.streamableOn(row);
 	}
 
@@ -203,7 +197,7 @@ public class TmdbCacheService {
 	private void cacheKeywords(TitleType type, String tmdbId) {
 		try {
 			List<TmdbKeyword> kws = tmdbClient.getKeywords(type, tmdbId);
-			titleCacheRepository.findByTmdbId(tmdbId).ifPresent(row -> {
+			titleCacheRepository.findByTmdbId(TmdbCacheKey.of(type, tmdbId)).ifPresent(row -> {
 				row.setKeywordIds(kws.stream().map(TmdbKeyword::id).toList());
 				// Names ride along for keyword-seeded shelf labels (#271); the id
 				// CSV above stays the scoring path
@@ -220,8 +214,9 @@ public class TmdbCacheService {
 	}
 
 	private void upsertTvCache(String tmdbId, TmdbTvDetail detail) {
-		TmdbTitleCache row = titleCacheRepository.findByTmdbId(tmdbId).orElse(new TmdbTitleCache());
-		row.setTmdbId(tmdbId);
+		String cacheKey = TmdbCacheKey.tv(tmdbId);
+		TmdbTitleCache row = titleCacheRepository.findByTmdbId(cacheKey).orElse(new TmdbTitleCache());
+		row.setTmdbId(cacheKey);
 		row.setType("TV");
 		row.setName(detail.name() != null ? detail.name() : tmdbId);
 		row.setOverview(detail.overview());
@@ -242,13 +237,14 @@ public class TmdbCacheService {
 
 	private void upsertSeasonCache(String tmdbId, List<TmdbTvSeason> seasons) {
 		if (seasons == null) return;
+		String cacheKey = TmdbCacheKey.tv(tmdbId);
 		Instant now = Instant.now();
-		Map<Integer, TmdbSeasonCache> existing = seasonCacheRepository.findByTmdbId(tmdbId).stream()
+		Map<Integer, TmdbSeasonCache> existing = seasonCacheRepository.findByTmdbId(cacheKey).stream()
 			.collect(Collectors.toMap(TmdbSeasonCache::getSeasonNumber, Function.identity()));
 		List<TmdbSeasonCache> rows = new ArrayList<>();
 		for (TmdbTvSeason season : seasons) {
 			TmdbSeasonCache row = existing.getOrDefault(season.seasonNumber(), new TmdbSeasonCache());
-			row.setTmdbId(tmdbId);
+			row.setTmdbId(cacheKey);
 			row.setSeasonNumber(season.seasonNumber());
 			row.setName(season.name());
 			row.setOverview(season.overview());
@@ -278,8 +274,9 @@ public class TmdbCacheService {
 	}
 
 	private void upsertMovieCache(String tmdbId, TmdbMovieDetail detail) {
-		TmdbTitleCache row = titleCacheRepository.findByTmdbId(tmdbId).orElse(new TmdbTitleCache());
-		row.setTmdbId(tmdbId);
+		String cacheKey = TmdbCacheKey.movie(tmdbId);
+		TmdbTitleCache row = titleCacheRepository.findByTmdbId(cacheKey).orElse(new TmdbTitleCache());
+		row.setTmdbId(cacheKey);
 		row.setType("MOVIE");
 		row.setName(detail.title() != null ? detail.title() : tmdbId);
 		row.setOverview(detail.overview());
@@ -353,14 +350,15 @@ public class TmdbCacheService {
 
 	private void upsertEpisodeCache(String tmdbId, int seasonNumber, TmdbTvSeason season) {
 		if (season.episodes() == null) return;
+		String cacheKey = TmdbCacheKey.tv(tmdbId);
 		Instant now = Instant.now();
 		Map<Integer, TmdbEpisodeCache> existing =
-			episodeCacheRepository.findByTmdbIdAndSeasonNumber(tmdbId, seasonNumber).stream()
+			episodeCacheRepository.findByTmdbIdAndSeasonNumber(cacheKey, seasonNumber).stream()
 				.collect(Collectors.toMap(TmdbEpisodeCache::getEpisodeNumber, Function.identity()));
 		List<TmdbEpisodeCache> rows = new ArrayList<>();
 		for (TmdbTvEpisode ep : season.episodes()) {
 			TmdbEpisodeCache row = existing.getOrDefault(ep.episodeNumber(), new TmdbEpisodeCache());
-			row.setTmdbId(tmdbId);
+			row.setTmdbId(cacheKey);
 			row.setSeasonNumber(seasonNumber);
 			row.setEpisodeNumber(ep.episodeNumber());
 			row.setName(ep.name());

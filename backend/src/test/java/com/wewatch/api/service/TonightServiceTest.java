@@ -29,6 +29,7 @@ import org.springframework.data.domain.PageImpl;
 import com.wewatch.api.dto.TonightPickResponse;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
@@ -90,9 +91,11 @@ class TonightServiceTest {
 		when(watchlistEntryRepository.findByWatchlistId(any(), any(), any())).thenReturn(page);
 	}
 
+	// Movie-only in this file, so always the "movie:" cache key (#394) — TonightService's movie
+	// path keys its batch read the same way.
 	private static TmdbTitleCache cacheRow(String tmdbId, Integer runtimeMinutes) {
 		TmdbTitleCache row = new TmdbTitleCache();
-		row.setTmdbId(tmdbId);
+		row.setTmdbId(TmdbCacheKey.movie(tmdbId));
 		row.setRuntimeMinutes(runtimeMinutes);
 		return row;
 	}

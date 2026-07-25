@@ -14,6 +14,7 @@ import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
@@ -45,18 +46,20 @@ class TasteProfileBuilder {
 		Map<Long, Rating> ratingsByTitleId,
 		LocalDate today
 	) {
-		// Thumbs ratings (#273) and the recency decay (#274) re-keyed by tmdb id
-		// for the cache-row-driven keyword/person builders below
+		// Thumbs ratings (#273) and the recency decay (#274) re-keyed by cache key (#394 —
+		// a bare externalId is not an identity) for the cache-row-driven keyword/person
+		// builders below, which look up by TmdbTitleCache::getTmdbId
 		Map<String, Rating> ratingsByTmdbId = new HashMap<>();
 		Map<String, Double> decayByTmdbId = new HashMap<>();
 		for (WatchlistEntry e : entries) {
 			Title t = titlesById.get(e.getTitleId());
 			if (t == null || t.getExternalId() == null) continue;
+			String cacheKey = TmdbCacheKey.of(t);
 			Rating rating = ratingsByTitleId.get(e.getTitleId());
 			if (rating != null) {
-				ratingsByTmdbId.put(t.getExternalId(), rating);
+				ratingsByTmdbId.put(cacheKey, rating);
 			}
-			decayByTmdbId.put(t.getExternalId(), recencyDecay(e, today));
+			decayByTmdbId.put(cacheKey, recencyDecay(e, today));
 		}
 
 		Collection<TmdbTitleCache> caches = cacheByTmdbId.values();
@@ -89,7 +92,7 @@ class TasteProfileBuilder {
 		for (WatchlistEntry e : entries) {
 			Title t = titlesById.get(e.getTitleId());
 			if (t == null || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
+			TmdbTitleCache cached = cacheByTmdbId.get(TmdbCacheKey.of(t));
 			if (cached == null || cached.getGenreIds() == null) continue;
 			double weight = profileWeight(e.getStatus(), ratingsByTitleId.get(e.getTitleId()))
 				* recencyDecay(e, today);
@@ -118,7 +121,7 @@ class TasteProfileBuilder {
 		for (WatchlistEntry e : entries) {
 			Title t = titlesById.get(e.getTitleId());
 			if (t == null || t.getType() != type || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = cacheByTmdbId.get(t.getExternalId());
+			TmdbTitleCache cached = cacheByTmdbId.get(TmdbCacheKey.of(t));
 			if (cached == null || cached.getGenreIds() == null) continue;
 			double weight = signalWeight(ratingsByTitleId.get(e.getTitleId())) * recencyDecay(e, today);
 			for (int genreId : cached.getGenreIds()) {

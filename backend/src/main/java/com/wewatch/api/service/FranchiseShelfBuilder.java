@@ -14,6 +14,7 @@ import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
@@ -92,7 +93,7 @@ class FranchiseShelfBuilder {
 			if (e.getStatus() != WatchStatus.WATCHED && e.getStatus() != WatchStatus.WATCHING) continue;
 			Title t = ctx.titlesById().get(e.getTitleId());
 			if (t == null || t.getType() != TitleType.MOVIE || t.getExternalId() == null) continue;
-			TmdbTitleCache cached = ctx.cacheByTmdbId().get(t.getExternalId());
+			TmdbTitleCache cached = ctx.cacheByTmdbId().get(TmdbCacheKey.of(t));
 			if (cached == null || cached.getCollectionId() == null) continue;
 			collections.putIfAbsent(cached.getCollectionId(), cached.getCollectionName());
 		}

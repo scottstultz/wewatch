@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.tmdb.TmdbClient;
 
@@ -51,7 +52,7 @@ final class HarnessTmdbClient extends TmdbClient {
 	public List<TitleSearchResponse> getRecommendations(TitleType type, String tmdbId, int page) {
 		List<TitleSearchResponse> recorded = recordedByKey.get("recommendations:" + type + ":" + tmdbId + ":" + page);
 		if (recorded != null) return recorded;
-		TmdbTitleCache seed = cacheLookup.apply(tmdbId);
+		TmdbTitleCache seed = cacheLookup.apply(TmdbCacheKey.of(type, tmdbId));
 		return catalog.recommendations(type, tmdbId, genresOf(seed), keywordsOf(seed), page);
 	}
 
@@ -59,7 +60,7 @@ final class HarnessTmdbClient extends TmdbClient {
 	public List<TitleSearchResponse> getSimilar(TitleType type, String tmdbId, int page) {
 		List<TitleSearchResponse> recorded = recordedByKey.get("similar:" + type + ":" + tmdbId + ":" + page);
 		if (recorded != null) return recorded;
-		TmdbTitleCache seed = cacheLookup.apply(tmdbId);
+		TmdbTitleCache seed = cacheLookup.apply(TmdbCacheKey.of(type, tmdbId));
 		return catalog.similar(type, tmdbId, genresOf(seed), keywordsOf(seed), page);
 	}
 

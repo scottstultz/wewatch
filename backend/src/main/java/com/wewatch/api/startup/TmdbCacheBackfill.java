@@ -9,6 +9,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.repository.TitleRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.service.TmdbCacheService;
@@ -17,6 +18,10 @@ import com.wewatch.api.service.TmdbCacheService;
 public class TmdbCacheBackfill {
 
 	private static final Logger log = LoggerFactory.getLogger(TmdbCacheBackfill.class);
+
+	// TmdbCacheService.prewarmMovie takes a bare TMDB id; the two queries below strip the
+	// medium-scoped cache key's "movie:" prefix (#394) back off before returning it.
+	private static final int MOVIE_PREFIX_LENGTH = TmdbCacheKey.prefix(TitleType.MOVIE).length();
 
 	private final TitleRepository titleRepository;
 	private final TmdbTitleCacheRepository titleCacheRepository;
@@ -34,7 +39,8 @@ public class TmdbCacheBackfill {
 
 	@EventListener(ApplicationReadyEvent.class)
 	public void backfillMissingTitles() {
-		List<String> uncachedShows = titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV);
+		List<String> uncachedShows =
+			titleRepository.findExternalIdsByTypeNotInCache(TitleType.TV, TmdbCacheKey.prefix(TitleType.TV));
 		if (!uncachedShows.isEmpty()) {
 			log.info("Backfilling TMDB episode cache for {} TV title(s) not yet cached", uncachedShows.size());
 			for (String tmdbId : uncachedShows) {
@@ -42,7 +48,8 @@ public class TmdbCacheBackfill {
 			}
 		}
 
-		List<String> uncachedMovies = titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE);
+		List<String> uncachedMovies =
+			titleRepository.findExternalIdsByTypeNotInCache(TitleType.MOVIE, TmdbCacheKey.prefix(TitleType.MOVIE));
 		if (!uncachedMovies.isEmpty()) {
 			log.info("Backfilling TMDB metadata cache for {} movie(s) not yet cached", uncachedMovies.size());
 			for (String tmdbId : uncachedMovies) {
@@ -54,7 +61,8 @@ public class TmdbCacheBackfill {
 		// unlike TV, a movie cache row is never TTL-refreshed. Without this pass the stats
 		// page would report a watch time of zero minutes for every movie in the library.
 		// Re-prewarming rewrites the whole row, runtime included.
-		List<String> moviesMissingRuntime = titleCacheRepository.findMovieIdsMissingRuntime();
+		List<String> moviesMissingRuntime =
+			titleCacheRepository.findMovieIdsMissingRuntime(MOVIE_PREFIX_LENGTH);
 		if (!moviesMissingRuntime.isEmpty()) {
 			log.info("Backfilling runtime for {} cached movie(s) missing it", moviesMissingRuntime.size());
 			for (String tmdbId : moviesMissingRuntime) {
@@ -67,7 +75,8 @@ public class TmdbCacheBackfill {
 		// suggestion pipeline's badges already read this column (ProviderContextResolver
 		// .attachBadges), so a stale row silently under-badges older movies (#391).
 		// Re-prewarming rewrites the whole row, providers included.
-		List<String> moviesMissingProviders = titleCacheRepository.findMovieIdsMissingWatchProviders();
+		List<String> moviesMissingProviders =
+			titleCacheRepository.findMovieIdsMissingWatchProviders(MOVIE_PREFIX_LENGTH);
 		if (!moviesMissingProviders.isEmpty()) {
 			log.info("Backfilling watch providers for {} cached movie(s) missing them", moviesMissingProviders.size());
 			for (String tmdbId : moviesMissingProviders) {

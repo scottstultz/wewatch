@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import com.wewatch.api.dto.TonightPickResponse;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
@@ -126,16 +127,17 @@ public class TonightService {
 		if (movies.isEmpty()) {
 			return List.of();
 		}
-		// One batch read for the page, keyed on TMDB id — the same shape StatsService uses.
-		Set<String> externalIds = movies.stream()
-			.map(e -> titlesById.get(e.getTitleId()).getExternalId())
+		// One batch read for the page, keyed on the medium-scoped cache key (#394) — the same
+		// shape StatsService uses. This path is movie-only, so every key takes the "movie:" form.
+		Set<String> cacheKeys = movies.stream()
+			.map(e -> TmdbCacheKey.movie(titlesById.get(e.getTitleId()).getExternalId()))
 			.collect(Collectors.toCollection(LinkedHashSet::new));
-		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(externalIds).stream()
+		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(cacheKeys).stream()
 			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
 
 		List<TonightPickResponse> picks = new ArrayList<>();
 		for (WatchlistEntry entry : movies) {
-			TmdbTitleCache cached = cacheById.get(titlesById.get(entry.getTitleId()).getExternalId());
+			TmdbTitleCache cached = cacheById.get(TmdbCacheKey.movie(titlesById.get(entry.getTitleId()).getExternalId()));
 			Integer runtime = cached != null ? cached.getRuntimeMinutes() : null;
 			if (fits(runtime, maxMinutes)) {
 				picks.add(new TonightPickResponse(entry.getId(), TitleType.MOVIE, runtime, null, null));

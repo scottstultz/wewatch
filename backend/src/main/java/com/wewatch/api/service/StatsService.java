@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import com.wewatch.api.dto.StatsResponse;
 import com.wewatch.api.dto.StatsResponse.GenreStat;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.repository.EpisodeProgressRepository;
@@ -89,9 +90,13 @@ public class StatsService {
 			minutesByShow.merge(episode.getExternalId(), minutes, Integer::sum);
 		}
 
-		Set<String> contributingIds = new LinkedHashSet<>(finishedMovieIds);
-		contributingIds.addAll(minutesByShow.keySet());
-		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(contributingIds)
+		// Movie and show ids are bare TMDB ids that can legitimately collide across media
+		// (#394), so the cache read keys on the medium-scoped cache key — movie ids get the
+		// "movie:" prefix, show ids "tv:" — matching how tmdb_title_cache is written.
+		Set<String> contributingKeys = finishedMovieIds.stream().map(TmdbCacheKey::movie)
+			.collect(Collectors.toCollection(LinkedHashSet::new));
+		minutesByShow.keySet().stream().map(TmdbCacheKey::tv).forEach(contributingKeys::add);
+		Map<String, TmdbTitleCache> cacheById = titleCacheRepository.findAllById(contributingKeys)
 			.stream()
 			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
 
@@ -99,14 +104,14 @@ public class StatsService {
 
 		int movieMinutes = 0;
 		for (String movieId : finishedMovieIds) {
-			TmdbTitleCache cached = cacheById.get(movieId);
+			TmdbTitleCache cached = cacheById.get(TmdbCacheKey.movie(movieId));
 			int minutes = cached != null ? positiveOrZero(cached.getRuntimeMinutes()) : 0;
 			if (minutes == 0) missingRuntime++;
 			movieMinutes += minutes;
 			attributeToGenres(tallies, cached, minutes);
 		}
 		for (Map.Entry<String, Integer> show : minutesByShow.entrySet()) {
-			attributeToGenres(tallies, cacheById.get(show.getKey()), show.getValue());
+			attributeToGenres(tallies, cacheById.get(TmdbCacheKey.tv(show.getKey())), show.getValue());
 		}
 
 		return new StatsResponse(

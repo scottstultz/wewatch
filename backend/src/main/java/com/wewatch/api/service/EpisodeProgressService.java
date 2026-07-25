@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.wewatch.api.model.EpisodeProgress;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.repository.EpisodeProgressRepository;
@@ -133,7 +134,7 @@ public class EpisodeProgressService {
 	// treated as aired — the guard only blocks episodes the cache knows are in the future.
 	private Set<Integer> unairedEpisodeNumbers(Title title, int seasonNumber) {
 		LocalDate today = LocalDate.now(clock);
-		return episodeCacheRepository.findByTmdbIdAndSeasonNumber(title.getExternalId(), seasonNumber).stream()
+		return episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(title.getExternalId()), seasonNumber).stream()
 			.filter(ep -> ep.getAirDate() != null && ep.getAirDate().isAfter(today))
 			.map(TmdbEpisodeCache::getEpisodeNumber)
 			.collect(Collectors.toSet());

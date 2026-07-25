@@ -21,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.wewatch.api.dto.EpisodeProgressSummary;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
@@ -70,9 +71,10 @@ class EpisodeProgressSummaryServiceTest {
 		return next;
 	}
 
+	// This service is TV-only, so always the "tv:" cache key (#394).
 	private static TmdbTitleCache cachedShow(String tmdbId, String status) {
 		TmdbTitleCache cached = new TmdbTitleCache();
-		cached.setTmdbId(tmdbId);
+		cached.setTmdbId(TmdbCacheKey.tv(tmdbId));
 		cached.setStatus(status);
 		return cached;
 	}
@@ -152,7 +154,7 @@ class EpisodeProgressSummaryServiceTest {
 		LastWatchedEpisode lastWatched = lastWatched(5L, 8, 6);
 		when(episodeProgressRepository.summarizeByEntryIds(anyList())).thenReturn(List.of(counts));
 		when(episodeProgressRepository.findLastWatchedByEntryIds(anyList())).thenReturn(List.of(lastWatched));
-		when(tmdbTitleCacheRepository.findAllById(List.of("1399")))
+		when(tmdbTitleCacheRepository.findAllById(List.of(TmdbCacheKey.tv("1399"))))
 			.thenReturn(List.of(cachedShow("1399", "Ended")));
 
 		Map<Long, EpisodeProgressSummary> result = service.buildSummaries(Map.of(5L, "1399"));
@@ -178,7 +180,7 @@ class EpisodeProgressSummaryServiceTest {
 	void leavesShowStatusNullWhenCacheHasNoStatus() {
 		EpisodeProgressCounts counts = counts(5L, 73, 73);
 		when(episodeProgressRepository.summarizeByEntryIds(anyList())).thenReturn(List.of(counts));
-		when(tmdbTitleCacheRepository.findAllById(List.of("1399")))
+		when(tmdbTitleCacheRepository.findAllById(List.of(TmdbCacheKey.tv("1399"))))
 			.thenReturn(List.of());
 
 		Map<Long, EpisodeProgressSummary> result = service.buildSummaries(Map.of(5L, "1399"));
@@ -199,7 +201,7 @@ class EpisodeProgressSummaryServiceTest {
 		when(episodeProgressRepository.findLastWatchedByEntryIds(anyList()))
 			.thenReturn(List.of(lastWatchedCaughtUp, lastWatchedInProgress));
 		when(episodeProgressRepository.findNextEpisodeByEntryIds(anyList())).thenReturn(List.of(next));
-		when(tmdbTitleCacheRepository.findAllById(List.of("1399")))
+		when(tmdbTitleCacheRepository.findAllById(List.of(TmdbCacheKey.tv("1399"))))
 			.thenReturn(List.of(cachedShow("1399", "Ended")));
 
 		Map<Long, EpisodeProgressSummary> result = service.buildSummaries(externalIds);

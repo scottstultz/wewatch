@@ -62,8 +62,8 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		           ) AS pos
 		    FROM watchlist_entries we
 		    JOIN titles t ON t.id = we.title_id
-		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = t.external_id
-		    WHERE we.id IN (:entryIds)
+		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = 'tv:' || t.external_id
+		    WHERE we.id IN (:entryIds) AND t.type = 'TV'
 		),
 		last_watched_pos AS (
 		    SELECT eo.watchlist_entry_id, MAX(eo.pos) AS max_pos
@@ -113,8 +113,8 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		           ) AS pos
 		    FROM watchlist_entries we
 		    JOIN titles t ON t.id = we.title_id
-		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = t.external_id
-		    WHERE we.id IN (:entryIds)
+		    JOIN tmdb_episode_cache ec ON ec.tmdb_id = 'tv:' || t.external_id
+		    WHERE we.id IN (:entryIds) AND t.type = 'TV'
 		),
 		last_watched_pos AS (
 		    SELECT eo.watchlist_entry_id, MAX(eo.pos) AS max_pos
@@ -156,7 +156,7 @@ public interface EpisodeProgressRepository extends JpaRepository<EpisodeProgress
 		JOIN watchlist_entries we ON we.id = ep.watchlist_entry_id
 		JOIN titles t ON t.id = we.title_id
 		LEFT JOIN tmdb_episode_cache ec
-		    ON ec.tmdb_id = t.external_id
+		    ON ec.tmdb_id = 'tv:' || t.external_id
 		   AND ec.season_number = ep.season_number
 		   AND ec.episode_number = ep.episode_number
 		WHERE we.watchlist_id = :watchlistId
