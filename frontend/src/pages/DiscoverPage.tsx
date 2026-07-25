@@ -9,7 +9,7 @@ import TitleCard, { cardKey } from '../components/TitleCard'
 import type { AddHandler, CardStatus, DismissHandler, OpenHandler, RemoveHandler, ToggleHandler } from '../components/TitleCard'
 import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import { catalogFor } from '../utils/genreCatalog'
-import type { GenreCatalog, PersonSearchResult, ShelfKind, SuggestionShelf, TitleSearchResponse, TitleType, WatchlistEntryResponse, WatchProvider } from '../types/api'
+import type { Genre, GenreCatalog, PersonSearchResult, ShelfKind, SuggestionShelf, TitleSearchResponse, TitleType, WatchlistEntryResponse, WatchProvider } from '../types/api'
 
 // Scroll offset saved when opening a title so back-navigation can restore it (#241)
 const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
@@ -17,11 +17,6 @@ const SCROLL_STORAGE_KEY = 'wewatch:discover-scroll'
 // Mirrors DiscoverPolicy.MAX_FETCH_PAGE — the browse endpoint rejects anything
 // deeper, so "Load more" stops here rather than asking for a 400 (#384)
 const MAX_BROWSE_PAGE = 6
-
-const MEDIUM_TABS: { value: TitleType; label: string }[] = [
-  { value: 'MOVIE', label: 'Movies' },
-  { value: 'TV', label: 'TV' },
-]
 
 // Franchise continuation first — the highest-precision suggestion class (#272)
 // outranks everything else. Similarity shelves next, the pooled catch-all
@@ -253,6 +248,13 @@ function DiscoverPage() {
   // The whole catalog for this medium, not the genres present on some list: this
   // browses TMDB, so every genre it has is on offer.
   const genreOptions = catalogFor(genreCatalog, medium)
+  // Both catalogs, so the picker's own Movies/TV switch can swap the offered
+  // checkboxes with no URL write (#398). The medium commits with Apply, never on
+  // the toggle — see GenreFilter.
+  const mediumOptions: Record<TitleType, Genre[]> = {
+    MOVIE: catalogFor(genreCatalog, 'MOVIE'),
+    TV: catalogFor(genreCatalog, 'TV'),
+  }
   const urlGenreIds = (searchParams.get('genres') ?? '')
     .split(',')
     .filter(part => part !== '')
@@ -272,14 +274,19 @@ function DiscoverPage() {
     .map(id => genreNamesById.get(id))
     .filter((name): name is string => !!name)
     .join(' + ')
+  const mediumNoun = medium === 'TV' ? 'TV' : 'movie'
 
-  // Query + genres: the search stays the unchanged all-medium multi search and the
-  // genres narrow its results here. AND over `every`, so "no filter" is the no-op
-  // case for free; a title whose genre ids the search response didn't carry drops
-  // out while a filter is active, the same call the Library makes (#382).
+  // Query + genres: a committed selection scopes the search server-side to its
+  // medium (#398) — `/3/search/multi` returns both mediums by design (#356), and
+  // that's what made the old client-only AND inconsistent per genre: Comedy (35,
+  // shared) left both mediums in the grid while Science Fiction (878, movie-only)
+  // silently dropped every TV result. Genres still AND client-side on top.
   const visibleResults = activeGenreIds.length > 0
     ? results.filter(t => activeGenreIds.every(id => (t.genreIds ?? []).includes(id)))
     : results
+  const searchPlaceholder = activeGenreIds.length > 0
+    ? `Search ${medium === 'TV' ? 'TV shows' : 'movies'}…`
+    : 'Search movies and TV shows…'
   const clearGenres = () => updateSearchParams({ genres: null })
 
   const browseMode = catalogSettled && !hasQuery && activeGenreIds.length > 0
@@ -327,6 +334,15 @@ function DiscoverPage() {
       setSearched(false)
       return
     }
+    // Genres are in the URL but the catalog hasn't settled, so whether this search
+    // is medium-scoped isn't known yet. Firing unscoped now would just re-fire
+    // scoped the moment the catalog lands (#398) — same reasoning as browseMode.
+    if (genresPending) return
+
+    // Derived from genresParam rather than reading the outer activeGenreIds, same
+    // idiom as the browse effect below — activeGenreIds isn't in the dependency
+    // array (a fresh array every render would re-fire this forever).
+    const scoped = genresParam.length > 0
 
     const timer = setTimeout(async () => {
       if (!selectedWatchlistId) return
@@ -334,7 +350,7 @@ function DiscoverPage() {
       setError(null)
       try {
         const [data, watchlist] = await Promise.all([
-          api.searchTitles(query),
+          scoped ? api.searchTitles(query, medium) : api.searchTitles(query),
           api.getWatchlistEntries(selectedWatchlistId),
         ])
         const entryByKey = new Map(
@@ -374,7 +390,9 @@ function DiscoverPage() {
     }, 300)
 
     return () => clearTimeout(timer)
-  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds])
+    // genresParam (a string) rather than activeGenreIds (a fresh array every render)
+    // — same reasoning as the browse effect below.
+  }, [query, api, selectedWatchlistId, setCardStatus, setEntryIds, genresPending, genresParam, medium])
 
   // Suggestions effect (when the query is empty and no genres are selected)
   useEffect(() => {
@@ -583,7 +601,7 @@ function DiscoverPage() {
               ref={searchInputRef}
               className="search-input"
               type="search"
-              placeholder="Search movies and TV shows…"
+              placeholder={searchPlaceholder}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
@@ -599,33 +617,22 @@ function DiscoverPage() {
             )}
           </div>
 
-          {/* Movies/TV toggle + genre picker (#384). Always shown once the catalog
-              loads, because the medium is what decides which genres exist at all —
-              TMDB's TV catalog has no Romance, Horror or Thriller. With nothing
-              ticked it changes nothing about the page. */}
-          {genreOptions.length > 0 && (
+          {/* Genre picker, medium switch folded in (#398). Always shown once the
+              catalog loads — the trigger is the single place the medium is stated,
+              reading "Genres" / "Movies • Comedy" / "TV • 3 Genres". */}
+          {(mediumOptions.MOVIE.length > 0 || mediumOptions.TV.length > 0) && (
             <div className="library-filter-row discover-filter-row">
-              <div className="library-tabs">
-                {MEDIUM_TABS.map(tab => (
-                  <button
-                    key={tab.value}
-                    className={`library-tab${medium === tab.value ? ' library-tab-active' : ''}`}
-                    onClick={() => updateSearchParams({ medium: tab.value })}
-                    aria-pressed={medium === tab.value}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
               <GenreFilter
                 options={genreOptions}
                 selected={activeGenreIds}
+                medium={medium}
+                mediumOptions={mediumOptions}
                 // Writes the medium alongside the genres, so a browse URL always
                 // carries the one it was built for and can't be re-derived out from
                 // under a shared link
-                onApply={ids => updateSearchParams({
+                onApply={(ids, nextMedium) => updateSearchParams({
                   genres: ids.length > 0 ? ids.join(',') : null,
-                  medium,
+                  medium: nextMedium ?? medium,
                 })}
               />
             </div>
@@ -652,6 +659,16 @@ function DiscoverPage() {
         {/* Search results */}
         {query.trim() && (
           <>
+            {/* Scope line (#398): the search is medium-scoped server-side whenever a
+                genre selection is committed. "Search everything" is clearGenres under
+                a name that reads right for search, not just for the genre picker —
+                clearing also brings the People row back. */}
+            {activeGenreIds.length > 0 && (
+              <p className="discover-scope-line">
+                {medium === 'TV' ? 'TV' : 'Movies'} • {activeGenreLabel}{' '}
+                <button className="link-button" onClick={clearGenres}>Search everything</button>
+              </p>
+            )}
             {isLoading && <p className="search-status">Searching…</p>}
             {error && <p className="search-status search-status-error">{error}</p>}
             {!isLoading && searched && results.length === 0 && people.length === 0
@@ -659,12 +676,12 @@ function DiscoverPage() {
               <p className="search-status">No results for &ldquo;{query}&rdquo;.</p>
             )}
             {/* A ≤20-result search AND-ed against two genres is often empty. That has
-                to read as "no matches", not as a broken page — and the way out is
-                one click. */}
+                to read as "no matches", not as a broken page. The escape hatch lives
+                in the scope line above — not duplicated here as a second identically
+                labelled button. */}
             {!isLoading && searched && visibleResults.length === 0 && activeGenreIds.length > 0 && (
               <p className="search-status">
-                No results for &ldquo;{query}&rdquo; in {activeGenreLabel}.{' '}
-                <button className="link-button" onClick={clearGenres}>Clear genres</button>
+                No {mediumNoun} results for &ldquo;{query}&rdquo; in {activeGenreLabel}.
               </p>
             )}
             {people.length > 0 && (
@@ -708,12 +725,14 @@ function DiscoverPage() {
           </>
         )}
 
-        {/* Every selected genre belongs to the other medium (#384) */}
+        {/* Every selected genre belongs to the other medium (#384). The medium switch
+            lives inside the Genres picker now (#398), so this points there instead
+            of naming a control that used to sit beside it. */}
         {crossMediumOnly && (
           <p className="search-status">
             {medium === 'TV'
-              ? 'Those genres aren’t in TMDB’s TV catalog — TV has no Romance, Horror or Thriller. Pick from TV’s genres, or switch back to Movies.'
-              : 'Those genres aren’t in TMDB’s movie catalog. Pick from the movie genres, or switch back to TV.'}{' '}
+              ? 'Those genres aren’t in TMDB’s TV catalog — TV has no Romance, Horror or Thriller. Pick from TV’s genres in the picker, or clear them.'
+              : 'Those genres aren’t in TMDB’s movie catalog. Pick from the movie genres in the picker, or clear them.'}{' '}
             <button className="link-button" onClick={clearGenres}>Clear genres</button>
           </p>
         )}

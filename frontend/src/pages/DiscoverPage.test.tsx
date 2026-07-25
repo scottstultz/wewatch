@@ -302,9 +302,11 @@ describe('DiscoverPage genre browse (#384)', () => {
     )
   }
 
-  // The catalog fetch is what makes the trigger appear, so every flow waits on it
+  // The catalog fetch is what makes the trigger appear, so every flow waits on it.
+  // The name regex covers all three trigger labels (#398): "Genres" with nothing
+  // selected, "Movies • Comedy" / "TV • 3 Genres" once something is.
   async function openPanel() {
-    fireEvent.click(await screen.findByRole('button', { name: /^Genres/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /^(Genres|Movies •|TV •)/ }))
   }
 
   function tick(name: string) {
@@ -391,21 +393,50 @@ describe('DiscoverPage genre browse (#384)', () => {
     expect(screen.getByText('Notting Hill')).toBeInTheDocument()
   })
 
-  it('re-queries the other medium and offers that catalog’s real genre names', async () => {
+  it('re-queries the other medium and offers that catalog’s real genre names, only on Apply (#398)', async () => {
     mockApi.browseByGenre.mockResolvedValue([romcom])
     renderAt('/?genres=35&medium=MOVIE')
     await screen.findByText('Notting Hill')
+    expect(mockApi.browseByGenre).toHaveBeenCalledTimes(1)
 
+    await openPanel()
     fireEvent.click(screen.getByRole('button', { name: 'TV' }))
+
+    // TMDB's TV catalog, not the movie one: "Sci-Fi & Fantasy" (10765) rather than
+    // "Science Fiction" (878). Mapping between them is exactly what the switch avoids.
+    expect(screen.getByRole('checkbox', { name: 'Sci-Fi & Fantasy' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Science Fiction' })).not.toBeInTheDocument()
+    // Comedy (35) is shared, so it survives the switch checked — nothing to drop
+    expect(screen.getByRole('checkbox', { name: 'Comedy' })).toBeChecked()
+    // The medium toggle is under the same deferred-commit rule as a checkbox
+    // (#382): clicking it alone must not re-fire the request.
+    expect(mockApi.browseByGenre).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
     await waitFor(() =>
       expect(mockApi.browseByGenre).toHaveBeenLastCalledWith(1, 'TV', [35], 1))
+  })
 
-    // TMDB's TV catalog, not the movie one: "Sci-Fi & Fantasy" (10765) rather than
-    // "Science Fiction" (878). Mapping between them is exactly what the toggle avoids.
+  it('drops a drafted genre that doesn’t exist in the other medium and names it in a notice', async () => {
+    mockApi.browseByGenre.mockResolvedValue([romcom])
+    renderAt('/?genres=35,10749&medium=MOVIE')
+    await screen.findByText('Notting Hill')
+
     await openPanel()
-    expect(screen.getByRole('checkbox', { name: 'Sci-Fi & Fantasy' })).toBeInTheDocument()
-    expect(screen.queryByRole('checkbox', { name: 'Science Fiction' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Romance' })).toBeChecked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'TV' }))
+
+    // Romance (10749) has no TV equivalent — TMDB doesn't publish a Romance ↔
+    // Sci-Fi & Fantasy style mapping, so it's dropped rather than guessed at.
+    expect(screen.queryByRole('checkbox', { name: 'Romance' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Kept Comedy · Romance isn’t a TV genre/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() =>
+      expect(mockApi.browseByGenre).toHaveBeenLastCalledWith(1, 'TV', [35], 1))
   })
 
   it('explains itself when every selected genre belongs to the other medium', async () => {
@@ -421,7 +452,7 @@ describe('DiscoverPage genre browse (#384)', () => {
     await screen.findByText('Severance')
   })
 
-  it('filters search results by genre client-side, with an explicit empty state', async () => {
+  it('scopes the search to the selected medium and filters by genre client-side (#398)', async () => {
     mockApi.searchTitles.mockResolvedValue({
       titles: [romcom, comedy],
       people: [],
@@ -432,21 +463,24 @@ describe('DiscoverPage genre browse (#384)', () => {
     // Both are comedies; only one is also a romance
     await screen.findByText('Notting Hill')
     expect(screen.queryByText('Groundhog Day')).not.toBeInTheDocument()
-    // The search itself is untouched — still the all-medium multi search
-    expect(mockApi.searchTitles).toHaveBeenCalledWith('love')
+    // A committed selection scopes the search server-side to its medium (#398) —
+    // the old client-only AND was inconsistent per genre (Comedy, shared, left both
+    // mediums in; Science Fiction, movie-only, silently dropped every TV result)
+    expect(mockApi.searchTitles).toHaveBeenCalledWith('love', 'MOVIE')
     expect(mockApi.browseByGenre).not.toHaveBeenCalled()
   })
 
-  it('says "no results in those genres" rather than showing an empty page', async () => {
+  it('says "no results in those genres", naming the medium, rather than showing an empty page', async () => {
     mockApi.searchTitles.mockResolvedValue({ titles: [comedy], people: [] })
 
     renderAt('/?q=day&genres=35,10749&medium=MOVIE')
 
-    expect(await screen.findByText(/No results for “day” in Comedy \+ Romance/))
+    expect(await screen.findByText(/No movie results for “day” in Comedy \+ Romance/))
       .toBeInTheDocument()
 
-    // One click out of the dead end, and the unfiltered result is back
-    fireEvent.click(screen.getByRole('button', { name: 'Clear genres' }))
+    // One click out of the dead end, and the unfiltered result — including the
+    // People row it would otherwise skip — is back
+    fireEvent.click(screen.getByRole('button', { name: 'Search everything' }))
     await screen.findByText('Groundhog Day')
   })
 
@@ -458,10 +492,10 @@ describe('DiscoverPage genre browse (#384)', () => {
 
     fireEvent.change(screen.getByRole('searchbox', { name: '' }), { target: { value: 'love' } })
 
-    // The genre badge survives: writing ?q= used to replace the whole query string
+    // The genre scope survives: writing ?q= used to replace the whole query string
     // and drop the selection on every keystroke
-    await waitFor(() => expect(mockApi.searchTitles).toHaveBeenCalledWith('love'))
-    expect(screen.getByRole('button', { name: /^Genres/ })).toHaveTextContent('2')
+    await waitFor(() => expect(mockApi.searchTitles).toHaveBeenCalledWith('love', 'MOVIE'))
+    expect(screen.getByRole('button', { name: /Movies • 2 Genres/ })).toBeInTheDocument()
   })
 
   // ⚠️ This pins the #305 *property*, not the `browseSeeded` flag: the seed rides the
