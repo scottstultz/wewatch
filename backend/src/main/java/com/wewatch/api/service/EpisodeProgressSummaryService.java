@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 import com.wewatch.api.dto.EpisodeProgressSummary;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.repository.projection.EpisodeProgressCounts;
@@ -82,17 +83,20 @@ public class EpisodeProgressSummaryService {
 	private void enrichCaughtUpWithShowStatus(
 		Map<Long, EpisodeProgressSummary> summaries, Map<Long, String> externalIdsByEntryId
 	) {
-		List<String> caughtUpTmdbIds = summaries.entrySet().stream()
+		// This service is TV-only (the entries here are all shows), so every id below takes
+		// the "tv:" cache key form (#394).
+		List<String> caughtUpCacheKeys = summaries.entrySet().stream()
 			.filter(e -> e.getValue().nextSeason() == null)
 			.map(e -> externalIdsByEntryId.get(e.getKey()))
 			.filter(id -> id != null)
+			.map(TmdbCacheKey::tv)
 			.distinct()
 			.collect(Collectors.toList());
-		if (caughtUpTmdbIds.isEmpty()) {
+		if (caughtUpCacheKeys.isEmpty()) {
 			return;
 		}
 		Map<String, String> statusByTmdbId = new HashMap<>();
-		tmdbTitleCacheRepository.findAllById(caughtUpTmdbIds)
+		tmdbTitleCacheRepository.findAllById(caughtUpCacheKeys)
 			.forEach(c -> statusByTmdbId.put(c.getTmdbId(), c.getStatus()));
 
 		for (Map.Entry<Long, EpisodeProgressSummary> e : summaries.entrySet()) {
@@ -100,7 +104,7 @@ public class EpisodeProgressSummaryService {
 				continue;
 			}
 			String tmdbId = externalIdsByEntryId.get(e.getKey());
-			String status = tmdbId != null ? statusByTmdbId.get(tmdbId) : null;
+			String status = tmdbId != null ? statusByTmdbId.get(TmdbCacheKey.tv(tmdbId)) : null;
 			if (status != null) {
 				EpisodeProgressSummary old = e.getValue();
 				e.setValue(new EpisodeProgressSummary(

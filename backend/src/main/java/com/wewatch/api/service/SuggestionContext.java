@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.Set;
 
 import com.wewatch.api.model.Title;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.WatchlistEntry;
 
@@ -54,6 +55,6 @@ record SuggestionContext(
 	TmdbTitleCache cachedRowFor(WatchlistEntry entry) {
 		Title title = titlesById.get(entry.getTitleId());
 		if (title == null || title.getExternalId() == null) return null;
-		return cacheByTmdbId.get(title.getExternalId());
+		return cacheByTmdbId.get(TmdbCacheKey.of(title));
 	}
 }

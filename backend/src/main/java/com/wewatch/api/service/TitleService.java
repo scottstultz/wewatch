@@ -32,8 +32,11 @@ public class TitleService {
 		this.validator = validator;
 	}
 
-	public Title findOrCreate(String externalSource, String externalId, Supplier<Title> candidateSupplier) {
-		return titleRepository.findByExternalSourceAndExternalId(externalSource, externalId)
+	// Medium-aware since #394: TMDB movie and TV ids are independent namespaces, so a bare
+	// (source, id) match resolved tv 550 to the movie 550 row. type is now part of the match,
+	// not just of what the supplier builds on a miss.
+	public Title findOrCreate(String externalSource, String externalId, TitleType type, Supplier<Title> candidateSupplier) {
+		return titleRepository.findByExternalSourceAndExternalIdAndType(externalSource, externalId, type)
 			.orElseGet(() -> saveNew(candidateSupplier.get()));
 	}
 
@@ -48,7 +51,8 @@ public class TitleService {
 			return titleRepository.save(title);
 		} catch (DataIntegrityViolationException e) {
 			// concurrent insert of the same external title — return the row that won the race
-			return titleRepository.findByExternalSourceAndExternalId(title.getExternalSource(), title.getExternalId())
+			return titleRepository.findByExternalSourceAndExternalIdAndType(
+					title.getExternalSource(), title.getExternalId(), title.getType())
 				.orElseThrow(() -> e);
 		}
 	}
@@ -67,6 +71,14 @@ public class TitleService {
 	// pre-add detail page, #273) rather than an error
 	public Optional<Title> findOptionalByExternalSourceAndExternalId(String externalSource, String externalId) {
 		return titleRepository.findByExternalSourceAndExternalId(externalSource, externalId);
+	}
+
+	// Medium-aware variant (#394) for callers that already know which medium they want — the
+	// pre-add detail page (#273) knows type from its own request and must not let a same-id
+	// title in the other medium answer for its rating.
+	public Optional<Title> findOptionalByExternalSourceAndExternalIdAndType(
+			String externalSource, String externalId, TitleType type) {
+		return titleRepository.findByExternalSourceAndExternalIdAndType(externalSource, externalId, type);
 	}
 
 	public Title findByExternalSourceAndExternalId(String externalSource, String externalId) {

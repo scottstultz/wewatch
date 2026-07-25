@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import com.wewatch.api.dto.SuggestionShelfResponse;
 import com.wewatch.api.dto.TitleSearchResponse;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.User;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
@@ -107,7 +108,7 @@ class ProviderContextResolver {
 
 		List<String> ids = shelves.stream()
 			.flatMap(s -> s.titles().stream())
-			.map(TitleSearchResponse::externalId)
+			.map(t -> TmdbCacheKey.of(t.type(), t.externalId()))
 			.distinct()
 			.toList();
 		Map<String, TmdbTitleCache> cachedById = new HashMap<>();
@@ -129,7 +130,7 @@ class ProviderContextResolver {
 	List<TitleSearchResponse> badge(List<TitleSearchResponse> titles, ProviderContext ctx) {
 		if (titles.isEmpty() || !ctx.enabled()) return titles;
 
-		List<String> ids = titles.stream().map(TitleSearchResponse::externalId).distinct().toList();
+		List<String> ids = titles.stream().map(t -> TmdbCacheKey.of(t.type(), t.externalId())).distinct().toList();
 		Map<String, TmdbTitleCache> cachedById = new HashMap<>();
 		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
 			cachedById.put(cached.getTmdbId(), cached);
@@ -162,7 +163,7 @@ class ProviderContextResolver {
 	) {
 		return titles.stream()
 			.map(t -> {
-				TmdbTitleCache cached = cachedById.get(t.externalId());
+				TmdbTitleCache cached = cachedById.get(TmdbCacheKey.of(t.type(), t.externalId()));
 				List<Integer> mine = cached != null ? ctx.streamableOn(cached) : List.of();
 				return mine.isEmpty() ? t
 					: new TitleSearchResponse(t.externalId(), t.externalSource(), t.type(), t.name(),

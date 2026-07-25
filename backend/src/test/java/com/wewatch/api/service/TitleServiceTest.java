@@ -62,9 +62,10 @@ class TitleServiceTest {
 			Instant.now()
 		);
 
-		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.of(existing));
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "603", TitleType.MOVIE))
+			.thenReturn(Optional.of(existing));
 
-		Title resolved = service.findOrCreate("TMDB", "603", () -> {
+		Title resolved = service.findOrCreate("TMDB", "603", TitleType.MOVIE, () -> {
 			throw new AssertionError("supplier must not be invoked when the title already exists");
 		});
 
@@ -89,10 +90,11 @@ class TitleServiceTest {
 			null
 		);
 
-		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.empty());
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "603", TitleType.MOVIE))
+			.thenReturn(Optional.empty());
 		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-		Title created = service.findOrCreate("TMDB", "603", () -> candidate);
+		Title created = service.findOrCreate("TMDB", "603", TitleType.MOVIE, () -> candidate);
 
 		assertThat(created.getCreatedAt()).isNotNull();
 		assertThat(created.getUpdatedAt()).isNotNull();
@@ -116,9 +118,10 @@ class TitleServiceTest {
 			null
 		);
 
-		when(repository.findByExternalSourceAndExternalId("TMDB", "603")).thenReturn(Optional.empty());
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "603", TitleType.MOVIE))
+			.thenReturn(Optional.empty());
 
-		assertThatThrownBy(() -> service.findOrCreate("TMDB", "603", () -> candidate))
+		assertThatThrownBy(() -> service.findOrCreate("TMDB", "603", TitleType.MOVIE, () -> candidate))
 			.isInstanceOf(ConstraintViolationException.class);
 	}
 
@@ -151,14 +154,47 @@ class TitleServiceTest {
 			null
 		);
 
-		when(repository.findByExternalSourceAndExternalId("TMDB", "603"))
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "603", TitleType.MOVIE))
 			.thenReturn(Optional.empty(), Optional.of(existing));
 		when(repository.save(any(Title.class)))
-			.thenThrow(new DataIntegrityViolationException("duplicate key uq_titles_external_source_external_id"));
+			.thenThrow(new DataIntegrityViolationException("duplicate key uq_titles_external_source_external_id_type"));
 
-		Title resolved = service.findOrCreate("TMDB", "603", () -> candidate);
+		Title resolved = service.findOrCreate("TMDB", "603", TitleType.MOVIE, () -> candidate);
 
 		assertThat(resolved).isEqualTo(existing);
+	}
+
+	@Test
+	void findOrCreateResolvesAColliddingMovieAndTvIdToDistinctTitles() {
+		// #394: TMDB's movie and TV id sequences are independent namespaces — movie 550 is Fight
+		// Club, tv 550 is Till Death Us Do Part. Matching on (source, id) alone let the second
+		// medium added resolve to the first medium's row. Type is now part of the match, so a
+		// movie lookup and a TV lookup for the same id must find (or create) two separate rows.
+		TitleRepository repository = Mockito.mock(TitleRepository.class);
+		TitleService service = new TitleService(repository, validator);
+
+		Title existingMovie = new Title(
+			1L, "550", "TMDB", TitleType.MOVIE, "Fight Club", null,
+			LocalDate.parse("1999-10-15"), null, Instant.now(), Instant.now());
+		Title tvCandidate = new Title(
+			null, "550", "TMDB", TitleType.TV, "Till Death Us Do Part", null,
+			null, null, null, null);
+
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "550", TitleType.MOVIE))
+			.thenReturn(Optional.of(existingMovie));
+		when(repository.findByExternalSourceAndExternalIdAndType("TMDB", "550", TitleType.TV))
+			.thenReturn(Optional.empty());
+		when(repository.save(any(Title.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+		Title resolvedMovie = service.findOrCreate("TMDB", "550", TitleType.MOVIE, () -> {
+			throw new AssertionError("the existing movie must be found, not recreated");
+		});
+		Title resolvedTv = service.findOrCreate("TMDB", "550", TitleType.TV, () -> tvCandidate);
+
+		assertThat(resolvedMovie).isEqualTo(existingMovie);
+		assertThat(resolvedTv).isEqualTo(tvCandidate);
+		assertThat(resolvedMovie.getExternalId()).isEqualTo(resolvedTv.getExternalId());
+		assertThat(resolvedMovie.getType()).isNotEqualTo(resolvedTv.getType());
 	}
 
 	@Test

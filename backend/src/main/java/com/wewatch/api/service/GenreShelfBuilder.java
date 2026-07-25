@@ -15,6 +15,7 @@ import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.exception.TmdbApiException;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.WatchlistEntry;
 import com.wewatch.api.tmdb.TmdbClient;
 
@@ -90,7 +91,7 @@ class GenreShelfBuilder {
 		return group.stream()
 			.map(e -> ctx.titlesById().get(e.getTitleId()))
 			.filter(Objects::nonNull)
-			.map(t -> ctx.cacheByTmdbId().get(t.getExternalId()))
+			.map(t -> ctx.cacheByTmdbId().get(TmdbCacheKey.of(t)))
 			.filter(Objects::nonNull)
 			.flatMap(c -> c.getKeywordIds() != null ? c.getKeywordIds().stream() : Stream.<Integer>empty())
 			.collect(Collectors.groupingBy(k -> k, Collectors.summingInt(k -> 1)))

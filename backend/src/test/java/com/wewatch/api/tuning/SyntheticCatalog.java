@@ -15,6 +15,7 @@ import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 
 /**
@@ -202,12 +203,20 @@ final class SyntheticCatalog {
 		return id >= 900 && id - 900 < PEOPLE_NAMES.length ? PEOPLE_NAMES[id - 900] : "Person " + id;
 	}
 
-	/** Synthetic tmdb_title_cache row for a universe title; null for unknown ids. */
-	TmdbTitleCache cacheRowFor(String tmdbId) {
-		SynTitle t = byId.get(tmdbId);
+	/**
+	 * Synthetic tmdb_title_cache row for a universe title; null for unknown ids.
+	 *
+	 * <p>{@code cacheKey} is the medium-scoped cache key (#394) production code now looks up
+	 * with — {@code FixtureWorld} passes through whatever {@code TmdbTitleCacheRepository
+	 * .findAllById} was asked for. Every synthetic id already belongs to exactly one type for
+	 * the life of the universe (fixed at generation, alternating by index), so stripping the
+	 * prefix to find the title and re-tagging the row with the key as given is safe.
+	 */
+	TmdbTitleCache cacheRowFor(String cacheKey) {
+		SynTitle t = byId.get(TmdbCacheKey.tmdbIdOf(cacheKey));
 		if (t == null) return null;
 		TmdbTitleCache row = new TmdbTitleCache();
-		row.setTmdbId(t.tmdbId());
+		row.setTmdbId(cacheKey);
 		row.setType(t.type() == TitleType.MOVIE ? "MOVIE" : "TV");
 		row.setName(t.name());
 		row.setGenreIds(t.genreIds());

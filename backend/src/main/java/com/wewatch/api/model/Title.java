@@ -20,7 +20,11 @@ import jakarta.validation.constraints.Size;
 @Table(
 	name = "titles",
 	uniqueConstraints = {
-		@UniqueConstraint(name = "uq_titles_external_source_external_id", columnNames = {"external_source", "external_id"})
+		// Medium-scoped since #394: TMDB movie and TV ids are independent namespaces, so
+		// (source, id) alone resolved tv 550 to the movie 550 row. Inert under ddl-auto=none —
+		// V26 is what enforces it — but it must not drift from the migration.
+		@UniqueConstraint(name = "uq_titles_external_source_external_id_type",
+			columnNames = {"external_source", "external_id", "type"})
 	}
 )
 public class Title {

@@ -49,6 +49,7 @@ import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
@@ -692,9 +693,12 @@ class SuggestionServiceTest {
 		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 	}
 
+	// Every title in this file is TitleType.TV (title()/candidate()/scored() below), so the
+	// stored cache key always takes the "tv:" prefix (#394) — stubCacheRows looks rows up by
+	// this same key, not by the map's own literal key, so callers keep passing bare ids.
 	private TmdbTitleCache personRow(String tmdbId, List<CachedPerson> topCast, List<CachedPerson> directors) {
 		TmdbTitleCache c = new TmdbTitleCache();
-		c.setTmdbId(tmdbId);
+		c.setTmdbId(TmdbCacheKey.tv(tmdbId));
 		c.setTopCast(topCast);
 		c.setDirectors(directors);
 		return c;
@@ -732,7 +736,7 @@ class SuggestionServiceTest {
 			.thenReturn(new PageImpl<>(entries));
 		when(titleService.findByIds(any())).thenReturn(Map.of(1L, movie));
 		stubCacheRows(Map.of("ext1",
-			keywordRow("ext1", List.of(1701), List.of(new CachedKeyword(1701, "heist")))));
+			movieKeywordRow("ext1", List.of(1701), List.of(new CachedKeyword(1701, "heist")))));
 		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 		when(tmdbClient.discoverByKeyword(eq(TitleType.MOVIE), eq(1701), anyInt(), any(), any(), anyInt()))
 			.thenReturn(IntStream.rangeClosed(1, 12).mapToObj(i -> candidate("kw-" + i)).toList());
@@ -824,6 +828,14 @@ class SuggestionServiceTest {
 	private TmdbTitleCache keywordRow(String tmdbId, List<Integer> keywordIds, List<CachedKeyword> keywords) {
 		TmdbTitleCache c = cacheRow(tmdbId, null, keywordIds);
 		c.setKeywords(keywords);
+		return c;
+	}
+
+	// Movie-leaning variant (#394): the TV-keyed cacheRow() above would store a key the movie
+	// title's lookup can never match.
+	private TmdbTitleCache movieKeywordRow(String tmdbId, List<Integer> keywordIds, List<CachedKeyword> keywords) {
+		TmdbTitleCache c = keywordRow(tmdbId, keywordIds, keywords);
+		c.setTmdbId(TmdbCacheKey.movie(tmdbId));
 		return c;
 	}
 
@@ -1009,8 +1021,11 @@ class SuggestionServiceTest {
 		when(watchlistMemberRepository.findUserIdsByWatchlistId(WATCHLIST_ID)).thenReturn(MEMBER_IDS);
 	}
 
+	// Collections are movie-only (TV has none), so this is always the "movie:" cache key (#394) —
+	// unlike cacheRow()/keywordRow()/personRow() above, whose default is TV.
 	private TmdbTitleCache collectionRow(String tmdbId, int collectionId, String collectionName) {
 		TmdbTitleCache c = cacheRow(tmdbId, null, null);
+		c.setTmdbId(TmdbCacheKey.movie(tmdbId));
 		c.setCollectionId(collectionId);
 		c.setCollectionName(collectionName);
 		return c;
@@ -2075,23 +2090,30 @@ class SuggestionServiceTest {
 		return cacheRow(tmdbId, genreIds, keywordIds, null);
 	}
 
+	// Every title in this file is TitleType.TV, so the stored cache key always takes the "tv:"
+	// prefix (#394) — production code looks up TmdbCacheKey.of(title) where title.getType() is
+	// always TV here.
 	private TmdbTitleCache cacheRow(String tmdbId, List<Integer> genreIds, List<Integer> keywordIds, Integer voteCount) {
 		TmdbTitleCache c = new TmdbTitleCache();
-		c.setTmdbId(tmdbId);
+		c.setTmdbId(TmdbCacheKey.tv(tmdbId));
 		c.setGenreIds(genreIds);
 		c.setKeywordIds(keywordIds);
 		c.setVoteCount(voteCount);
 		return c;
 	}
 
-	// Answer-based stub: findAllById is called once for owned ids and once per seed
-	// for candidate ids, so return whichever of the given rows were requested
+	// Answer-based stub: findAllById is called once for owned ids and once per seed for
+	// candidate ids, so return whichever of the given rows were requested. Matches on each row's
+	// own (already medium-scoped, #394) tmdbId rather than the map's literal key, so callers can
+	// keep writing Map.of("ext1", cacheRow("ext1", ...)) with the bare id.
 	private void stubCacheRows(Map<String, TmdbTitleCache> rows) {
+		Map<String, TmdbTitleCache> byCacheKey = rows.values().stream()
+			.collect(Collectors.toMap(TmdbTitleCache::getTmdbId, Function.identity()));
 		when(tmdbTitleCacheRepository.findAllById(any())).thenAnswer(inv -> {
 			Iterable<String> ids = inv.getArgument(0);
 			List<TmdbTitleCache> out = new ArrayList<>();
 			for (String id : ids) {
-				if (rows.containsKey(id)) out.add(rows.get(id));
+				if (byCacheKey.containsKey(id)) out.add(byCacheKey.get(id));
 			}
 			return out;
 		});

@@ -29,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import com.wewatch.api.config.SuggestionTuningProperties;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 import com.wewatch.api.repository.UserRepository;
@@ -277,9 +278,10 @@ class GenreBrowseServiceTest {
 		return new ProviderContext("US", Set.of(8, 9));
 	}
 
+	// This file's candidates are all TitleType.MOVIE (#394 cache key), matching candidate()/scored().
 	private TmdbTitleCache providerRow(String tmdbId, Map<String, List<Integer>> watchProviders) {
 		TmdbTitleCache c = new TmdbTitleCache();
-		c.setTmdbId(tmdbId);
+		c.setTmdbId(TmdbCacheKey.movie(tmdbId));
 		c.setWatchProviders(watchProviders);
 		return c;
 	}

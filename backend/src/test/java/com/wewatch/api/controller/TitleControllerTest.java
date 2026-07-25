@@ -127,7 +127,7 @@ class TitleControllerTest {
 			createdAt
 		);
 
-		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenReturn(existingTitle);
+		when(titleService.findOrCreate(eq("TMDB"), eq("603"), eq(TitleType.MOVIE), any())).thenReturn(existingTitle);
 
 		mockMvc.perform(
 			post("/api/titles/resolve")
@@ -154,7 +154,7 @@ class TitleControllerTest {
 			.andExpect(jsonPath("$.createdAt").value("2026-04-28T12:00:00Z"))
 			.andExpect(jsonPath("$.updatedAt").value("2026-04-28T12:00:00Z"));
 
-		verify(titleService).findOrCreate(eq("TMDB"), eq("603"), any());
+		verify(titleService).findOrCreate(eq("TMDB"), eq("603"), eq(TitleType.MOVIE), any());
 		verifyNoInteractions(tmdbClient);
 	}
 
@@ -167,8 +167,8 @@ class TitleControllerTest {
 			List.of(new TmdbGenre(28, "Action")),
 			8.2, 25000, null, null
 		, null, 136, null));
-		when(titleService.findOrCreate(eq("TMDB"), eq("603"), any())).thenAnswer(invocation -> {
-			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
+		when(titleService.findOrCreate(eq("TMDB"), eq("603"), eq(TitleType.MOVIE), any())).thenAnswer(invocation -> {
+			Title candidate = ((Supplier<Title>) invocation.getArgument(3)).get();
 			candidate.setId(1L);
 			return candidate;
 		});
@@ -210,8 +210,8 @@ class TitleControllerTest {
 			List.of(new TmdbGenre(10765, "Sci-Fi & Fantasy")),
 			8.4, 21000, null, null
 		, null));
-		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), any())).thenAnswer(invocation -> {
-			Title candidate = ((Supplier<Title>) invocation.getArgument(2)).get();
+		when(titleService.findOrCreate(eq("TMDB"), eq("1399"), eq(TitleType.TV), any())).thenAnswer(invocation -> {
+			Title candidate = ((Supplier<Title>) invocation.getArgument(3)).get();
 			candidate.setId(5L);
 			return candidate;
 		});

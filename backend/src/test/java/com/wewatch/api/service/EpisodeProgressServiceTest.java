@@ -24,6 +24,7 @@ import org.mockito.Mockito;
 import com.wewatch.api.model.EpisodeProgress;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.WatchStatus;
 import com.wewatch.api.model.WatchlistEntry;
@@ -180,7 +181,7 @@ class EpisodeProgressServiceTest {
 	void toggleEpisodeRejectsUnairedEpisode() {
 		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 5))
 			.thenReturn(Optional.empty());
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TV_TITLE.getExternalId()), 1))
 			.thenReturn(List.of(episodeCache(1, 5, TODAY.plusDays(7))));
 
 		assertThatThrownBy(() -> service.toggleEpisode(10L, 1L, 1, 5))
@@ -197,7 +198,7 @@ class EpisodeProgressServiceTest {
 		when(episodeProgressRepository.findByWatchlistEntryIdAndSeasonNumberAndEpisodeNumber(1L, 1, 5))
 			.thenReturn(Optional.of(existing));
 		when(episodeProgressRepository.save(any(EpisodeProgress.class))).thenAnswer(inv -> inv.getArgument(0));
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TV_TITLE.getExternalId()), 1))
 			.thenReturn(List.of(episodeCache(1, 5, TODAY.plusDays(7))));
 
 		EpisodeProgress result = service.toggleEpisode(10L, 1L, 1, 5);
@@ -215,7 +216,7 @@ class EpisodeProgressServiceTest {
 			ep.setId(99L);
 			return ep;
 		});
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TV_TITLE.getExternalId()), 1))
 			.thenReturn(List.of(episodeCache(1, 5, null)));
 
 		EpisodeProgress result = service.toggleEpisode(10L, 1L, 1, 5);
@@ -292,7 +293,7 @@ class EpisodeProgressServiceTest {
 	@Test
 	void bulkMarkSeasonWatchedExcludesUnairedEpisodes() {
 		// Episodes 1–2 aired; episode 3 airs in the future and must be skipped.
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TV_TITLE.getExternalId(), 1))
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TV_TITLE.getExternalId()), 1))
 			.thenReturn(List.of(
 				episodeCache(1, 1, TODAY.minusDays(14)),
 				episodeCache(1, 2, TODAY.minusDays(7)),

@@ -93,12 +93,20 @@ class TitleTest {
 	}
 
 	@Test
-	void externalSourceAndExternalIdHaveUniqueConstraint() {
+	void externalSourceAndExternalIdAndTypeHaveUniqueConstraint() {
+		// #394: TMDB movie and TV ids are independent namespaces, so the constraint must include
+		// type — (source, id) alone let tv 550 resolve to the movie 550 row. This only pins the
+		// entity annotation (inert under ddl-auto=none); the enforcement is V26, asserted from the
+		// classpath the same way UserEmailUniquenessTest (#345) pins V25.
 		Table table = Title.class.getAnnotation(Table.class);
 
 		assertThat(table).isNotNull();
-		assertThat(table.uniqueConstraints())
-			.extracting(UniqueConstraint::name)
-			.contains("uq_titles_external_source_external_id");
+		UniqueConstraint constraint = java.util.Arrays.stream(table.uniqueConstraints())
+			.filter(c -> c.name().equals("uq_titles_external_source_external_id_type"))
+			.findFirst()
+			.orElse(null);
+		assertThat(constraint).isNotNull();
+		assertThat(constraint.columnNames()).containsExactlyInAnyOrder(
+			"external_source", "external_id", "type");
 	}
 }

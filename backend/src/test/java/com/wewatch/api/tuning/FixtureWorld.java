@@ -25,6 +25,7 @@ import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Rating;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.model.User;
 import com.wewatch.api.model.WatchStatus;
@@ -108,7 +109,7 @@ final class FixtureWorld {
 			entry.setUpdatedAt(touched);
 			entries.add(entry);
 
-			ownedRows.put(e.tmdbId(), toCacheRow(e, type));
+			ownedRows.put(TmdbCacheKey.of(type, e.tmdbId()), toCacheRow(e, type));
 
 			if (e.rating() != null) {
 				effectiveRatings.put(e.titleId(), Rating.valueOf(e.rating()));
@@ -208,7 +209,7 @@ final class FixtureWorld {
 
 	private TmdbTitleCache toCacheRow(FixtureWatchlist.Entry e, TitleType type) {
 		TmdbTitleCache row = new TmdbTitleCache();
-		row.setTmdbId(e.tmdbId());
+		row.setTmdbId(TmdbCacheKey.of(type, e.tmdbId()));
 		row.setType(type == TitleType.MOVIE ? "MOVIE" : "TV");
 		row.setName(e.name());
 		row.setGenreIds(e.genreIds());

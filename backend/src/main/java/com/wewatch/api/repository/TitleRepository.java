@@ -17,11 +17,19 @@ public interface TitleRepository extends JpaRepository<Title, Long> {
 
 	Optional<Title> findByExternalSourceAndExternalId(String externalSource, String externalId);
 
+	// The medium-aware form (#394): two titles can legitimately share (source, id) across media
+	// (movie 550 Fight Club / tv 550 Till Death Us Do Part), so a caller that already knows the
+	// type it wants must pass it rather than accept whichever medium was written first.
+	Optional<Title> findByExternalSourceAndExternalIdAndType(String externalSource, String externalId, TitleType type);
+
 	@Query("SELECT t FROM Title t WHERE (:externalId IS NULL OR t.externalId = :externalId) AND (:externalSource IS NULL OR t.externalSource = :externalSource) AND (:type IS NULL OR t.type = :type) AND (:name IS NULL OR t.name = :name)")
 	Page<Title> findByFilters(@Param("externalId") String externalId, @Param("externalSource") String externalSource, @Param("type") TitleType type, @Param("name") String name, Pageable pageable);
 
-	@Query("SELECT DISTINCT t.externalId FROM Title t WHERE t.type = :type AND t.externalId NOT IN (SELECT c.tmdbId FROM TmdbTitleCache c)")
-	List<String> findExternalIdsByTypeNotInCache(@Param("type") TitleType type);
+	// #394: tmdb_title_cache is keyed by medium-scoped id (TmdbCacheKey — "movie:550" / "tv:550"),
+	// so "already cached" must compare against that same prefixed form or a show colliding with a
+	// cached movie id would read as cached and never get its seasons/episodes prewarmed.
+	@Query("SELECT DISTINCT t.externalId FROM Title t WHERE t.type = :type AND CONCAT(:prefix, t.externalId) NOT IN (SELECT c.tmdbId FROM TmdbTitleCache c)")
+	List<String> findExternalIdsByTypeNotInCache(@Param("type") TitleType type, @Param("prefix") String prefix);
 
 	/**
 	 * TMDB ids of every TV show someone is actively watching — the set the nightly

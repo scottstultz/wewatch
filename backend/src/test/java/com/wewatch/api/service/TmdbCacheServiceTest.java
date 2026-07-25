@@ -30,6 +30,7 @@ import com.wewatch.api.model.CachedKeyword;
 import com.wewatch.api.model.CachedPerson;
 import com.wewatch.api.model.Title;
 import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbEpisodeCache;
 import com.wewatch.api.model.TmdbSeasonCache;
 import com.wewatch.api.model.TmdbTitleCache;
@@ -75,8 +76,8 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsCallsTmdbOnCacheMiss() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17",
 			List.of(new TmdbTvSeason(0L, 1, "Season 1", null, null, 10, "2011-04-17", null)),
 			"Game of Thrones", null, null, List.of(), null, null, null, null, null);
@@ -95,8 +96,8 @@ class TmdbCacheServiceTest {
 	void getSeasonsCallsTmdbOnStaleCache() {
 		TmdbSeasonCache stale = freshSeasonCache(1);
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8)); // 8 days ago
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of(stale));
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(), "Game of Thrones", null, null, List.of(), null, null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
 
@@ -108,7 +109,7 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsServesFreshCacheWithoutTmdbCall() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID)))
 			.thenReturn(List.of(freshSeasonCache(1), freshSeasonCache(2)));
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -125,7 +126,7 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsReturnsFreshCacheOrderedBySeasonNumber() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID)))
 			.thenReturn(List.of(freshSeasonCache(2), freshSeasonCache(1)));
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -135,8 +136,8 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsExcludesSeason0Specials() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 2, "Ended", "2011-04-17",
 			List.of(
 				new TmdbTvSeason(0L, 0, "Specials", null, null, 5, null, null),
@@ -154,7 +155,7 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonsExcludesSeason0FromFreshCache() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID))
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID)))
 			.thenReturn(List.of(freshSeasonCache(0), freshSeasonCache(1)));
 
 		List<TmdbTvSeason> result = service.getSeasons(TMDB_ID);
@@ -168,8 +169,8 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void upsertStoresTopBilledCastAndDirectorsFromCredits() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbCredits credits = new TmdbCredits(
 			List.of(
 				new TmdbCastMember(6L, "Sixth Billed", null, null, 5),
@@ -203,11 +204,11 @@ class TmdbCacheServiceTest {
 	@Test
 	void nullCreditsBlockKeepsPreviouslyCachedPeople() {
 		TmdbTitleCache existing = new TmdbTitleCache();
-		existing.setTmdbId(TMDB_ID);
+		existing.setTmdbId(TmdbCacheKey.tv(TMDB_ID));
 		existing.setTopCast(List.of(new CachedPerson(1, "Lead")));
 		existing.setDirectors(List.of(new CachedPerson(100, "The Director")));
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.of(existing));
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
 			"Game of Thrones", null, null, List.of(), null, null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
@@ -226,8 +227,8 @@ class TmdbCacheServiceTest {
 		// Ids keep feeding the scoring CSV; names land in the JSON column that
 		// labels keyword-seeded shelves (#271)
 		TmdbTitleCache existing = new TmdbTitleCache();
-		existing.setTmdbId(TMDB_ID);
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		existing.setTmdbId(TmdbCacheKey.movie(TMDB_ID));
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.movie(TMDB_ID))).thenReturn(Optional.of(existing));
 		when(tmdbClient.getMovieDetail(TMDB_ID)).thenReturn(new TmdbMovieDetail(
 			1399L, "Inception", null, null, null, null, List.of(), null, null, null, null, null, null, null));
 		when(tmdbClient.getKeywords(TitleType.MOVIE, TMDB_ID)).thenReturn(List.of(
@@ -248,8 +249,8 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void watchProvidersAreCachedPerRegionFlatrateOnly() {
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbWatchProviders providers = new TmdbWatchProviders(Map.of(
 			"US", new TmdbRegionWatchProviders(List.of(
 				new TmdbWatchProvider(8, "Netflix", "/n.jpg", 0),
@@ -272,10 +273,10 @@ class TmdbCacheServiceTest {
 	@Test
 	void nullWatchProvidersBlockKeepsPreviouslyCachedOnes() {
 		TmdbTitleCache existing = new TmdbTitleCache();
-		existing.setTmdbId(TMDB_ID);
+		existing.setTmdbId(TmdbCacheKey.tv(TMDB_ID));
 		existing.setWatchProviders(Map.of("US", List.of(8)));
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of());
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.of(existing));
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of());
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.of(existing));
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 8, "Ended", "2011-04-17", List.of(),
 			"Game of Thrones", null, null, List.of(), null, null, null, null, null);
 		when(tmdbClient.getTvDetail(TMDB_ID)).thenReturn(detail);
@@ -292,7 +293,7 @@ class TmdbCacheServiceTest {
 
 	@Test
 	void getSeasonDetailCallsTmdbOnCacheMiss() {
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TMDB_ID, SEASON)).thenReturn(List.of());
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TMDB_ID), SEASON)).thenReturn(List.of());
 		TmdbTvSeason season = seasonWithEpisodes();
 		when(tmdbClient.getSeasonDetail(TMDB_ID, SEASON)).thenReturn(season);
 
@@ -307,7 +308,7 @@ class TmdbCacheServiceTest {
 	void getSeasonDetailCallsTmdbOnStaleCache() {
 		TmdbEpisodeCache stale = freshEpisodeCache(1);
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8));
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TMDB_ID, SEASON)).thenReturn(List.of(stale));
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TMDB_ID), SEASON)).thenReturn(List.of(stale));
 		when(tmdbClient.getSeasonDetail(TMDB_ID, SEASON)).thenReturn(seasonWithEpisodes());
 
 		service.getSeasonDetail(TMDB_ID, SEASON);
@@ -320,7 +321,7 @@ class TmdbCacheServiceTest {
 	void upsertEpisodeCacheUpdatesExistingRowsAndBatchesWrites() {
 		TmdbEpisodeCache stale = freshEpisodeCache(1);
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8));
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TMDB_ID, SEASON)).thenReturn(List.of(stale));
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TMDB_ID), SEASON)).thenReturn(List.of(stale));
 		when(tmdbClient.getSeasonDetail(TMDB_ID, SEASON)).thenReturn(seasonWithEpisodes());
 
 		service.getSeasonDetail(TMDB_ID, SEASON);
@@ -341,8 +342,8 @@ class TmdbCacheServiceTest {
 	void upsertSeasonCacheUpdatesExistingRowsAndBatchesWrites() {
 		TmdbSeasonCache stale = freshSeasonCache(1);
 		stale.setFetchedAt(Instant.now().minusSeconds(86400 * 8));
-		when(seasonCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(List.of(stale));
-		when(titleCacheRepository.findByTmdbId(TMDB_ID)).thenReturn(Optional.empty());
+		when(seasonCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(List.of(stale));
+		when(titleCacheRepository.findByTmdbId(TmdbCacheKey.tv(TMDB_ID))).thenReturn(Optional.empty());
 		TmdbTvDetail detail = new TmdbTvDetail(1399L, 2, "Ended", "2011-04-17",
 			List.of(
 				new TmdbTvSeason(3625L, 1, "Season 1 (updated)", null, null, 10, "2011-04-17", null),
@@ -367,7 +368,7 @@ class TmdbCacheServiceTest {
 	@Test
 	void getSeasonDetailServesFreshCacheWithoutTmdbCall() {
 		List<TmdbEpisodeCache> cached = List.of(freshEpisodeCache(1), freshEpisodeCache(2));
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TMDB_ID, SEASON)).thenReturn(cached);
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TMDB_ID), SEASON)).thenReturn(cached);
 
 		TmdbTvSeason result = service.getSeasonDetail(TMDB_ID, SEASON);
 
@@ -380,7 +381,7 @@ class TmdbCacheServiceTest {
 	void getSeasonDetailReturnsEpisodesOrderedByEpisodeNumber() {
 		TmdbEpisodeCache ep2 = freshEpisodeCache(2);
 		TmdbEpisodeCache ep1 = freshEpisodeCache(1);
-		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TMDB_ID, SEASON)).thenReturn(List.of(ep2, ep1));
+		when(episodeCacheRepository.findByTmdbIdAndSeasonNumber(TmdbCacheKey.tv(TMDB_ID), SEASON)).thenReturn(List.of(ep2, ep1));
 
 		TmdbTvSeason result = service.getSeasonDetail(TMDB_ID, SEASON);
 
@@ -392,7 +393,7 @@ class TmdbCacheServiceTest {
 
 	private TmdbSeasonCache freshSeasonCache(int seasonNumber) {
 		TmdbSeasonCache c = new TmdbSeasonCache();
-		c.setTmdbId(TMDB_ID);
+		c.setTmdbId(TmdbCacheKey.tv(TMDB_ID));
 		c.setSeasonNumber(seasonNumber);
 		c.setName(seasonNumber == 0 ? "Specials" : "Season " + seasonNumber);
 		c.setEpisodeCount(10);
@@ -403,7 +404,7 @@ class TmdbCacheServiceTest {
 
 	private TmdbEpisodeCache freshEpisodeCache(int episodeNumber) {
 		TmdbEpisodeCache c = new TmdbEpisodeCache();
-		c.setTmdbId(TMDB_ID);
+		c.setTmdbId(TmdbCacheKey.tv(TMDB_ID));
 		c.setSeasonNumber(SEASON);
 		c.setEpisodeNumber(episodeNumber);
 		c.setName("Episode " + episodeNumber);
@@ -429,8 +430,8 @@ class TmdbCacheServiceTest {
 		Title matrix = title(1L, "603", TitleType.MOVIE);
 		Title thrones = title(2L, "1399", TitleType.TV);
 		when(titleCacheRepository.findAllById(anyIterable())).thenReturn(List.of(
-			cacheRow("603", "MOVIE", List.of(28, 878), Map.of(REGION, List.of(8))),
-			cacheRow("1399", "TV", List.of(10765, 18), Map.of(REGION, List.of(1899)))));
+			cacheRow("603", TitleType.MOVIE, List.of(28, 878), Map.of(REGION, List.of(8))),
+			cacheRow("1399", TitleType.TV, List.of(10765, 18), Map.of(REGION, List.of(1899)))));
 
 		Map<Long, TmdbCacheService.TitleCacheIds> cacheIds =
 			service.cacheIdsByTitleId(List.of(matrix, thrones), REGION, List.of(8, 1899));
@@ -454,20 +455,23 @@ class TmdbCacheServiceTest {
 	@Test
 	void cacheIdsByTitleIdYieldsEmptyWhenTheRowHasNoGenresOrProviders() {
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("603", "MOVIE", null, null)));
+			.thenReturn(List.of(cacheRow("603", TitleType.MOVIE, null, null)));
 
 		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
 			.containsOnly(Map.entry(1L, TmdbCacheService.TitleCacheIds.EMPTY));
 	}
 
 	@Test
-	void cacheIdsByTitleIdRejectsARowCachedForTheOtherMedium() {
-		// tmdb_title_cache is keyed by a bare TMDB id with no medium namespace (V9), so movie 1399
-		// and TV 1399 share one row and the last prewarm wins. Genre and provider ids are both
-		// medium-specific: TV's 10759 "Action & Adventure" is not a movie genre at all, and TV's
-		// providers aren't necessarily where the movie streams. Fail closed rather than mislabel.
+	void cacheIdsByTitleIdIgnoresARowCachedForTheOtherMedium() {
+		// Movie 1399 and TV 1399 are unrelated titles that happen to share a TMDB id. Since #394
+		// tmdb_title_cache is keyed by the medium-scoped cache key ("movie:1399" / "tv:1399"), so
+		// a batch read for the movie's key structurally cannot return the TV row — there is no
+		// guard left to test here, just the natural consequence of the key shape. The mock
+		// deliberately answers findAllById(anyIterable()) regardless of the ids actually passed,
+		// so this only stays green because the code looks the TV row up under a key it never
+		// asked for.
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("1399", "TV", List.of(10759), Map.of(REGION, List.of(8)))));
+			.thenReturn(List.of(cacheRow("1399", TitleType.TV, List.of(10759), Map.of(REGION, List.of(8)))));
 
 		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "1399", TitleType.MOVIE)), REGION, List.of(8)))
 			.containsOnly(Map.entry(1L, TmdbCacheService.TitleCacheIds.EMPTY));
@@ -484,7 +488,7 @@ class TmdbCacheServiceTest {
 		// The row streams on providers 8 and 9 in this region; the caller only has 8 configured.
 		// A badge means "on a service you have", not "available at all" (#392).
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of(REGION, List.of(8, 9)))));
+			.thenReturn(List.of(cacheRow("603", TitleType.MOVIE, List.of(28), Map.of(REGION, List.of(8, 9)))));
 
 		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
 			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of(8))));
@@ -493,7 +497,7 @@ class TmdbCacheServiceTest {
 	@Test
 	void cacheIdsByTitleIdYieldsNoProvidersForARegionTheRowDoesNotCarry() {
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of("GB", List.of(8)))));
+			.thenReturn(List.of(cacheRow("603", TitleType.MOVIE, List.of(28), Map.of("GB", List.of(8)))));
 
 		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, List.of(8)))
 			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of())));
@@ -502,7 +506,7 @@ class TmdbCacheServiceTest {
 	@Test
 	void cacheIdsByTitleIdYieldsNoProvidersWhenTheCallerHasNoneConfigured() {
 		when(titleCacheRepository.findAllById(anyIterable()))
-			.thenReturn(List.of(cacheRow("603", "MOVIE", List.of(28), Map.of(REGION, List.of(8)))));
+			.thenReturn(List.of(cacheRow("603", TitleType.MOVIE, List.of(28), Map.of(REGION, List.of(8)))));
 
 		assertThat(service.cacheIdsByTitleId(List.of(title(1L, "603", TitleType.MOVIE)), REGION, null))
 			.containsOnly(Map.entry(1L, new TmdbCacheService.TitleCacheIds(List.of(28), List.of())));
@@ -513,11 +517,13 @@ class TmdbCacheServiceTest {
 			Instant.EPOCH, Instant.EPOCH);
 	}
 
+	// tmdbId here is the bare id; the row is stored under its medium-scoped cache key (#394),
+	// matching how TmdbCacheService writes it.
 	private TmdbTitleCache cacheRow(
-			String tmdbId, String type, List<Integer> genreIds, Map<String, List<Integer>> watchProviders) {
+			String tmdbId, TitleType type, List<Integer> genreIds, Map<String, List<Integer>> watchProviders) {
 		TmdbTitleCache row = new TmdbTitleCache();
-		row.setTmdbId(tmdbId);
-		row.setType(type);
+		row.setTmdbId(TmdbCacheKey.of(type, tmdbId));
+		row.setType(type.name());
 		row.setGenreIds(genreIds);
 		row.setWatchProviders(watchProviders);
 		return row;

@@ -37,7 +37,7 @@ public interface TmdbEpisodeCacheRepository extends JpaRepository<TmdbEpisodeCac
 		       ec.runtime_minutes AS runtimeMinutes
 		FROM watchlist_entries we
 		JOIN titles t ON t.id = we.title_id
-		JOIN tmdb_episode_cache ec ON ec.tmdb_id = t.external_id
+		JOIN tmdb_episode_cache ec ON ec.tmdb_id = 'tv:' || t.external_id
 		WHERE we.watchlist_id = :watchlistId
 		  AND we.status = 'WATCHING'
 		  AND t.type = 'TV'

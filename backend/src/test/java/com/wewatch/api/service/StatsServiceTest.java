@@ -17,6 +17,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import com.wewatch.api.dto.StatsResponse;
 import com.wewatch.api.dto.StatsResponse.GenreStat;
+import com.wewatch.api.model.TitleType;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.EpisodeProgressRepository;
 import com.wewatch.api.repository.TitleRepository;
@@ -79,9 +81,12 @@ class StatsServiceTest {
 		return e;
 	}
 
-	private static TmdbTitleCache cached(String tmdbId, Integer runtime, Integer... genreIds) {
+	// tmdbId here is the bare id ("m1", "tv1", ...); the row is stored under its medium-scoped
+	// cache key (#394), matching how TmdbCacheService writes it — StatsService's batch read keys
+	// on TmdbCacheKey.movie(id) for finished movies and TmdbCacheKey.tv(id) for watched shows.
+	private static TmdbTitleCache cached(String tmdbId, TitleType type, Integer runtime, Integer... genreIds) {
 		TmdbTitleCache c = new TmdbTitleCache();
-		c.setTmdbId(tmdbId);
+		c.setTmdbId(TmdbCacheKey.of(type, tmdbId));
 		c.setRuntimeMinutes(runtime);
 		c.setGenreIds(List.of(genreIds));
 		return c;
@@ -106,7 +111,7 @@ class StatsServiceTest {
 	void sumsMovieRuntimesAndEpisodeRuntimesIntoTheTotal() {
 		givenEntries(entry("m1", "MOVIE", "WATCHED"), entry("m2", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes(watchedEpisode("tv1", 50), watchedEpisode("tv1", 45));
-		givenCache(cached("m1", 120, DRAMA), cached("m2", 96, COMEDY), cached("tv1", null, DRAMA));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA), cached("m2", TitleType.MOVIE,96, COMEDY), cached("tv1", TitleType.TV,null, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -125,7 +130,7 @@ class StatsServiceTest {
 			watchedEpisode("tv1", null),
 			watchedEpisode("tv1", 0)
 		);
-		givenCache(cached("tv1", null, DRAMA));
+		givenCache(cached("tv1", TitleType.TV,null, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -160,7 +165,7 @@ class StatsServiceTest {
 			entry("tv2", "TV", "WATCHING")
 		);
 		givenWatchedEpisodes();
-		givenCache(cached("m1", 120, DRAMA));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -174,7 +179,7 @@ class StatsServiceTest {
 		// are independent of entry status; only movies/shows *finished* look at status.
 		givenEntries(entry("tv1", "TV", "WATCHING"));
 		givenWatchedEpisodes(watchedEpisode("tv1", 50), watchedEpisode("tv1", 50));
-		givenCache(cached("tv1", null, DRAMA));
+		givenCache(cached("tv1", TitleType.TV,null, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -205,7 +210,7 @@ class StatsServiceTest {
 	void countsATitleOnceEvenIfItWasAddedTwice() {
 		givenEntries(entry("m1", "MOVIE", "WATCHED"), entry("m1", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes();
-		givenCache(cached("m1", 120, DRAMA));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -221,7 +226,7 @@ class StatsServiceTest {
 		// response carries minutes rather than percentages.
 		givenEntries(entry("m1", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes();
-		givenCache(cached("m1", 120, DRAMA, SCI_FI));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA, SCI_FI));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -237,9 +242,9 @@ class StatsServiceTest {
 		givenEntries(entry("m1", "MOVIE", "WATCHED"), entry("m2", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes(watchedEpisode("tv1", 300));
 		givenCache(
-			cached("m1", 90, COMEDY),
-			cached("m2", 120, COMEDY),
-			cached("tv1", null, SCI_FI)
+			cached("m1", TitleType.MOVIE,90, COMEDY),
+			cached("m2", TitleType.MOVIE,120, COMEDY),
+			cached("tv1", TitleType.TV,null, SCI_FI)
 		);
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
@@ -259,7 +264,7 @@ class StatsServiceTest {
 			watchedEpisode("tv1", 50),
 			watchedEpisode("tv1", 50)
 		);
-		givenCache(cached("tv1", null, DRAMA));
+		givenCache(cached("tv1", TitleType.TV,null, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -273,7 +278,7 @@ class StatsServiceTest {
 		int unknown = 10402;
 		givenEntries(entry("m1", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes();
-		givenCache(cached("m1", 120, DRAMA, unknown));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA, unknown));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 
@@ -287,7 +292,7 @@ class StatsServiceTest {
 		when(genreCatalogService.genreNames()).thenReturn(Map.of());
 		givenEntries(entry("m1", "MOVIE", "WATCHED"));
 		givenWatchedEpisodes();
-		givenCache(cached("m1", 120, DRAMA));
+		givenCache(cached("m1", TitleType.MOVIE,120, DRAMA));
 
 		StatsResponse stats = service.statsFor(WATCHLIST_ID);
 

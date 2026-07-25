@@ -14,6 +14,7 @@ import java.util.stream.Collectors;
 import com.wewatch.api.config.SuggestionTuningProperties;
 import com.wewatch.api.dto.TitleSearchResponse;
 import com.wewatch.api.model.CachedPerson;
+import com.wewatch.api.model.TmdbCacheKey;
 import com.wewatch.api.model.TmdbTitleCache;
 import com.wewatch.api.repository.TmdbTitleCacheRepository;
 
@@ -54,6 +55,14 @@ class CandidateScorer {
 		return deduped;
 	}
 
+	// tmdb_title_cache is keyed by medium-scoped id since #394 (TmdbCacheKey — a bare externalId
+	// is not an identity, since a movie and a show can carry the same integer). Used only to
+	// address the cache table in cacheSignalBoosts below — the rng bookkeeping above stays on
+	// the bare externalId, see the note on jitterByCandidate.
+	private static String cacheKey(TitleSearchResponse r) {
+		return TmdbCacheKey.of(r.type(), r.externalId());
+	}
+
 	double genreScore(TitleSearchResponse candidate, Map<Integer, Double> genreProfile) {
 		List<Integer> genres = candidate.genreIds();
 		if (genres == null || genres.isEmpty()) return 0.0;
@@ -63,8 +72,14 @@ class CandidateScorer {
 	// Day-seeded per-candidate score offset (#248). Draws from the shared day-seeded
 	// rng in list order, so the assignment is reproducible within a day (identical
 	// shelves across recomputes) and rotates at midnight. Keyed by externalId, one
-	// draw per distinct id so duplicates don't desync the rng stream. The amplitude
-	// is proportional to the candidate's base score with an absolute floor (#267);
+	// draw per distinct id so duplicates don't desync the rng stream — deliberately
+	// NOT the medium-scoped cache key (#394): this is the shared rng stream every
+	// pipeline stage draws from in a fixed order, and re-keying it (even where the
+	// mapping is a bijection, as in the offline harness's synthetic catalog) was
+	// measured to perturb draw order downstream and break the tuning harness's
+	// byte-identical invariant. The cache table read below is still medium-scoped —
+	// only the in-memory rng bookkeeping stays on the bare id. The amplitude is
+	// proportional to the candidate's base score with an absolute floor (#267);
 	// scaling happens after the draw, so amplitude never affects rng consumption.
 	Map<String, Double> jitterByCandidate(
 		List<TitleSearchResponse> candidates,
@@ -94,7 +109,7 @@ class CandidateScorer {
 		if ((keywordProfile.isEmpty() && personProfile.isEmpty() && !providerCtx.enabled()) || candidates.isEmpty()) {
 			return Map.of();
 		}
-		List<String> ids = candidates.stream().map(TitleSearchResponse::externalId).toList();
+		List<String> ids = candidates.stream().map(CandidateScorer::cacheKey).toList();
 		Map<String, Double> boosts = new HashMap<>();
 		for (TmdbTitleCache cached : tmdbTitleCacheRepository.findAllById(ids)) {
 			double boost = 0.0;
@@ -111,7 +126,9 @@ class CandidateScorer {
 			if (providerCtx.enabled() && !providerCtx.streamableOn(cached).isEmpty()) {
 				boost += tuning.getStreamableBoost();
 			}
-			if (boost > 0) boosts.put(cached.getTmdbId(), boost);
+			// Strip the cache key's medium prefix back off: boosts is read by bare externalId
+			// (rankByTasteProfile), and every candidate's externalId is already unique here.
+			if (boost > 0) boosts.put(TmdbCacheKey.tmdbIdOf(cached.getTmdbId()), boost);
 		}
 		return boosts;
 	}
