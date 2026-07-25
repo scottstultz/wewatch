@@ -3078,6 +3078,28 @@ div.people-row-photo {
   gap: 10px;
 }
 
+/* Movies/TV switch inside the panel (#398) — reuses .library-tabs/.library-tab, the
+   app's segmented idiom, so it needs no styling of its own beyond fitting the width
+   of the panel. */
+.genre-filter-mediums {
+  gap: 6px;
+}
+
+.genre-filter-mediums .library-tab {
+  flex: 1 1 0;
+  text-align: center;
+  padding: 6px 12px;
+}
+
+/* What the last medium switch dropped. Transient, so it reads as a note rather than
+   an error — no border, no red. */
+.genre-filter-notice {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .genre-filter-search .search-input {
   font-size: 0.875rem;
   padding: 8px 32px 8px 12px;
@@ -3168,13 +3190,22 @@ div.people-row-photo {
 
 /* ── Genre browsing on Discover (#384) ──────────────────────────────────── */
 
-/* Same row shape as the Library's, but with the medium toggle on the left and the
-   Genres trigger pushed to the right edge — which is also where .genre-filter-panel
-   anchors itself (right: 0), so the panel can't run off a narrow viewport. */
+/* The medium switch moved inside the panel (#398), so the row holds only the
+   Genres trigger — pushed to the right edge, where .genre-filter-panel anchors
+   itself (right: 0) so the panel can't run off a narrow viewport. */
 .discover-filter-row {
-  justify-content: space-between;
+  justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+/* "TV • Comedy + Drama" above the search grid whenever a genre selection scopes
+   the search (#398) — the one place besides the placeholder and the empty state
+   that names the scope. */
+.discover-scope-line {
+  color: #94a3b8;
+  font-size: 0.8125rem;
+  margin: 0;
 }
 
 .browse-load-more {
