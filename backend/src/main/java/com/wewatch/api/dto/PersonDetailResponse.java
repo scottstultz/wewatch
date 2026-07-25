@@ -17,7 +17,10 @@ public record PersonDetailResponse(
 	String knownForDepartment,
 	LocalDate birthday,
 	String placeOfBirth,
-	@Schema(description = "Acting credits across movies and TV, deduped and most popular first")
+	@Schema(description = "Acting credits across movies and TV, deduped and most popular first. "
+		+ "This is the only response that populates TitleSearchResponse.character — the role the "
+		+ "person is credited as (#401); where several credits collapse onto one title, the one "
+		+ "covering the most episodes wins")
 	List<TitleSearchResponse> credits
 ) {
 }

@@ -23,6 +23,11 @@ export interface TitleSearchResponse {
   // Which of the viewer's streaming services carry this title (#270); only
   // populated on suggestion shelves, null/undefined elsewhere (= unknown)
   providerIds?: number[] | null
+  // The role this title credits a person with (#401), e.g. "Neo". Only a person's
+  // filmography (GET /api/people/{id}) populates it; every other response sends
+  // null, and TMDB leaves it blank on ~3% of the credits that survive the
+  // filmography's filters — TitleCard renders nothing in both cases.
+  character?: string | null
 }
 
 // One person hit from the Discover multi search (#356), rendered in the slim

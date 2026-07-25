@@ -108,7 +108,26 @@ class PersonControllerTest {
 			.andExpect(jsonPath("$.credits[1].externalId").value("1408"))
 			.andExpect(jsonPath("$.credits[1].type").value("TV"))
 			.andExpect(jsonPath("$.credits[1].name").value("Swedish Dicks"))
-			.andExpect(jsonPath("$.credits[1].releaseDate").value("2016-09-15"));
+			.andExpect(jsonPath("$.credits[1].releaseDate").value("2016-09-15"))
+			// The credited role reaches the client (#401) — this endpoint is its only source
+			.andExpect(jsonPath("$.credits[0].character").value("Thomas A. Anderson"))
+			.andExpect(jsonPath("$.credits[1].character").value("Tex"));
+	}
+
+	// TMDB blanks the character on a small share of real credits; those tiles show
+	// no role rather than an empty line (#401)
+	@Test
+	void getPersonSendsANullCharacterForACreditTmdbLeftBlank() throws Exception {
+		TmdbPersonCredit undetailed = new TmdbPersonCredit(9, "movie", "Undetailed Film", null,
+			null, "2026-01-01", null, "/undetailed.jpg", List.of(18), 50.0, 0, "");
+		when(tmdbClient.getPersonDetail(6384)).thenReturn(keanu(undetailed));
+
+		mockMvc.perform(get("/api/people/6384").header("Authorization", "Bearer test-token"))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.credits[0].name").value("Undetailed Film"))
+			// present-and-null, not absent: the key has to serialize, so this also
+			// fails if character is ever @JsonIgnore'd the way popularity is (#374)
+			.andExpect(jsonPath("$.credits[0].character").value((Object) null));
 	}
 
 	@Test
