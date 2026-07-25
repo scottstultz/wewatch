@@ -3,10 +3,10 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import StatusPicker, { STATUS_LABELS } from '../components/StatusPicker'
-import JustWatchAttribution from '../components/JustWatchAttribution'
 import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
 import TitleCard, { cardKey } from '../components/TitleCard'
+import WhereToWatch from '../components/WhereToWatch'
 import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import { formatRuntime } from '../utils/formatDuration'
 import type { TitleDetailResponse, TitleRating, TitleSearchResponse, TitleType, WatchStatus } from '../types/api'
@@ -376,20 +376,7 @@ function TitleDetailPage() {
         />
       )}
 
-      {detail?.watchProviders && detail.watchProviders.length > 0 && (
-        <section className="panel">
-          <h3>Where to watch</h3>
-          <div className="watch-provider-list">
-            {detail.watchProviders.map(p => (
-              <span key={p.id} className="watch-provider-item">
-                {p.logoUrl && <img className="provider-badge-logo" src={p.logoUrl} alt="" loading="lazy" />}
-                <span>{p.name}</span>
-              </span>
-            ))}
-          </div>
-          <JustWatchAttribution />
-        </section>
-      )}
+      <WhereToWatch providers={detail?.watchProviders ?? null} />
 
       {displayType === 'TV' && detail?.seasons && detail.seasons.length > 0 && (
         <section className="panel">

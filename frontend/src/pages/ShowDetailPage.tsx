@@ -5,6 +5,7 @@ import { useWatchlists } from '../contexts/WatchlistContext'
 import OverviewCastPanel from '../components/OverviewCastPanel'
 import ThumbsRating from '../components/ThumbsRating'
 import TitleCard, { cardKey } from '../components/TitleCard'
+import WhereToWatch from '../components/WhereToWatch'
 import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import type {
   EpisodeDetail,
@@ -559,6 +560,9 @@ function ShowDetailPage() {
           onShowMoreLikeThis={showMoreLikeThis}
         />
       )}
+
+      {/* Where to watch (#390) — same data the page already fetched, no new call */}
+      <WhereToWatch providers={detail?.watchProviders ?? null} />
 
       {/* Season tabs */}
       {isLoadingSeasons ? (
