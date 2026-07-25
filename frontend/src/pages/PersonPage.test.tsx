@@ -41,6 +41,7 @@ function makeCredit(
   name: string,
   type: 'MOVIE' | 'TV',
   character?: string | null,
+  releaseDate: string | null = null,
 ): TitleSearchResponse {
   return {
     externalId,
@@ -48,7 +49,7 @@ function makeCredit(
     type,
     name,
     overview: null,
-    releaseDate: null,
+    releaseDate,
     posterUrl: null,
     character,
   }
@@ -231,5 +232,112 @@ describe('PersonPage credited role (#401)', () => {
 
     expect(screen.getByText('The Matrix')).toBeInTheDocument()
     expect(document.querySelectorAll('.title-role')).toHaveLength(0)
+  })
+})
+
+describe('PersonPage filmography order (#402)', () => {
+  // Delivered in the mapper's popularity order, with the dates deliberately out
+  // of order and one announced-but-undated project (TMDB really does ship those).
+  //
+  // ⚠️ The pre-1970 credit is load-bearing. Treating a null date as epoch 0 —
+  // the obvious `(bt ?? 0) - (at ?? 0)` — still sorts it last against an all
+  // post-1970 filmography, so every assertion here passes for the wrong reason
+  // without it. Against a career that reaches back past 1970 the null lands
+  // mid-grid instead, which is the bug the null-placement test exists to catch.
+  const dated = [
+    makeCredit('603', 'The Matrix', 'MOVIE', null, '1999-03-30'),
+    makeCredit('603692', 'John Wick 4', 'MOVIE', null, '2023-03-22'),
+    makeCredit('1038', 'Constantine 2', 'MOVIE', null, null),
+    makeCredit('69078', 'Swedish Dicks', 'TV', null, '2016-11-01'),
+    makeCredit('114472', 'The Continental', 'TV', null, '2023-09-22'),
+    makeCredit('1648', 'Bill & Ted', 'MOVIE', null, '1989-02-17'),
+    makeCredit('935', 'Dr. Strangelove', 'MOVIE', null, '1964-01-29'),
+  ]
+
+  function gridOrder(): string[] {
+    return [...document.querySelectorAll('.title-name')].map(el => el.textContent ?? '')
+  }
+
+  async function renderCredits(credits: TitleSearchResponse[]) {
+    mockApi.getPerson.mockResolvedValue({ ...keanu, credits })
+    renderPage()
+    await screen.findByText(credits[0].name)
+  }
+
+  it('leads with the popularity order the mapper delivered', async () => {
+    await renderCredits(dated)
+
+    expect(gridOrder()).toEqual([
+      'The Matrix', 'John Wick 4', 'Constantine 2', 'Swedish Dicks', 'The Continental',
+      'Bill & Ted', 'Dr. Strangelove',
+    ])
+    expect(screen.getByRole('button', { name: 'Popularity' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('orders the filmography newest-first', async () => {
+    await renderCredits(dated)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+
+    expect(gridOrder()).toEqual([
+      'The Continental', 'John Wick 4', 'Swedish Dicks', 'The Matrix', 'Bill & Ted',
+      'Dr. Strangelove', 'Constantine 2',
+    ])
+  })
+
+  // An undated credit sorted as epoch 0 would read as the person's oldest work
+  it('sorts an undated credit last rather than dropping it', async () => {
+    await renderCredits(dated)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+
+    const order = gridOrder()
+    expect(order[order.length - 1]).toBe('Constantine 2')
+    expect(order).toHaveLength(dated.length)
+  })
+
+  it('composes with the All/Movies/TV filter, each preserving the other', async () => {
+    await renderCredits(dated)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Movies' }))
+
+    // The order survives the filter change
+    expect(gridOrder()).toEqual([
+      'John Wick 4', 'The Matrix', 'Bill & Ted', 'Dr. Strangelove', 'Constantine 2',
+    ])
+    expect(screen.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'true')
+
+    // ...and the filter survives the order change
+    fireEvent.click(screen.getByRole('button', { name: 'Popularity' }))
+    expect(gridOrder()).toEqual([
+      'The Matrix', 'John Wick 4', 'Constantine 2', 'Bill & Ted', 'Dr. Strangelove',
+    ])
+    expect(screen.getByRole('tab', { name: 'Movies' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  // The comparator returns 0 for equal dates, so the stable sort leaves the
+  // mapper's popularity order underneath as the tiebreak
+  it('holds credits sharing a release date in their popularity order', async () => {
+    await renderCredits([
+      makeCredit('1', 'More Popular', 'MOVIE', null, '2020-01-01'),
+      makeCredit('2', 'Less Popular', 'MOVIE', null, '2020-01-01'),
+    ])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+
+    expect(gridOrder()).toEqual(['More Popular', 'Less Popular'])
+  })
+
+  // The mapper's 100-credit cap is applied before this sort and never re-applied
+  it('shows the same credits in both orders', async () => {
+    await renderCredits(dated)
+
+    const byPopularity = gridOrder()
+    fireEvent.click(screen.getByRole('button', { name: 'Newest' }))
+    const byNewest = gridOrder()
+
+    expect([...byNewest].sort()).toEqual([...byPopularity].sort())
   })
 })

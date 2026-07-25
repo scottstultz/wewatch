@@ -8,6 +8,7 @@ import { useTitleCardActions } from '../hooks/useTitleCardActions'
 import type { PersonDetailResponse, TitleSearchResponse } from '../types/api'
 
 type CreditFilter = 'all' | 'MOVIE' | 'TV'
+type CreditOrder = 'popularity' | 'newest'
 
 const FILTER_LABELS: Record<CreditFilter, string> = {
   all: 'All',
@@ -15,10 +16,34 @@ const FILTER_LABELS: Record<CreditFilter, string> = {
   TV: 'TV',
 }
 
+const ORDER_LABELS: Record<CreditOrder, string> = {
+  popularity: 'Popularity',
+  newest: 'Newest',
+}
+
 function yearOf(dateStr: string | null): string | null {
   if (!dateStr) return null
   const d = new Date(dateStr)
   return Number.isNaN(d.getTime()) ? null : String(d.getFullYear())
+}
+
+function timeOf(dateStr: string | null): number | null {
+  if (!dateStr) return null
+  const t = new Date(dateStr).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
+// Newest first, undated credits last — TMDB ships those for announced but
+// unreleased projects, and sorting them as epoch 0 would read as a person's
+// oldest work. Ties (and two undated credits) compare equal, so the stable sort
+// leaves them in the popularity order the mapper delivered.
+function byNewest(a: TitleSearchResponse, b: TitleSearchResponse): number {
+  const at = timeOf(a.releaseDate)
+  const bt = timeOf(b.releaseDate)
+  if (at === null && bt === null) return 0
+  if (at === null) return 1
+  if (bt === null) return -1
+  return bt - at
 }
 
 // Reached from a cast tile on title details (#305) — a person's bio plus their
@@ -34,6 +59,9 @@ function PersonPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<CreditFilter>('all')
+  // Popularity is the order the mapper delivers, and stays the default — it
+  // leads with the work a person is known for (#402).
+  const [order, setOrder] = useState<CreditOrder>('popularity')
   // The tiles stay hidden until the watchlist has been reconciled once, so an
   // add can never be clobbered by a reconcile that was still in flight.
   const [seeded, setSeeded] = useState(false)
@@ -145,7 +173,11 @@ function PersonPage() {
   }
 
   const credits = person?.credits ?? []
-  const shownCredits = filter === 'all' ? credits : credits.filter(c => c.type === filter)
+  const filteredCredits = filter === 'all' ? credits : credits.filter(c => c.type === filter)
+  // Sorting a copy: `credits` is the response object the reconcile effects read.
+  // Nothing is sliced here — both orders show the same credits, so a person at
+  // the mapper's 100-credit cap keeps all 100 either way.
+  const shownCredits = order === 'newest' ? [...filteredCredits].sort(byNewest) : filteredCredits
   const birthYear = yearOf(person?.birthday ?? null)
 
   return (
@@ -204,18 +236,36 @@ function PersonPage() {
 
       {seeded && credits.length > 0 && (
         <section className="stack-list">
-          <div className="library-tabs" role="tablist" aria-label="Filmography filter">
-            {(['all', 'MOVIE', 'TV'] as CreditFilter[]).map(value => (
-              <button
-                key={value}
-                role="tab"
-                aria-selected={filter === value}
-                className={`library-tab${filter === value ? ' library-tab-active' : ''}`}
-                onClick={() => setFilter(value)}
-              >
-                {FILTER_LABELS[value]}
-              </button>
-            ))}
+          <div className="person-filmography-controls">
+            <div className="library-tabs" role="tablist" aria-label="Filmography filter">
+              {(['all', 'MOVIE', 'TV'] as CreditFilter[]).map(value => (
+                <button
+                  key={value}
+                  role="tab"
+                  aria-selected={filter === value}
+                  className={`library-tab${filter === value ? ' library-tab-active' : ''}`}
+                  onClick={() => setFilter(value)}
+                >
+                  {FILTER_LABELS[value]}
+                </button>
+              ))}
+            </div>
+
+            {/* A two-state switch, not a second tablist — these pick the order of
+                one grid rather than swapping panels (the #366 toggle's idiom). */}
+            <div className="library-tabs" role="group" aria-label="Filmography order">
+              {(['popularity', 'newest'] as CreditOrder[]).map(value => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={order === value}
+                  className={`library-tab${order === value ? ' library-tab-active' : ''}`}
+                  onClick={() => setOrder(value)}
+                >
+                  {ORDER_LABELS[value]}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="title-grid">
