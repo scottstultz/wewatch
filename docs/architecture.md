@@ -192,6 +192,95 @@ block in a refresh response keeps the prior cached value instead of clearing it:
 - **Watch providers** (#270): `watch_providers`, a JSON region → provider-id list for flatrate
   (subscription) offers only.
 
+### Movie backfill passes are not optional (#323, #391)
+
+Movie rows are never re-fetched, so a new movie-affecting column stays NULL on every existing row
+forever unless `TmdbCacheBackfill` gets a dedicated pass for it — the trap is set out in full under
+[Stats](#stats-323). There are now two such passes: `findMovieIdsMissingRuntime()` (#323) and
+`findMovieIdsMissingWatchProviders()` (#391). Apply the same treatment to any future one.
+
+#391 is worth reading for what it says about *scope* rather than volume: the population it was filed
+for was already empty. Every movie cached before #270 also had a null runtime, so #323's pass had
+already re-prewarmed it and `applyWatchProviders` filled the providers in on the way through. The
+residual hole is narrower — a row written with a **non-null runtime but a null `watch/providers`
+block**, invisible to the runtime query. Naturally affected rows in the dev DB: **0**.
+
+That query is self-limiting in a way the runtime one is not: `applyWatchProviders` always writes once
+TMDB returns a `results` block, so "streamable nowhere" persists as `{}` and drops out of the set —
+only a null block leaves the column untouched. The two passes can double-fetch a movie missing both
+columns, accepted deliberately: the row already exists so there is no insert race, and unioning the
+ids would collapse two distinct log lines.
+
+### TMDB ids are namespaced by medium (#394)
+
+TMDB's movie and TV id sequences are **independent namespaces**: the same integer names a different
+title in each medium (movie 550 Fight Club / TV 550 Till Death Us Do Part; movie 1396 Mirror / TV
+1396 Breaking Bad — both confirmed live). Three keys treated a bare id as a medium-agnostic identity,
+so whichever medium was written first owned the id for the other:
+
+| key | shipped in | consequence of the collision |
+|---|---|---|
+| `titles UNIQUE (external_source, external_id)` | V1 | adding TV 550 resolved to the *movie* row — the show was untrackable per-episode |
+| `tmdb_title_cache.tmdb_id` PK | V9 | one row per id, whichever prewarm ran last; children could orphan |
+| `tmdb_{season,episode}_cache.tmdb_id` FK | V9 / V12 | a movie sharing an id could pick up a show's episodes |
+
+`model/TmdbCacheKey` is the cache identity from here on — `movie:550` / `tv:550`, the prefix being
+the lowercased `TitleType`, which keeps the key readable in psql and lets SQL derive it as
+`lower(type) || ':' || tmdb_id`. `V26__namespace_tmdb_ids_by_medium.sql` rewrites the three cache
+tables onto it and widens `titles`' unique constraint to include `type`;
+`TitleService.findOrCreate` now takes a `TitleType` and matches via
+`findByExternalSourceAndExternalIdAndType`, which is the write-path half of the fix. Season and
+episode caches are TV-only, so they take the `tv:` form unconditionally — which is also why the
+native joins onto them read `'tv:' || t.external_id`.
+
+**Namespacing the key is what makes the cache's readers correct by construction.** Before #394 each
+reader needed its own medium guard (#381 added one to the genre lookup, #392 extended it to
+providers) because a lookup could legitimately return the other medium's row. It now structurally
+cannot: a movie asking for `movie:550` does not find the TV row. The guards were removed rather than
+weakened, and `TmdbCacheServiceTest`'s case survives as
+`cacheIdsByTitleIdIgnoresARowCachedForTheOtherMedium`, proving the *key shape* — its mock answers
+`findAllById` regardless of the ids requested, so it stays green only because the code asks for a key
+the TV row was never stored under.
+
+⚠️ **`CandidateScorer`'s rng bookkeeping deliberately did NOT move onto `TmdbCacheKey`, and this was
+learned the expensive way.** The first pass re-keyed `rankByTasteProfile`'s dedup set and
+`jitterByCandidate`'s draw map onto the cache key, on the reasoning that the offline harness's
+synthetic catalog has no real cross-medium collisions, so the mapping is a bijection and the change a
+no-op. It measurably was not: `./mvnw test -Ptuning` came back with candidate sets reordered and, in
+several slots, genuinely different titles — a downstream rng-stream desync rather than a hash-order
+artifact. Reverting those two to bare `externalId`, while leaving the `tmdb_title_cache` batch read
+keyed on `TmdbCacheKey` and translating back via `TmdbCacheKey.tmdbIdOf(...)` before populating the
+boosts map, restored byte-identical output. The root cause was never isolated beyond the standing
+rule: **don't touch the shared rng stream's bookkeeping keys without re-diffing the harness** — same
+spirit as the #375 stage-order warnings.
+
+⚠️ **V26 resolves its one real conflict class by deleting, not aborting — a deliberate departure from
+V25's precedent (#345).** The conflict is a cache row that holds seasons or episodes but is currently
+typed `MOVIE`: the pre-#394 oscillation, where `upsertTvCache` and `upsertMovieCache` both loaded by
+bare id and `setType()` on the same row, so the last prewarm won. Its children would orphan when the
+FK is re-added. V25 aborted on a `users` conflict because each row is a human's data; season and
+episode cache rows own nothing — they are derived TMDB data that `TmdbCacheBackfill` rebuilds in
+full, and `episode_progress` keys on `(watchlist_entry_id, season_number, episode_number)` with no FK
+to the cache, so a user's ticks survive untouched. V26 deletes the orphans with a `RAISE NOTICE`
+giving the count and lets the backfill re-prewarm.
+
+Widening `titles`' unique key cannot itself conflict — any pair of rows distinct under
+`(external_source, external_id)` stays distinct with `type` appended — so unlike V25 there is no
+decision to make on that half.
+
+**Scope was deliberately held at the cache-table boundary the issue named.** The day-seeded `seen`
+set (`SuggestionService.loadContext`), `SuggestionDismissalService` and `TitleRatingService` key on
+bare TMDB ids too and share the same *theoretical* exposure — a dismissed movie could in principle
+suppress an unrelated same-id show. That is a different set of tables, changing it risks exactly the
+rng-desync class of bug proven above, and no test fails on it today (zero real collisions in the dev
+DB). Left as a follow-up.
+
+Nothing in the suite executes SQL, so V26 was verified by hand against the real dev DB (27/27 rows,
+0 mismatches, clean apply, rolled back) and separately by manufacturing a genuine collision — a
+cached show's `type` flipped to `MOVIE` with 230 real episode rows attached — inside a transaction:
+the migration dropped exactly those 230 rows with the expected `NOTICE`, and the FK re-add still
+succeeded. Tuning output byte-identical across all four report files.
+
 ## Suggestion Pipeline
 
 `SuggestionService` builds per-watchlist Discover shelves from watchlist content: per-seed
@@ -1333,8 +1422,11 @@ shelves.
 |---|---|---|---|
 | — | — | suggestion shelves | all |
 | "matrix" | — | multi-search results | all |
-| — | Romance + Comedy | taste-ranked browse feed | toggle |
-| "matrix" | Sci-Fi | search results, filtered client-side | toggle |
+| — | Romance + Comedy | taste-ranked browse feed | picker |
+| "matrix" | Sci-Fi | search results, filtered client-side | picker |
+
+(The medium came from a pair of standalone Movies/TV pills as shipped; #398 folded that switch into
+the Genres picker itself — see below.)
 
 ### It is not a pipeline stage, and that is the whole design
 
@@ -1390,8 +1482,8 @@ TMDB splits three concepts by medium — Action + Adventure vs Action & Adventur
 Fantasy vs Sci-Fi & Fantasy, War vs War & Politics — and TV's catalog has no Romance, Horror or
 Thriller at all. A canonical cross-medium list would need an OR nested inside the AND (`(878|14),35`),
 whose precedence TMDB does not document, and would make "Action & Adventure" silently mean *or* on
-the movie side. A Movies/TV toggle avoids all of it: each panel shows one medium's real catalog and
-AND works as documented.
+the movie side. Scoping the browse to one medium avoids all of it: the picker shows one medium's real
+catalog at a time and AND works as documented.
 
 The consequence is that toggling the medium can empty a real selection. The frontend says so —
 "Those genres aren't in TMDB's TV catalog…" with a one-click Clear — rather than falling back to the
@@ -1401,9 +1493,10 @@ not a validation rule (`type=TV&genres=10749` returns TV rows, verified live).
 
 ### Frontend
 
-`DiscoverPage` gains the `GenreFilter` from #382 plus a Movies/TV toggle reusing `.library-tab`, both
-in one `.discover-filter-row`. State lives in the URL (`?q=`, `?genres=`, `?medium=`) so
-back-navigation and refresh restore it (#241). Three traps:
+`DiscoverPage` gains the `GenreFilter` from #382 in a `.discover-filter-row`. As #384 shipped, the
+medium was a second pair of Movies/TV pills sitting beside it, reusing `.library-tab`; **#398 folded
+that switch into the picker** — see "The medium moved into the picker" below. State lives in the URL
+(`?q=`, `?genres=`, `?medium=`) so back-navigation and refresh restore it (#241). Three traps:
 
 ⚠️ **`setQuery` had the #382 bug.** It called `setSearchParams(q ? { q } : {})`, which replaces the
 *whole* query string — invisible while `?q=` was the only param, and fatal once `?genres=` and
@@ -1448,3 +1541,36 @@ have zero overlap; `page=6` → 200, `page=7` → 400, `page=0` → 400; non-mem
 The dev DB has no dismissals or thumbs-down ratings, so only the *owned* third of `seen` was
 exercised live — the other two come from `loadContext`, shared with the shelves and covered by unit
 tests.
+
+### The medium moved into the picker (#398)
+
+The two standalone Movies/TV pills are gone. `GenreFilter` gained an optional medium mode
+(`medium?: TitleType`, `mediumOptions?: Record<TitleType, Genre[]>`, `onApply` widened to
+`(ids, medium?)`), so the trigger itself now states the whole scope — `Genres` / `Movies • Comedy` /
+`TV • 3 Genres` — instead of the scope being split across two controls a user had to read together.
+Frontend-only: no backend change, no new request shape, and no tuning run applies.
+
+Both optional props are what keep `LibraryPage`, which has no medium concept, literally untouched —
+its ten #382 tests pass unchanged, which the issue required. Three traps:
+
+⚠️ **Outside medium mode the medium argument must be omitted entirely, never passed as `undefined`.**
+`onApply([...draft], showMediums ? draftMedium : undefined)` looks equivalent to the old one-arg call
+and is not: Vitest treats a call with an explicit `undefined` second argument as a different call
+than a true one-arg call, and it broke exactly one `LibraryPage`-shaped assertion the moment it was
+introduced. The commit branches (`if (showMediums) onApply(x, y); else onApply(x)`) for that reason.
+
+⚠️ **The medium switch is under the same deferred-commit rule as a checkbox, for a sharper reason
+than #382's.** With a selection already applied, committing on the toggle click would re-fire
+`browseByGenre` on every click. Only Apply and Clear call `onApply`. **Proven guard**: making
+`handleSelectMedium` commit immediately fails exactly the two deferred-commit tests — one in
+`GenreFilter.test.tsx`, one in `DiscoverPage.test.tsx` — and nothing else.
+
+⚠️ **Switching medium keeps the genres present in both catalogs and reports what it dropped.** The
+notice is transient and answers "where did Horror go?" at the moment it happens, which is the same
+question #384's cross-medium empty state answers on a deep link — the two are complementary, not
+duplicates. An abandoned switch is discarded on reopen, exactly like an abandoned tick.
+
+Verified live against the real dev DB, TMDB API and a hand-signed HS256 JWT — panel, medium switch,
+drop notice, Apply → `browseByGenre` → real TMDB comedy movies, and a genre + text search scoping to
+Movies. Checked in headless Chrome at 1280×1024 and a true 430×900; jsdom has no layout, so no
+Vitest test sees the panel geometry (#366/#368/#382 convention).
