@@ -155,6 +155,49 @@ describe('TitleDetailPage "More Like This" (#358)', () => {
   })
 })
 
+describe('TitleDetailPage "More Like This" same-route navigation (#406)', () => {
+  const reloadedDetail = makeDetail({
+    externalId: '604',
+    name: 'The Matrix Reloaded',
+    overview: 'Neo and the rebels race against time.',
+  })
+  const anotherRec = makeRec('700', 'The Animatrix')
+
+  it('resets the tab/scroll and refetches recommendations for the newly opened title', async () => {
+    mockApi.getTitleDetail.mockImplementation((_source: string, externalId: string) =>
+      Promise.resolve(externalId === '604' ? reloadedDetail : makeDetail()),
+    )
+    mockApi.getRecommendations.mockImplementation((_type: string, externalId: string) =>
+      Promise.resolve(externalId === '603' ? [reloaded, revolutions] : [anotherRec]),
+    )
+    const scrollSpy = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    renderPage()
+
+    await screen.findByRole('heading', { name: 'The Matrix' })
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+    await screen.findByText('The Matrix Reloaded')
+    scrollSpy.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'View details for The Matrix Reloaded' }))
+
+    // Navigated to the clicked title's own detail page.
+    await screen.findByRole('heading', { name: 'The Matrix Reloaded' })
+    expect(mockApi.getTitleDetail).toHaveBeenLastCalledWith('tmdb', '604', 'MOVIE')
+    expect(scrollSpy).toHaveBeenCalledWith(0, 0)
+
+    // The previous title's recommendation grid is gone rather than left stale —
+    // the panel resets to its default tab instead of staying on More Like This.
+    expect(screen.queryByText('The Matrix Revolutions')).not.toBeInTheDocument()
+    expect(mockApi.getRecommendations).toHaveBeenCalledTimes(1)
+
+    // Reopening the tab fetches recommendations for the *new* title, not the
+    // ones held over from the title navigated away from.
+    fireEvent.click(screen.getByRole('tab', { name: 'More Like This' }))
+    expect(await screen.findByText('The Animatrix')).toBeInTheDocument()
+    expect(mockApi.getRecommendations).toHaveBeenLastCalledWith('MOVIE', '604')
+  })
+})
+
 describe('TitleDetailPage runtime (#311)', () => {
   it('shows a movie runtime formatted as hours and minutes', async () => {
     renderPage()

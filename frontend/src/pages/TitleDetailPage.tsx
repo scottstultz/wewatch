@@ -76,6 +76,17 @@ function TitleDetailPage() {
     let cancelled = false
     setIsLoading(true)
     setError(null)
+    // A "More Like This" tile navigates to this same route (#406) — React
+    // Router reuses this mounted page rather than remounting it, so the
+    // previous title's detail/recommendations must be cleared by hand or the
+    // panel keeps showing them. Nulling `detail` also drops the OverviewCastPanel
+    // instance (gated on `detail &&` below) so its tab state resets instead of
+    // pointing at a section the new title doesn't have.
+    setDetail(null)
+    setRecommendations(null)
+    setRecsRequested(false)
+    setRecsLoading(false)
+    window.scrollTo(0, 0)
 
     api.getTitleDetail(source, externalId, type)
       .then(data => {
