@@ -26,6 +26,12 @@ const cacheMap = directives.match(/map \$uri \$cache_control \{([^}]*)\}/)?.[1] 
 const protoMap =
   directives.match(/map \$http_x_forwarded_proto \$forwarded_proto \{([^}]*)\}/)?.[1] ?? ''
 
+/** The body of `map "${TRUST_EDGE_REAL_IP}:$http_x_real_ip" $client_ip { ... }` -- the #408 table. */
+const clientIpMap =
+  directives.match(
+    /map "\$\{TRUST_EDGE_REAL_IP\}:\$http_x_real_ip" \$client_ip \{([^}]*)\}/,
+  )?.[1] ?? ''
+
 /**
  * The body of a location block, e.g. locationBody('/assets/'). Ends at the first line that closes a
  * block rather than at the first `}` character: /api/ contains `${BACKEND_URL}`, so a lazy match up
@@ -193,5 +199,41 @@ describe('nginx forwarded protocol (#348)', () => {
     expect(unsubstituted, 'the template expands a placeholder envsubst is not told about').toEqual(
       [],
     )
+  })
+})
+
+describe('nginx client IP normalization (#408)', () => {
+  it('gates X-Real-IP trust on a deployment-time literal, not header presence', () => {
+    // A bare `map $http_x_real_ip $client_ip` would let a self-hosted client set its own
+    // X-Real-IP and have nginx forward it as authoritative -- presence of the header is exactly
+    // what a direct client controls in a topology with no edge in front of nginx. The source must
+    // be the header concatenated with ${TRUST_EDGE_REAL_IP}, a literal only envsubst can set.
+    expect(directives).toMatch(
+      /map "\$\{TRUST_EDGE_REAL_IP\}:\$http_x_real_ip" \$client_ip \{/,
+    )
+  })
+
+  it('falls back to $remote_addr for anything but an exact "1:" prefix', () => {
+    expect(clientIpMap).toMatch(/default\s+\$remote_addr;/)
+
+    // Only two branches: the default, and the strict "1:<value>" match -- nothing a client sends
+    // (even a value starting with the digit "1") can produce a third path, because the ":"
+    // delimiter means only the deploy-time literal can ever produce a leading "1:".
+    const sources = clientIpMap
+      .split(';')
+      .map((line) => line.trim().split(/\s+/)[0])
+      .filter(Boolean)
+    expect(sources).toEqual(['default', '"~^1:(?<v>.+)$"'])
+  })
+
+  it('overwrites, rather than appends to, both X-Real-IP and X-Forwarded-For', () => {
+    // nginx has already resolved the one correct value (or fallen back to its own peer), so
+    // forwarding the edge's own irrelevant internal hop chain on top of it serves nothing -- and
+    // a single overwritten value is exactly the shape ClientIpResolver's existing right-to-left
+    // walk (#336) already handles correctly, so no backend change was needed.
+    expect(locationBody('/api/')).toContain('proxy_set_header X-Real-IP $client_ip;')
+    expect(locationBody('/api/')).toContain('proxy_set_header X-Forwarded-For $client_ip;')
+    expect(locationBody('/api/')).not.toMatch(/X-Real-IP\s+\$remote_addr/)
+    expect(locationBody('/api/')).not.toMatch(/X-Forwarded-For\s+\$proxy_add_x_forwarded_for/)
   })
 })

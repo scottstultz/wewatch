@@ -6,6 +6,30 @@ log_format temp_client_ip_diagnostic 'TEMP_CLIENT_IP_DIAGNOSTIC peer=$remote_add
     'xff="$http_x_forwarded_for" x_real_ip="$http_x_real_ip" '
     'x_envoy="$http_x_envoy_external_address"';
 
+# #408: this container's own proxy_set_header used to unconditionally overwrite X-Real-IP with
+# $remote_addr before forwarding to the backend -- destroying the correct client IP Railway's edge
+# already hands us in $http_x_real_ip (confirmed live, including against a deliberately forged
+# X-Real-IP: the edge overwrites client-supplied values, it doesn't preserve them). But trusting
+# $http_x_real_ip just because it's *present* would be wrong for the self-hosted/docker-compose
+# topology: there's no edge in front of nginx there, so a direct client can set that header to
+# anything it likes, and presence alone can't distinguish "a trusted edge wrote this" from "a
+# client wrote this" -- reopening exactly the #336 spoofing hole this file's old behavior avoided.
+#
+# So the source is not the header alone but the header concatenated with a deployment-time literal
+# that only envsubst can set, never a request: ${TRUST_EDGE_REAL_IP} is "1" only on Railway, where
+# a trusted edge -- not the client -- writes X-Real-IP before this container ever sees it. Unset
+# everywhere else (docker-compose), so $remote_addr is used unconditionally there, matching this
+# file's original behavior for that topology exactly.
+#
+# The ":" delimiter is load-bearing, not decoration: without it, an unset flag concatenated with a
+# client-forged header that happens to start with "1" (e.g. "172.16.0.5") could false-match a naive
+# "^1" prefix check. With it, only an exact "1:" prefix -- which only the deploy-time literal can
+# produce -- matches; nothing a client sends can ever contain that literal prefix on its own.
+map "${TRUST_EDGE_REAL_IP}:$http_x_real_ip" $client_ip {
+    default            $remote_addr;
+    "~^1:(?<v>.+)$"    $v;
+}
+
 # Railway terminates TLS at its edge and forwards plain HTTP to this container, so the request nginx
 # sees is never https: $scheme is a lie about the browser hop, and everything below that cares about
 # the real protocol has to read the edge's X-Forwarded-Proto instead. This map is the single place
@@ -134,8 +158,14 @@ server {
 
         proxy_pass ${BACKEND_URL}/api/;
         proxy_ssl_server_name on;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # #408: both set to $client_ip (the map above), not $remote_addr / $proxy_add_x_forwarded_for
+        # -- nginx has already resolved the one correct value (or fallen back to its own peer), so
+        # forwarding the edge's own irrelevant internal hop chain on top of it serves nothing. A
+        # single-entry X-Forwarded-For is also exactly the shape ClientIpResolver's existing
+        # right-to-left walk (#336) already handles correctly, so no backend change was needed.
+        proxy_set_header X-Real-IP $client_ip;
+        proxy_set_header X-Forwarded-For $client_ip;
 
         # $scheme here would be a lie: TLS ends at Railway's edge, so it is always http inside this
         # container and the backend would be told plain http even for an https browser hop. Forward
