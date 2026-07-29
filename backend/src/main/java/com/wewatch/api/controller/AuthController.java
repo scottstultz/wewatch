@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,6 +43,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @SecurityRequirements
 public class AuthController {
 
+	private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+
 	private final GoogleTokenValidator googleTokenValidator;
 	private final UserService userService;
 	private final JwtTokenService jwtTokenService;
@@ -47,11 +52,13 @@ public class AuthController {
 	private final AllowedEmailRepository allowedEmailRepository;
 	private final LoginAttemptService loginAttemptService;
 	private final ClientIpResolver clientIpResolver;
+	private final boolean tempIpDiagnostic;
 
 	public AuthController(GoogleTokenValidator googleTokenValidator, UserService userService,
 			JwtTokenService jwtTokenService, ObjectMapper objectMapper,
 			AllowedEmailRepository allowedEmailRepository, LoginAttemptService loginAttemptService,
-			ClientIpResolver clientIpResolver) {
+			ClientIpResolver clientIpResolver,
+			@Value("${app.auth.throttle.temp-ip-diagnostic:false}") boolean tempIpDiagnostic) {
 		this.googleTokenValidator = googleTokenValidator;
 		this.userService = userService;
 		this.jwtTokenService = jwtTokenService;
@@ -59,6 +66,7 @@ public class AuthController {
 		this.allowedEmailRepository = allowedEmailRepository;
 		this.loginAttemptService = loginAttemptService;
 		this.clientIpResolver = clientIpResolver;
+		this.tempIpDiagnostic = tempIpDiagnostic;
 	}
 
 	@PostMapping("/token")
@@ -77,6 +85,7 @@ public class AuthController {
 	public ResponseEntity<TokenResponse> exchangeToken(@Valid @RequestBody TokenRequest request,
 			HttpServletRequest httpRequest) {
 		String ip = clientIpResolver.resolve(httpRequest);
+		logIpDiagnostic(httpRequest, ip);
 		loginAttemptService.checkIp(ip);
 
 		User user;
@@ -123,6 +132,7 @@ public class AuthController {
 	public ResponseEntity<TokenResponse> register(@Valid @RequestBody RegisterRequest request,
 			HttpServletRequest httpRequest) {
 		String ip = clientIpResolver.resolve(httpRequest);
+		logIpDiagnostic(httpRequest, ip);
 		loginAttemptService.checkIp(ip);
 		try {
 			requireAllowedEmail(request.email());
@@ -134,6 +144,22 @@ public class AuthController {
 			request.email(), request.displayName(), request.password());
 		String token = jwtTokenService.generateToken(user);
 		return ResponseEntity.status(HttpStatus.CREATED).body(new TokenResponse(token));
+	}
+
+	// Temporary (#408): captures the raw inputs to ClientIpResolver so the Railway production
+	// topology can be observed before it's fixed. Remove this method and its two call sites,
+	// and the temp-ip-diagnostic property, once #408's fix lands — see docs/architecture.md.
+	private void logIpDiagnostic(HttpServletRequest httpRequest, String resolvedIp) {
+		if (!tempIpDiagnostic) {
+			return;
+		}
+		log.info(
+			"TEMP_CLIENT_IP_DIAGNOSTIC peer={} xForwardedFor={} xRealIp={} xEnvoyExternalAddress={} resolved={}",
+			httpRequest.getRemoteAddr(),
+			httpRequest.getHeader("X-Forwarded-For"),
+			httpRequest.getHeader("X-Real-IP"),
+			httpRequest.getHeader("X-Envoy-External-Address"),
+			resolvedIp);
 	}
 
 	private void requireAllowedEmail(String email) {
