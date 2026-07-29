@@ -61,6 +61,20 @@ class ClientIpResolverTest {
 	}
 
 	@Test
+	void matchingForwardedForAndRealIpFromATrustedProxyResolveToTheClient() {
+		// The production shape after #408: nginx now sets X-Forwarded-For and X-Real-IP to the
+		// SAME single resolved value, rather than X-Real-IP alone. XFF is checked first, so this
+		// pins that the two headers agreeing doesn't confuse the walk — an X-Real-IP-only test
+		// wouldn't exercise the path production actually takes.
+		ClientIpResolver resolver = new ClientIpResolver(DEFAULT_TRUSTED);
+		MockHttpServletRequest request = request("172.18.0.2");
+		request.addHeader("X-Forwarded-For", "198.51.100.9");
+		request.addHeader("X-Real-IP", "198.51.100.9");
+
+		assertThat(resolver.resolve(request)).isEqualTo("198.51.100.9");
+	}
+
+	@Test
 	void aClientInjectedForwardedForPrefixIsIgnored() {
 		ClientIpResolver resolver = new ClientIpResolver(DEFAULT_TRUSTED);
 		MockHttpServletRequest request = request("172.18.0.2");

@@ -45,6 +45,11 @@ services:
       - backend
     environment:
       BACKEND_URL: http://backend:8080
+      # Deliberately unset (#408): this is the self-hosted topology nginx's X-Real-IP fallback
+      # treats as untrusted -- no edge sits in front of nginx here, so a direct client could set
+      # X-Real-IP to anything it likes. Leaving this blank is what keeps nginx ignoring inbound
+      # X-Real-IP and using $remote_addr unconditionally, same as before #408.
+      TRUST_EDGE_REAL_IP: ""
     ports:
       - "3000:80"
 
