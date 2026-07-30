@@ -1,11 +1,3 @@
-# Temporary (#408): captures what Railway's edge actually hands this container on the /api/ hop,
-# so ClientIpResolver's trusted-proxy range can be chosen from observed production traffic rather
-# than from Railway's self-contradictory docs. Remove this log_format and the access_log line in
-# the /api/ location together, once #408's fix lands.
-log_format temp_client_ip_diagnostic 'TEMP_CLIENT_IP_DIAGNOSTIC peer=$remote_addr '
-    'xff="$http_x_forwarded_for" x_real_ip="$http_x_real_ip" '
-    'x_envoy="$http_x_envoy_external_address"';
-
 # #408: this container's own proxy_set_header used to unconditionally overwrite X-Real-IP with
 # $remote_addr before forwarding to the backend -- destroying the correct client IP Railway's edge
 # already hands us in $http_x_real_ip (confirmed live, including against a deliberately forged
@@ -151,11 +143,6 @@ server {
     add_header Cache-Control $cache_control;
 
     location /api/ {
-        # Temporary (#408): see the log_format comment above. /dev/stdout, not a file path —
-        # Railway captures container stdout/stderr only, so a real file here would be invisible
-        # in the dashboard's log viewer no matter how the observation window is run.
-        access_log /dev/stdout temp_client_ip_diagnostic;
-
         proxy_pass ${BACKEND_URL}/api/;
         proxy_ssl_server_name on;
 
