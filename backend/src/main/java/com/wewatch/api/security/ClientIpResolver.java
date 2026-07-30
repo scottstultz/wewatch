@@ -5,6 +5,8 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -44,6 +46,8 @@ import jakarta.servlet.http.HttpServletRequest;
 @Component
 public class ClientIpResolver {
 
+	private static final Logger log = LoggerFactory.getLogger(ClientIpResolver.class);
+
 	/** Bounds the work a hostile header can cause; real chains are 1–3 hops. */
 	private static final int MAX_FORWARDED_HOPS = 20;
 
@@ -53,6 +57,12 @@ public class ClientIpResolver {
 		@Value("${app.auth.throttle.trusted-proxies:}") String trustedProxies
 	) {
 		this.trustedProxies = parseBlocks(trustedProxies);
+		// #408: a misconfigured or misspelled APP_AUTH_THROTTLE_TRUSTED_PROXIES env var on
+		// Railway (which REPLACES rather than extends the property) fails silently otherwise —
+		// the resolver just falls back to peer-only behavior with no error anywhere. This count
+		// is enough to sanity-check the env var actually took effect without logging the CIDR
+		// list itself, which isn't sensitive but also isn't this log's job.
+		log.info("ClientIpResolver configured with {} trusted-proxy block(s)", this.trustedProxies.size());
 	}
 
 	/** The originating client IP, or the peer address when no proxy is trusted. */
