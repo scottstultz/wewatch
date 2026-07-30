@@ -541,6 +541,26 @@ class AuthControllerTest {
 	}
 
 	@Test
+	void throttlingWorksWithBothHeadersSetTheWayNginxNowSendsThem() throws Exception {
+		when(userService.authenticateWithPassword(any(), any()))
+			.thenThrow(new InvalidCredentialsException());
+
+		// #408: nginx now normalizes X-Forwarded-For AND X-Real-IP to the same single
+		// resolved value, rather than X-Real-IP alone or an appended multi-hop chain.
+		// This is the exact production shape — proxiedFrom() alone (X-Forwarded-For
+		// only) doesn't exercise it, and ClientIpResolver checks XFF first, so this
+		// pins that a matching X-Real-IP doesn't change the outcome.
+		for (int i = 0; i < 4; i++) {
+			mockMvc.perform(emailSignIn("client" + i + "@example.com", "wrongpass")
+					.with(proxiedFromBothHeaders("203.0.113.7")))
+				.andExpect(status().isUnauthorized());
+		}
+		mockMvc.perform(emailSignIn("client4@example.com", "wrongpass")
+				.with(proxiedFromBothHeaders("203.0.113.7")))
+			.andExpect(status().isTooManyRequests());
+	}
+
+	@Test
 	void aSpoofedForwardedForFromAnUntrustedPeerCannotDodgeTheIpBucket() throws Exception {
 		when(userService.authenticateWithPassword(any(), any()))
 			.thenThrow(new InvalidCredentialsException());
@@ -577,6 +597,17 @@ class AuthControllerTest {
 		return request -> {
 			request.setRemoteAddr("10.9.9.9");
 			request.addHeader("X-Forwarded-For", clientIp);
+			return request;
+		};
+	}
+
+	/** The exact shape nginx sends after #408: X-Forwarded-For and X-Real-IP agreeing. */
+	private static org.springframework.test.web.servlet.request.RequestPostProcessor proxiedFromBothHeaders(
+			String clientIp) {
+		return request -> {
+			request.setRemoteAddr("10.9.9.9");
+			request.addHeader("X-Forwarded-For", clientIp);
+			request.addHeader("X-Real-IP", clientIp);
 			return request;
 		};
 	}
