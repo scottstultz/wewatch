@@ -123,12 +123,139 @@ container level, where MockMvc never runs it — the three cases that matter (di
 the header, trusted proxy honors it, spoofed header from an untrusted peer is discarded) would have
 had no test coverage in a suite that starts no container.
 
-**Residual exposure:** `docker-compose.yml` publishes the backend's `:8080` to the host, so with the
-private ranges trusted, something *already inside* the private network could reach the backend
-directly and spoof `X-Forwarded-For` to rotate its bucket key. That is strictly narrower than the
-pre-#336 state (a free global lockout from anywhere on the internet) and the per-email bucket is
-untouched either way. Closing it means not publishing that port in a deployment that faces anything
-but localhost.
+**Residual exposure (docker-compose only):** `docker-compose.yml` publishes the backend's `:8080` to
+the host, so with the private ranges trusted, something *already inside* the private network could
+reach the backend directly and spoof `X-Forwarded-For` to rotate its bucket key. Still true, but
+narrow — local-only, and the per-email bucket is untouched either way. The equivalent exposure in
+*production* was a separate, much larger hole; see #408 below, which is the reason this residual note
+now says "docker-compose only" rather than describing production too.
+
+### Per-IP throttle across Railway's actual topology (#408)
+
+#336 designed `ClientIpResolver` for a self-hosted nginx that appends to `X-Forwarded-For` and sits
+directly in front of the backend. Production never matched that shape: `BACKEND_URL` pointed at the
+backend's own public `*.up.railway.app` domain, so the real path was `browser → Railway edge → nginx
+→ a second Railway edge → backend`, and the backend's peer was that second edge — not in
+`trusted-proxies`, so the resolver silently short-circuited on every request and the per-IP bucket
+collapsed into one or more shared buckets. 20 failed logins from anyone could lock out sign-in for
+everyone. Diagnosed and fixed across four PRs and a live production investigation; #411 (diagnostics),
+#412 (nginx fix), #413 (dual-stack bind) merged first, this section covers all four plus the parts
+that never became separate PRs.
+
+**Two independent causes, discovered in this order:**
+
+1. **nginx was destroying the correct value, not losing it at the second edge hop.** Live diagnostic
+   logging (#411 — flag-gated, `TEMP_CLIENT_IP_DIAGNOSTIC` on both the backend and nginx, `/dev/stdout`
+   specifically because Railway only captures container stdout/stderr) showed Railway's edge already
+   hands nginx the correct client IP in `X-Real-IP` — confirmed even against a deliberately forged
+   `X-Real-IP: 203.0.113.123` sent through the real app domain: nginx's inbound `$http_x_real_ip`
+   showed the true caller, not the forgery, proving the edge overwrites client-supplied values rather
+   than preserving them. nginx's own `proxy_set_header X-Real-IP $remote_addr;` then destroyed that
+   correct value before the request left the container. `X-Forwarded-For` as nginx received it was
+   separately useless — a constant, edge-internal hop chain unrelated to either client IP tested.
+
+2. **Trusting any peer range on the public-domain topology was unsafe regardless of (1).** The
+   backend's public domain was reachable directly, bypassing nginx entirely. A request straight to it
+   — confirmed live — landed on the *same* CGNAT peer range (`100.64.0.0/10`) nginx's own proxied
+   traffic produced. Widening `trusted-proxies` to cover that range, without closing the direct path,
+   would have made the resolver equally trust a direct caller.
+
+**Fix for (1) — `frontend/nginx.conf.template` (#412), transport only, no new trust activated:**
+
+```nginx
+map "${TRUST_EDGE_REAL_IP}:$http_x_real_ip" $client_ip {
+    default            $remote_addr;
+    "~^1:(?<v>.+)$"    $v;
+}
+```
+`location /api/` sets both `X-Real-IP` and `X-Forwarded-For` to `$client_ip`, overwriting rather than
+appending — nginx has already resolved the one correct value, so forwarding the edge's own irrelevant
+chain on top of it serves nothing, and a single overwritten value is exactly the shape
+`ClientIpResolver`'s existing right-to-left walk already handles.
+
+⚠️ **The map is gated on a deployment-time literal, not on whether `X-Real-IP` is present — this was
+caught in review, not designed in from the start.** The first draft forwarded `$http_x_real_ip`
+whenever it was present, falling back to `$remote_addr` otherwise. That has a real hole: presence
+isn't trustworthiness. In the docker-compose/self-hosted topology nothing sits in front of nginx, so a
+direct client can set `X-Real-IP` to anything, and a presence-gated map would forward that forgery as
+authoritative — reopening #336's spoofing hole one layer earlier than it used to live. `${TRUST_EDGE_REAL_IP}`
+is a literal `envsubst` bakes into the config at container start (`frontend/Dockerfile`'s `envsubst`
+list; extending it is why `nginx-serving.test.ts`'s placeholder guard needed updating), never derived
+from a request — "1" only on Railway, unset in `docker-compose.yml`. The `:` delimiter is load-bearing:
+without it, an unset flag concatenated with a client-forged header starting in "1" (e.g. `172.16.0.5`)
+could false-match a naive `^1` prefix check.
+
+⚠️ **`ClientIpResolver.java` needed no change.** Its existing right-to-left walk already does the
+right thing once fed a clean single-value header from a trusted peer — no second trust model, no
+"leftmost XFF" fallback mode.
+
+**Fix for (2) — private networking, staged so a mistake can't cause an outage:**
+
+`server.address=::` on the prod profile only (#413 — first `server.address` setting in this repo;
+this Railway environment resolves the private domain over both IPv4 and IPv6, and Railway's own
+guidance is to bind `[::]` for dual-stack compatibility rather than trust the JVM's default wildcard
+bind across base images). Deliberately isolated from the `BACKEND_URL` switch itself, deployed and
+verified first — bundling both would make a connectivity failure ambiguous (backend not listening
+correctly, or something else about Railway's private networking) where isolating it first leaves
+exactly one variable to investigate. Then, in order, each confirmed before the next: switch
+`BACKEND_URL` to the private domain; confirm nginx→backend connectivity and observe the new peer
+address; only then remove the backend's public domain; confirm direct public access is actually gone
+(Railway's own "This train has not arrived at the station" 404 is the expected response). Every stage
+had a defined rollback (restore the public `BACKEND_URL`, or restore the domain) — none were needed.
+
+⚠️ **Lateral trust within the private network is a separate question from the range's stability, and
+both were checked.** Private networking narrows "who can present a trusted peer" from "anyone on the
+internet" to "something inside this Railway project/environment" — confirmed only three services run
+in this project (`postgres`, `backend`, `frontend`), and postgres isn't an HTTP client capable of
+forging auth headers, so the only realistic presenter of a trusted peer is nginx itself.
+
+⚠️ **The observed peer alternates between two protocol families, and only discovering this live
+prevented shipping a half-working fix.** Early spaced-out observations all showed one stable IPv4
+address (`10.172.23.110` — already covered by the shipped `trusted-proxies` default's `10.0.0.0/8`,
+by coincidence rather than design, since that range was written for docker-compose). A 30-attempt
+burst test to verify per-IP bucket isolation produced no `429` at all, which looked like a broken
+throttle but wasn't — reading the diagnostic logs for that burst showed `peer` alternating between
+the IPv4 address and a stable IPv6 ULA address (`fd12:b423:2eec:1:5000:5d:d82c:176e`) with **no ULA
+coverage in `trusted-proxies` at all**. Every connection landing on the IPv6 peer fell back to
+peer-only mode, so the 30 real failures split across two different bucket keys and neither crossed the
+20-attempt threshold alone. This is exactly the "don't lock in from one observation" trap the plan
+already warned about, and it would have shipped invisibly — the earlier, smaller-sample tests all
+happened to land on IPv4 and looked completely correct.
+
+`APP_AUTH_THROTTLE_TRUSTED_PROXIES` (Railway env var on the **backend** service — this property has
+nothing to do with the frontend/nginx service, unlike `TRUST_EDGE_REAL_IP`) now carries the shipped
+default plus `fd12:b423:2eec:1::/64`. `/64` rather than the literal observed `/128`: the address
+repeated identically across every observation in this session (strong evidence it's fixed, not
+ephemeral), but a future redeploy could plausibly shift the specific host address within Railway's
+assigned subnet, and `/64` is the standard IPv6 subnet boundary (RFC 4291) rather than invented
+headroom. Spring's environment property source **replaces** rather than extends the property value,
+so the Railway-side value repeats the five shipped defaults rather than adding just the one new
+entry — confirmed via `ClientIpResolver`'s startup log (`ClientIpResolver configured with N
+trusted-proxy block(s)`, added specifically so a misconfigured env var fails visibly instead of
+silently reverting to peer-only behavior).
+
+⚠️ **A same-session production outage during this rollout was a red herring, not evidence against the
+fix — and the actual cause is a separate, still-open risk.** Setting the `trusted-proxies` env var
+triggered a backend restart, after which sign-in hung and eventually 504'd. Removing the env var and
+redeploying the backend alone did *not* fix it; redeploying the *frontend* did. That points at nginx's
+`proxy_pass ${BACKEND_URL}/api/` — a static string baked in at build time, resolved once when nginx's
+worker processes start, not re-resolved per request or on a timer. If Railway's private networking can
+route the backend's private domain to a different address after a restart, nginx has no mechanism to
+notice until it is itself restarted. This is a real operational risk on this topology — any future
+backend-only redeploy could in principle strand nginx pointed at a dead address — but it's orthogonal
+to #408 and unresolved here; it needs its own fix (an nginx `resolver` directive plus a
+variable-based `proxy_pass`, forcing periodic re-resolution instead of a one-time lookup).
+
+**End-to-end verification, live production, no mocks:** two genuinely distinct real clients (differing
+public IPs, one IPv4 one IPv6) each correctly resolved to their own address; failing one client's IP
+past the 20-attempt threshold produced `429`s for that client specifically, for **both** auth
+providers (email and Google — `checkIp()` runs before either provider branch, so this had to hold for
+both); a second, distinct client signed in successfully the entire time. That is the actual proof this
+is fixed, not just plumbed correctly.
+
+Nothing in `backend/src/test` starts a container, and nothing in `frontend/src` starts an nginx
+process, so none of this was verifiable from either suite — same standing constraint as #321/#345/#336.
+Every claim above was checked by hand against the real, running production system.
 
 ### Secret validation & issuer pinning (#346)
 
