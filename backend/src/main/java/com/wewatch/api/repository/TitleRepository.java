@@ -32,21 +32,22 @@ public interface TitleRepository extends JpaRepository<Title, Long> {
 	List<String> findExternalIdsByTypeNotInCache(@Param("type") TitleType type, @Param("prefix") String prefix);
 
 	/**
-	 * TMDB ids of every TV show someone is actively watching — the set the nightly
-	 * episode-cache refresh keeps current (#321). Native because WatchlistEntry holds a
-	 * bare titleId column with no association to join across in JPQL.
+	 * TMDB ids of every TV show on somebody's watchlist, any status — the set the nightly
+	 * episode-cache refresh keeps current (#321, widened to all statuses in #416). Native
+	 * because WatchlistEntry holds a bare titleId column with no association to join across
+	 * in JPQL.
 	 */
 	@Query(nativeQuery = true, value = """
 		SELECT DISTINCT t.external_id
 		FROM titles t
 		JOIN watchlist_entries we ON we.title_id = t.id
-		WHERE t.type = 'TV' AND we.status = 'WATCHING'
+		WHERE t.type = 'TV'
 		""")
-	List<String> findWatchingTvExternalIds();
+	List<String> findWatchlistedTvExternalIds();
 
 	/**
 	 * Every entry on a watchlist as (title, medium, status) — the input to the stats page (#323).
-	 * Native for the same reason as {@link #findWatchingTvExternalIds}: {@code WatchlistEntry}
+	 * Native for the same reason as {@link #findWatchlistedTvExternalIds}: {@code WatchlistEntry}
 	 * holds a bare {@code titleId} column with no association to join across in JPQL.
 	 *
 	 * <p>Returns raw rows, not counts. The WATCHED filter and the movie/show split live in

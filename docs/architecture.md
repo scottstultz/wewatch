@@ -878,10 +878,16 @@ filtering them would drop legitimate documentary work; the cost is that promo se
 ## Returning This Week (#321)
 
 `GET /api/watchlists/{watchlistId}/returning?days=7` (`ReturningEpisodeController` →
-`ReturningEpisodeService`) lists the watchlist's `WATCHING` TV entries whose next episode airs
-within the window, soonest first, one row per show. It reads only `tmdb_episode_cache`, so it
-adds no TMDB traffic per page load. The frontend renders it as a "Returning this week" panel on
-Home, ahead of "Continue watching".
+`ReturningEpisodeService`) lists the watchlist's TV entries — any status (#416) — whose next
+episode airs within the window, soonest first, one row per show. It reads only
+`tmdb_episode_cache`, so it adds no TMDB traffic per page load. The frontend renders it as a
+"Returning this week" panel on Home, ahead of "Continue watching".
+
+**Status is deliberately not part of the filter (#416).** The original #321 query scoped to
+`WATCHING` only, on the assumption that a returning show sits there between seasons. In practice
+a caught-up show gets parked in `WATCHED`, or in `WANT_TO_WATCH` used informally as "waiting on
+more" — and for those users the panel never fired for exactly the shows they cared most about.
+`findUpcomingByWatchlistId` no longer filters on `we.status` at all.
 
 **Why not reuse `episodeProgress.nextAirDate`.** Every library entry already carries a
 `nextAirDate` from `EpisodeProgressSummaryService`, which makes the whole feature look like a
@@ -911,19 +917,26 @@ first query that should get one.
 ### Nightly episode-cache refresh
 
 `EpisodeCacheRefreshJob` (`@Scheduled`, `app.episode-cache.refresh-cron`, default 03:30 daily)
-re-prewarms every TV show someone has in `WATCHING` (`TitleRepository.findWatchingTvExternalIds`).
-This is not an optimization — it is what makes the feature *true*. The cache is otherwise written
-only when a title is added, at startup backfill, or when someone opens a season, so a season
-announced after a show's last prewarm is simply **absent from the cache**, and "Returning this
-week" would confidently report nothing for precisely the show that just came back. The issue's
-"no extra TMDB traffic" criterion forbids traffic *per page load*, which a nightly job is not.
+re-prewarms every TV show on a watchlist, any status (#416) — `TitleRepository.
+findWatchlistedTvExternalIds`, renamed from `findWatchingTvExternalIds` when the `WATCHING`
+filter was dropped from it in the same change as the returning query itself, so the two stay in
+lockstep: widening the query without widening this job would leave `WATCHED`/`WANT_TO_WATCH`
+shows queryable but stale, correct only by coincidence of whatever else happened to touch their
+cache that day. This is not an optimization — it is what makes the feature *true*. The cache is
+otherwise written only when a title is added, at startup backfill, or when someone opens a
+season, so a season announced after a show's last prewarm is simply **absent from the cache**,
+and "Returning this week" would confidently report nothing for precisely the show that just came
+back. The issue's "no extra TMDB traffic" criterion forbids traffic *per page load*, which a
+nightly job is not.
 
-Cost is `1 + seasons` TMDB calls per watching show, once a night — tens of titles for a
-household, trivially inside TMDB's limits. It reuses `TmdbCacheService.prewarmShow`, which is
-already `@Async` and already swallows per-show failures, so one unreachable show doesn't cost the
-rest of the run. `@EnableScheduling` had to be added to `WewatchApiApplication` (only
-`@EnableAsync` was present); without it `@Scheduled` is silently inert. Set the cron to `-` to
-disable — worth doing in local dev, where the job just burns TMDB quota.
+Cost is `1 + seasons` TMDB calls per watchlisted show, once a night. Before #416 this was
+bounded to "tens of titles" (whoever a household was actively watching); it now tracks the size
+of the whole TV library across every status, which is a real cost increase worth watching on a
+large library. It reuses `TmdbCacheService.prewarmShow`, which is already `@Async` and already
+swallows per-show failures, so one unreachable show doesn't cost the rest of the run.
+`@EnableScheduling` had to be added to `WewatchApiApplication` (only `@EnableAsync` was present);
+without it `@Scheduled` is silently inert. Set the cron to `-` to disable — worth doing in local
+dev, where the job just burns TMDB quota.
 
 Single-instance: every node would run its own refresh. Harmless today (the writes are idempotent
 upserts), but it becomes duplicate TMDB traffic under horizontal scaling — move to a leader-elected

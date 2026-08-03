@@ -15,9 +15,10 @@ public interface TmdbEpisodeCacheRepository extends JpaRepository<TmdbEpisodeCac
 	List<TmdbEpisodeCache> findByTmdbIdAndSeasonNumber(String tmdbId, Integer seasonNumber);
 
 	/**
-	 * Every cached episode airing in [from, to] for a WATCHING TV entry on this
-	 * watchlist, earliest first (#321). BETWEEN is inclusive at both ends, which is
-	 * the window semantics the feature wants, and it drops null air dates for free.
+	 * Every cached episode airing in [from, to] for a TV entry on this watchlist —
+	 * any status, not just WATCHING (#416) — earliest first (#321). BETWEEN is
+	 * inclusive at both ends, which is the window semantics the feature wants, and
+	 * it drops null air dates for free.
 	 *
 	 * <p>Returns <em>all</em> matching episodes, not one per show: the caller picks
 	 * the earliest per entry in Java. That is deliberate. This suite mocks every
@@ -39,7 +40,6 @@ public interface TmdbEpisodeCacheRepository extends JpaRepository<TmdbEpisodeCac
 		JOIN titles t ON t.id = we.title_id
 		JOIN tmdb_episode_cache ec ON ec.tmdb_id = 'tv:' || t.external_id
 		WHERE we.watchlist_id = :watchlistId
-		  AND we.status = 'WATCHING'
 		  AND t.type = 'TV'
 		  AND ec.air_date BETWEEN :from AND :to
 		ORDER BY ec.air_date ASC, ec.season_number ASC, ec.episode_number ASC

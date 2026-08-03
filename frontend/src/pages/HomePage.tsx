@@ -87,8 +87,8 @@ function HomePage() {
     .sort((a, b) => b.addedAt.localeCompare(a.addedAt))
     .slice(0, 4)
 
-  // The backend already scoped this to WATCHING TV entries inside the window; pair each
-  // row with its entry so the tiles and the click-through match the rest of the page.
+  // The backend already scoped this to TV entries inside the window, any status (#416);
+  // pair each row with its entry so the tiles and the click-through match the rest of the page.
   const returningRows = returning
     .map(episode => ({ episode, entry: entries.find(e => e.id === episode.entryId) }))
     .filter((row): row is { episode: ReturningEpisode; entry: WatchlistEntryResponse } => row.entry != null)
