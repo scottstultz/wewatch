@@ -23,6 +23,11 @@ import com.wewatch.api.repository.projection.ReturningEpisode;
  * shows this feature exists to surface. The query here asks the cache a different
  * question: what airs next, regardless of what you've seen.
  *
+ * <p>It also deliberately ignores watchlist entry status (#416): Watching, Watched, and
+ * Want to Watch all qualify. A show a household has fully caught up on and parked in
+ * Watched — or in Want to Watch, used informally as "waiting on more" — still needs to
+ * surface here when a new season is announced.
+ *
  * <p>Reads only cached episode rows, so it costs no TMDB traffic. {@code
  * EpisodeCacheRefreshJob} is what keeps that cache current enough for the answer to
  * be true.

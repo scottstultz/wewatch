@@ -34,32 +34,33 @@ class EpisodeCacheRefreshJobTest {
 	private EpisodeCacheRefreshJob job;
 
 	@Test
-	void prewarmsEveryShowSomeoneIsWatching() {
-		when(titleRepository.findWatchingTvExternalIds()).thenReturn(List.of("95396", "1396"));
+	void prewarmsEveryWatchlistedShow() {
+		when(titleRepository.findWatchlistedTvExternalIds()).thenReturn(List.of("95396", "1396"));
 
-		job.refreshWatchingShows();
+		job.refreshWatchlistedShows();
 
 		verify(tmdbCacheService).prewarmShow("95396");
 		verify(tmdbCacheService).prewarmShow("1396");
 	}
 
 	@Test
-	void doesNothingWhenNobodyIsWatchingATvShow() {
-		// No WATCHING shows must mean no TMDB traffic at all — an empty library should
+	void doesNothingWhenNobodyHasATvShowOnAWatchlist() {
+		// No watchlisted shows must mean no TMDB traffic at all — an empty library should
 		// not cost a nightly round-trip.
-		when(titleRepository.findWatchingTvExternalIds()).thenReturn(List.of());
+		when(titleRepository.findWatchlistedTvExternalIds()).thenReturn(List.of());
 
-		job.refreshWatchingShows();
+		job.refreshWatchlistedShows();
 
 		verifyNoInteractions(tmdbCacheService);
 	}
 
 	@Test
-	void doesNotRefreshShowsNobodyIsWatching() {
-		// The repository query is what scopes the job; the job must not widen it.
-		when(titleRepository.findWatchingTvExternalIds()).thenReturn(List.of("95396"));
+	void doesNotRefreshShowsTheRepositoryDidNotReturn() {
+		// The repository query is what scopes the job (any status, #416); the job must
+		// not widen or narrow whatever it returns.
+		when(titleRepository.findWatchlistedTvExternalIds()).thenReturn(List.of("95396"));
 
-		job.refreshWatchingShows();
+		job.refreshWatchlistedShows();
 
 		verify(tmdbCacheService).prewarmShow("95396");
 		verify(tmdbCacheService, never()).prewarmShow("1396");
