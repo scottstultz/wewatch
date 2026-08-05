@@ -142,8 +142,31 @@ server {
     # pins a 404 in someone's browser.
     add_header Cache-Control $cache_control;
 
+    # #415: ${BACKEND_URL}'s host resolves once, at nginx worker startup, when it's the literal
+    # target of proxy_pass -- confirmed live: after #408/#414 pointed it at the backend's Railway
+    # private domain, a backend-only restart left nginx dialing the address that domain resolved to
+    # *before* the restart until nginx itself was redeployed. A `resolver` plus a variable-based
+    # proxy_pass forces per-request, TTL-bound re-resolution instead. `${NGINX_RESOLVERS}` is
+    # derived in the Dockerfile from this container's own /etc/resolv.conf -- see the comment there
+    # for why it isn't hardcoded and can't end up pointed at a resolver blind to Railway's private
+    # `*.railway.internal` names. `valid=10s` overrides whatever TTL the upstream DNS answer itself
+    # carries (Docker's embedded resolver was observed handing out one far longer than useful for
+    # noticing a redeploy) with a bound short enough that a restart is noticed quickly without
+    # querying on every single request.
+    resolver ${NGINX_RESOLVERS} valid=10s;
+    resolver_timeout 5s;
+
     location /api/ {
-        proxy_pass ${BACKEND_URL}/api/;
+        # $request_uri, not a literal /api/ suffix -- this location's prefix maps to itself
+        # (/api/foo -> /api/foo), which is exactly what $request_uri reproduces, verified against
+        # the static form byte for byte including the query string. This is NOT the same as
+        # appending a URI to a variable target: nginx does not do prefix-replacement when
+        # proxy_pass's target contains a variable, so `proxy_pass $backend_upstream/api/;` (the
+        # naive translation of the line above) sends a literal "/api/" for every request regardless
+        # of what was actually requested -- silently discarding the rest of the path and the entire
+        # query string. Confirmed by testing before writing this line, not assumed.
+        set $backend_upstream ${BACKEND_URL};
+        proxy_pass $backend_upstream$request_uri;
         proxy_ssl_server_name on;
 
         # #408: both set to $client_ip (the map above), not $remote_addr / $proxy_add_x_forwarded_for
