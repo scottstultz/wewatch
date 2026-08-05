@@ -235,16 +235,16 @@ trusted-proxy block(s)`, added specifically so a misconfigured env var fails vis
 silently reverting to peer-only behavior).
 
 ⚠️ **A same-session production outage during this rollout was a red herring, not evidence against the
-fix — and the actual cause is a separate, still-open risk.** Setting the `trusted-proxies` env var
-triggered a backend restart, after which sign-in hung and eventually 504'd. Removing the env var and
-redeploying the backend alone did *not* fix it; redeploying the *frontend* did. That points at nginx's
-`proxy_pass ${BACKEND_URL}/api/` — a static string baked in at build time, resolved once when nginx's
-worker processes start, not re-resolved per request or on a timer. If Railway's private networking can
-route the backend's private domain to a different address after a restart, nginx has no mechanism to
-notice until it is itself restarted. This is a real operational risk on this topology — any future
-backend-only redeploy could in principle strand nginx pointed at a dead address — but it's orthogonal
-to #408 and unresolved here; it needs its own fix (an nginx `resolver` directive plus a
-variable-based `proxy_pass`, forcing periodic re-resolution instead of a one-time lookup).
+fix — and the actual cause was a separate risk, closed by #415 below.** Setting the `trusted-proxies`
+env var triggered a backend restart, after which sign-in hung and eventually 504'd. Removing the env var
+and redeploying the backend alone did *not* fix it; redeploying the *frontend* did. That points at
+nginx's `proxy_pass ${BACKEND_URL}/api/` — a static string baked in at build time, resolved once when
+nginx's worker processes start, not re-resolved per request or on a timer. If Railway's private
+networking can route the backend's private domain to a different address after a restart, nginx has no
+mechanism to notice until it is itself restarted. This was a real operational risk on this topology —
+any future backend-only redeploy could in principle strand nginx pointed at a dead address — deliberately
+left orthogonal to #408 rather than folded in here; see "nginx no longer caches a stale backend address
+across a restart (#415)" immediately below for the fix.
 
 **End-to-end verification, live production, no mocks:** two genuinely distinct real clients (differing
 public IPs, one IPv4 one IPv6) each correctly resolved to their own address; failing one client's IP
@@ -256,6 +256,90 @@ is fixed, not just plumbed correctly.
 Nothing in `backend/src/test` starts a container, and nothing in `frontend/src` starts an nginx
 process, so none of this was verifiable from either suite — same standing constraint as #321/#345/#336.
 Every claim above was checked by hand against the real, running production system.
+
+### nginx no longer caches a stale backend address across a restart (#415)
+
+The `proxy_pass ${BACKEND_URL}/api/` risk flagged at the end of the #408 section above is what this
+closes. `${BACKEND_URL}` is a static string, baked in at build time by `envsubst` and resolved once,
+when nginx's worker processes start — never again, not per request, not on a timer. Since #414 pointed
+`BACKEND_URL` at the backend's Railway *private* domain rather than its old public one, a Railway
+reassignment of that domain's address on a backend-only restart leaves nginx dialing the pre-restart
+address until nginx itself is redeployed. Two PRs, mirroring #411→#412's diagnose-then-fix shape.
+
+**Diagnostics first, deliberately pure logging.** The obvious next step — add a second, temporary
+location proxying through the proposed variable-based form, and curl both side by side across a real
+backend restart — was tried and abandoned. Reproduced with real containers: a resolver-backed variable
+`proxy_pass` to a host recovers within one `valid=` window after that host's address changes when it is
+the *only* location resolving that hostname, but the same location added **alongside** a static
+`proxy_pass` to the same host does not recover even after 10× that window. The two resolution
+mechanisms are not expected to interact at all — a static target is resolved once at config-parse time
+via `ngx_inet_resolve_host` in the master process, a variable target is resolved per-request by the
+per-worker `ngx_resolver_t` the `resolver` directive drives — yet empirically the static form's mere
+presence suppresses the dynamic form's periodic re-resolution. Root cause not identified. A live
+side-by-side comparison would therefore have confounded this issue's actual fix with that interaction,
+understating the fix's real recovery behavior once the static form is gone entirely. The diagnostic step
+that shipped instead adds only an `access_log` (format `dns_diagnostic`, `$upstream_addr` /
+`$upstream_status` / `$request_time`, `/dev/stdout` because Railway only captures container stdout —
+the #411 convention) to the *existing* `/api/` location: zero behavior change, confirms the staleness
+claim on a real backend restart, and leaves nothing in place to confound the fix that follows it.
+
+**The fix — resolver plus a variable-based `proxy_pass`, replacing the static line entirely:**
+
+```nginx
+resolver ${NGINX_RESOLVERS} valid=10s;
+resolver_timeout 5s;
+
+location /api/ {
+    set $backend_upstream ${BACKEND_URL};
+    proxy_pass $backend_upstream$request_uri;
+    ...
+}
+```
+
+⚠️ **The obvious literal translation of the old line is wrong and breaks every request — confirmed
+against real nginx before writing the shipped form.** When `proxy_pass`'s target contains a variable,
+nginx does not perform the location-prefix replacement it does for a static target: the URI named in
+the directive is sent literally. `proxy_pass $backend_upstream/api/;` — the direct translation of
+`proxy_pass ${BACKEND_URL}/api/;` — sends a bare `/api/` for *every* request regardless of what was
+actually requested, silently discarding the rest of the path and the entire query string. Because this
+location's mapping is the identity (`/api/foo?x=1` → `/api/foo?x=1`), `$backend_upstream$request_uri`
+is what reproduces the old behavior exactly, verified byte for byte.
+
+⚠️ **A `resolver` directive is mandatory, and its absence passes `nginx -t`.** With a variable
+`proxy_pass` and no `resolver`, config validation succeeds and every request then 502s at runtime with
+`no resolver defined to resolve <host>` in the error log — nothing catches this except a targeted test
+(`nginx-serving.test.ts`'s `describe('nginx upstream re-resolution (#415)')`).
+
+⚠️ **The resolver address is derived from the container's own `/etc/resolv.conf`, not hardcoded or set
+per environment.** `resolver` needs a DNS server able to answer for whatever network the container is
+actually on — Railway's private network resolves `*.railway.internal` names, docker-compose's is
+Docker's own embedded DNS — and a single hardcoded address could only ever be correct for one of the
+two. `frontend/Dockerfile`'s `CMD` reads `/etc/resolv.conf` with the same `awk` one-liner
+`nginx:alpine`'s own `/docker-entrypoint.d/15-local-resolvers.envsh` uses (it brackets IPv6
+nameservers, which `resolver` requires) and exports the result as `NGINX_RESOLVERS` for `envsubst` to
+bake in — that script itself never runs for us, because `docker-entrypoint.sh` only launches
+`/docker-entrypoint.d/` when its own `$1` is `nginx`/`nginx-debug`, and this image's `CMD` overrides
+`$1` to `/bin/sh`. A `127.0.0.11` fallback (Docker's own embedded-DNS address — inert on Railway, a
+no-op under docker-compose) exists only so an empty `resolv.conf` can't produce a bare `resolver ;`, a
+config error that would stop the container from starting at all.
+
+⚠️ **`valid=10s` overrides the DNS answer's own TTL, not just documents it.** Docker's embedded resolver
+was observed handing back a TTL far longer than useful for noticing a redeploy quickly; the explicit
+override bounds re-resolution to a short, known interval instead of inheriting whatever the upstream
+answer happens to carry.
+
+**Verified end-to-end with real containers**, not just `nginx -t`: a backend container's address was
+changed out from under a running frontend container (same shape as a Railway redeploy reassigning the
+private domain) while polling `/api/` — the pre-fix static form hung and then 502'd on every request for
+over a minute with no recovery; the shipped fix recovered within one `valid=` window and stayed correct
+across 12 nginx worker processes (this repo's actual production worker count on a multi-core host) and
+48 seconds of continued polling. Path and query string were confirmed to survive unchanged
+(`/api/titles/search?query=matrix&page=2` reaches the backend identically before and after). Security
+headers and the #348 forwarded-protocol header were confirmed unaffected. Nothing in `frontend/src`
+starts an nginx process, so none of this is exercised by `npm test` — same standing constraint as the
+#408 section above; `nginx-serving.test.ts`'s new describe block guards the *shape* of the fix
+(variable target, `$request_uri`, the `resolver` directive, its `valid=` bound, the envsubst wiring),
+not the live re-resolution behavior itself.
 
 ### Secret validation & issuer pinning (#346)
 

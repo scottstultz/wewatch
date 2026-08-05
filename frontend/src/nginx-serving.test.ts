@@ -237,3 +237,62 @@ describe('nginx client IP normalization (#408)', () => {
     expect(locationBody('/api/')).not.toMatch(/X-Forwarded-For\s+\$proxy_add_x_forwarded_for/)
   })
 })
+
+describe('nginx upstream re-resolution (#415)', () => {
+  it('proxies through a variable, not a literal ${BACKEND_URL} target', () => {
+    // A literal proxy_pass target is resolved once, at worker startup, and never again -- this is
+    // the bug itself. Confirmed live: after #408/#414 pointed BACKEND_URL at the backend's Railway
+    // private domain, a backend-only restart left nginx dialing the address that domain resolved
+    // to *before* the restart until nginx itself was redeployed.
+    expect(directives).not.toMatch(/proxy_pass\s+\$\{BACKEND_URL\}/)
+    expect(locationBody('/api/')).toContain('set $backend_upstream ${BACKEND_URL};')
+  })
+
+  it('reproduces the static form byte for byte via $request_uri, not by appending a path', () => {
+    // The proven guard: proxy_pass $backend_upstream/api/; -- the literal translation of the old
+    // line -- does NOT do prefix replacement once the target contains a variable, so it would send
+    // a bare "/api/" for every request regardless of what was actually requested, silently
+    // discarding the rest of the path and the whole query string (confirmed against real nginx
+    // before writing this). $backend_upstream$request_uri is the only form that round-trips
+    // /api/foo?x=1 unchanged, because this location's prefix maps to itself.
+    expect(locationBody('/api/')).toContain('proxy_pass $backend_upstream$request_uri;')
+    expect(locationBody('/api/')).not.toMatch(/proxy_pass\s+\$backend_upstream\/api\//)
+  })
+
+  it('declares a resolver, without which a variable proxy_pass 502s on every request', () => {
+    // nginx -t passes with a variable proxy_pass and no resolver directive -- the failure is
+    // runtime-only ("no resolver defined to resolve <host>"), so nothing except a targeted test
+    // catches its absence.
+    expect(directives).toMatch(/resolver\s+\$\{NGINX_RESOLVERS\}\s+valid=\d+[smh];/)
+  })
+
+  it('bounds the resolver cache with an explicit valid=, not the upstream DNS answer’s own TTL', () => {
+    // Docker's embedded resolver was observed handing back a TTL far longer than useful for
+    // noticing a redeploy -- an explicit valid= is what keeps re-resolution on a short, known
+    // interval instead of inheriting whatever the answer happens to carry.
+    expect(directives).toMatch(/resolver\s+\$\{NGINX_RESOLVERS\}\s+valid=10s;/)
+  })
+
+  it('gets its resolver address from envsubst, never a hardcoded literal', () => {
+    // The address has to be appropriate for whatever network this container is on (Railway's
+    // private network resolves *.railway.internal names; docker-compose's is Docker's own embedded
+    // DNS) -- a hardcoded address could only ever be right for one of the two.
+    expect(directives).not.toMatch(/resolver\s+\d+\.\d+\.\d+\.\d+/)
+  })
+
+  it('still forwards the edge protocol and declares no add_header in the location', () => {
+    // Regression guards for the #348 forwarded-protocol map and the #337/#347 add_header
+    // inheritance trap -- restructuring this location's proxy_pass is exactly the kind of edit
+    // that could silently reintroduce either.
+    expect(locationBody('/api/')).toContain('proxy_set_header X-Forwarded-Proto $forwarded_proto;')
+    expect(locationBody('/api/')).not.toContain('add_header')
+  })
+
+  it('adds ${NGINX_RESOLVERS} to the envsubst variable list', () => {
+    // The general "every placeholder is in the list" guard above (#348) already covers this
+    // structurally, but this pins the specific name so a future revert of just the Dockerfile half
+    // of this change fails here directly rather than only via the general guard.
+    const list = dockerfile.match(/envsubst\s+'([^']*)'/)?.[1] ?? ''
+    expect(list).toMatch(/\$NGINX_RESOLVERS\b/)
+  })
+})
