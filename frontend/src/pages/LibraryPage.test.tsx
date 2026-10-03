@@ -426,3 +426,51 @@ describe('LibraryPage provider badges (#392)', () => {
     expect(document.querySelectorAll('.provider-badge-logo')).toHaveLength(1)
   })
 })
+
+// ── Provider-badge discoverability cues (#419) ─────────────────
+
+describe('LibraryPage provider-badge discoverability (#419)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('explains what a badge means alongside the attribution when services are configured', async () => {
+    configureServices([8])
+    await renderLibrary(makeEntry(null, { providerIds: [8] }))
+
+    await screen.findByAltText('Netflix')
+    expect(screen.getByText(/Logos show titles on your streaming services/)).toBeInTheDocument()
+    // With services configured, the setup pointer must never appear
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('points to Profile when no services are configured', async () => {
+    // Default beforeEach state: getMe resolves unconfigured
+    await renderLibrary(makeEntry(null))
+
+    const pointer = await screen.findByRole('note')
+    expect(pointer).toHaveTextContent(/Set your streaming services on Profile/)
+    expect(within(pointer).getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/profile')
+    // The badge-meaning hint belongs to the context-on state, not this one
+    expect(screen.queryByText(/Logos show titles on your streaming services/)).not.toBeInTheDocument()
+  })
+
+  it('dismisses the pointer and remembers it across renders', async () => {
+    await renderLibrary(makeEntry(null))
+
+    const pointer = await screen.findByRole('note')
+    fireEvent.click(within(pointer).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+
+    // Persisted, so a fresh mount (e.g. navigating back) keeps it hidden
+    render(
+      <MemoryRouter>
+        <WatchlistProvider>
+          <LibraryPage />
+        </WatchlistProvider>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(mockApi.getMe).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+})

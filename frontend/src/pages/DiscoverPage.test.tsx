@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import DiscoverPage from './DiscoverPage'
 import { WatchlistProvider } from '../contexts/WatchlistContext'
@@ -530,5 +530,59 @@ describe('DiscoverPage genre browse (#384)', () => {
 
     await screen.findByText('Groundhog Day')
     expect(mockApi.browseByGenre).not.toHaveBeenCalled()
+  })
+})
+
+// ── Provider-badge discoverability cues (#419) ─────────────────
+
+const NETFLIX = { id: 8, name: 'Netflix', logoUrl: 'https://img/netflix.jpg', displayPriority: 1 }
+
+function configureServices() {
+  mockApi.getMe.mockResolvedValue({
+    id: 1,
+    email: 'user@example.com',
+    displayName: 'Test User',
+    watchRegion: 'US',
+    watchProviderIds: [8],
+  })
+  mockApi.getWatchProviders.mockResolvedValue([NETFLIX])
+}
+
+describe('DiscoverPage provider-badge discoverability (#419)', () => {
+  beforeEach(() => {
+    localStorage.clear()
+  })
+
+  it('explains what a badge means alongside the attribution when services are configured', async () => {
+    configureServices()
+    await renderWithShelves()
+
+    await screen.findByText(/Logos show titles on your streaming services/)
+    expect(screen.getByRole('link', { name: 'JustWatch' })).toBeInTheDocument()
+    // With services configured, the setup pointer must never appear
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+  })
+
+  it('points to Profile when no services are configured', async () => {
+    // Default beforeEach state: getMe resolves unconfigured
+    await renderWithShelves()
+
+    const pointer = await screen.findByRole('note')
+    expect(pointer).toHaveTextContent(/Set your streaming services on Profile/)
+    expect(within(pointer).getByRole('link', { name: 'Profile' })).toHaveAttribute('href', '/profile')
+    expect(screen.queryByText(/Logos show titles on your streaming services/)).not.toBeInTheDocument()
+  })
+
+  it('dismisses the pointer and remembers it across renders', async () => {
+    await renderWithShelves()
+
+    const pointer = await screen.findByRole('note')
+    fireEvent.click(within(pointer).getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
+
+    // Persisted, so a fresh mount keeps it hidden
+    renderPage()
+    await waitFor(() => expect(mockApi.getMe).toHaveBeenCalledTimes(2))
+    expect(screen.queryByRole('note')).not.toBeInTheDocument()
   })
 })

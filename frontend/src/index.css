@@ -2873,6 +2873,43 @@ div.people-row-photo {
   text-decoration: underline;
 }
 
+/* #419: quiet badge-meaning hint, paired with the JustWatch attribution */
+.provider-badge-hint {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin: 12px 0 0;
+}
+
+/* #419: dismissible one-line pointer to Profile when no services are configured */
+.provider-setup-pointer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  color: #94a3b8;
+  margin: 0 0 12px;
+}
+
+.provider-setup-pointer a {
+  color: #cbd5e1;
+  text-decoration: underline;
+}
+
+.provider-setup-pointer-dismiss {
+  flex: none;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+.provider-setup-pointer-dismiss:hover {
+  color: #cbd5e1;
+}
+
 /* Streaming-service settings on the Profile page */
 .settings-field-row {
   display: flex;

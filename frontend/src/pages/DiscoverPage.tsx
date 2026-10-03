@@ -4,6 +4,7 @@ import { useApi } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import GenreFilter from '../components/GenreFilter'
 import JustWatchAttribution from '../components/JustWatchAttribution'
+import { ProviderBadgeHint, ProviderSetupPointer } from '../components/ProviderBadgeNotice'
 import { PersonSilhouette } from '../components/OverviewCastPanel'
 import TitleCard, { cardKey } from '../components/TitleCard'
 import type { AddHandler, CardStatus, DismissHandler, OpenHandler, RemoveHandler, ToggleHandler } from '../components/TitleCard'
@@ -194,17 +195,24 @@ function DiscoverPage() {
   // id -> provider lookup for availability badges (#270); stays null when the
   // user has no streaming services configured, which hides all badge UI
   const [providersById, setProvidersById] = useState<Map<number, WatchProvider> | null>(null)
+  // #419: whether the user has streaming services configured. null = unknown
+  // (profile not loaded yet, or the fetch errored) — distinct from a definitive
+  // false, so the "set your services" pointer never flashes mid-load or on error.
+  const [servicesConfigured, setServicesConfigured] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
     api.getMe()
       .then(user => {
-        if (cancelled || !user.watchRegion || !user.watchProviderIds?.length) return
-        return api.getWatchProviders(user.watchRegion).then(list => {
+        const configured = !!user.watchRegion && !!user.watchProviderIds?.length
+        if (cancelled) return
+        setServicesConfigured(configured)
+        if (!configured) return
+        return api.getWatchProviders(user.watchRegion!).then(list => {
           if (!cancelled) setProvidersById(new Map(list.map(p => [p.id, p])))
         })
       })
-      .catch(() => { /* badges are decoration — fail silently */ })
+      .catch(() => { /* badges are decoration — fail silently (leaves configured unknown) */ })
     return () => { cancelled = true }
   }, [api])
 
@@ -656,6 +664,10 @@ function DiscoverPage() {
       </section>
 
       <section className="stack-list">
+        {/* #419: one-time pointer when no streaming services are configured —
+            never shown once they are, never while the profile is still loading. */}
+        {servicesConfigured === false && <ProviderSetupPointer />}
+
         {/* Search results */}
         {query.trim() && (
           <>
@@ -780,7 +792,12 @@ function DiscoverPage() {
                     {browseAppending ? 'Loading…' : 'Load more'}
                   </button>
                 )}
-                {providersById && <JustWatchAttribution />}
+                {providersById && (
+                  <>
+                    <ProviderBadgeHint />
+                    <JustWatchAttribution />
+                  </>
+                )}
               </>
             )}
           </>
@@ -832,7 +849,10 @@ function DiscoverPage() {
               })
             })()}
             {providersById && suggestions.length > 0 && !suggestionsLoading && (
-              <JustWatchAttribution />
+              <>
+                <ProviderBadgeHint />
+                <JustWatchAttribution />
+              </>
             )}
           </>
         )}

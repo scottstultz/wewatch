@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ProviderBadgeHint, ProviderSetupPointer } from '../components/ProviderBadgeNotice'
 import { useApi, useAuth } from '../contexts/AuthContext'
 import { useWatchlists } from '../contexts/WatchlistContext'
 import WatchlistDropdown from '../components/WatchlistDropdown'
@@ -81,6 +82,10 @@ function LibraryPage() {
   // effect (#270); stays null when the user has no streaming services configured, which
   // hides all badge UI
   const [providersById, setProvidersById] = useState<Map<number, WatchProvider> | null>(null)
+  // #419: whether streaming services are configured. null = unknown (profile not
+  // loaded yet, or fetch errored) — distinct from a definitive false, so the
+  // "set your services" pointer never flashes mid-load or on error.
+  const [servicesConfigured, setServicesConfigured] = useState<boolean | null>(null)
 
   // Write one search param while preserving the others. The tab handler used to call
   // setSearchParams({ status }), which replaces the *whole* query string — it would drop
@@ -140,12 +145,15 @@ function LibraryPage() {
     let cancelled = false
     api.getMe()
       .then(user => {
-        if (cancelled || !user.watchRegion || !user.watchProviderIds?.length) return
-        return api.getWatchProviders(user.watchRegion).then(list => {
+        const configured = !!user.watchRegion && !!user.watchProviderIds?.length
+        if (cancelled) return
+        setServicesConfigured(configured)
+        if (!configured) return
+        return api.getWatchProviders(user.watchRegion!).then(list => {
           if (!cancelled) setProvidersById(new Map(list.map(p => [p.id, p])))
         })
       })
-      .catch(() => { /* badges are decoration — fail silently */ })
+      .catch(() => { /* badges are decoration — fail silently (leaves configured unknown) */ })
     return () => { cancelled = true }
   }, [api])
 
@@ -407,6 +415,9 @@ function LibraryPage() {
       </section>
 
       <section className="stack-list">
+        {/* #419: one-time pointer when no streaming services are configured —
+            never shown once they are, never while the profile is still loading. */}
+        {servicesConfigured === false && <ProviderSetupPointer />}
 
         {isLoading && <p className="search-status">Loading…</p>}
         {error && <p className="search-status search-status-error">{error}</p>}
@@ -518,7 +529,12 @@ function LibraryPage() {
           </div>
         )}
 
-        {providersById && visible.length > 0 && <JustWatchAttribution />}
+        {providersById && visible.length > 0 && (
+          <>
+            <ProviderBadgeHint />
+            <JustWatchAttribution />
+          </>
+        )}
       </section>
 
       {canRoll && (
