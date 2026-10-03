@@ -206,6 +206,31 @@ server {
         try_files $uri =404;
     }
 
+    # Secret-scanner bait. Bots sweep every public host for leaked-secret files -- /.git/config,
+    # /.aws/credentials, /aws.env, /.env (seen in the Railway deploy logs). None exist here: the
+    # Dockerfile copies only /app/dist into the web root, so the SPA fallback below would otherwise
+    # answer each probe with 200 + index.html -- a reply that reads like a hit in the logs and tells
+    # a scanner the host is live. A 404 is both honest (these genuinely do not exist) and the
+    # least-encouraging answer.
+    #
+    # `return 404` runs in the rewrite phase, which is *before* the access phase where a `deny` would
+    # fire -- so `deny all` here would be dead code, and `return` alone is what actually answers. The
+    # 404 inherits no Cache-Control (that add_header is deliberately not `always`, same as /assets/),
+    # so nothing about it is cached.
+    #
+    # These are regex locations, which nginx evaluates ahead of the `/` prefix fallback, so the
+    # probes never reach it. The negative lookahead spares /.well-known/ (ACME challenges, etc.).
+    # Neither block can shadow a real path: /assets/ files end in .js/.css, /manifest.webmanifest has
+    # an exact-match location that outranks any regex, and no /api/ route ends in one of these
+    # extensions. The second block catches the dotless secret filenames (aws.env, *.sql dumps) the
+    # first one misses.
+    location ~ /\.(?!well-known) {
+        return 404;
+    }
+    location ~* \.(env|ini|bak|sql|log)$ {
+        return 404;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }
