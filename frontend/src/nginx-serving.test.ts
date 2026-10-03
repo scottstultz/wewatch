@@ -296,3 +296,71 @@ describe('nginx upstream re-resolution (#415)', () => {
     expect(list).toMatch(/\$NGINX_RESOLVERS\b/)
   })
 })
+
+describe('nginx secret-scanner probes (#420)', () => {
+  // Automated scanners sweep for leaked-secret files -- /.git/config, /.aws/credentials, /aws.env,
+  // /.env (all seen in the Railway deploy logs). None exist in the web root (the Dockerfile copies
+  // only /app/dist), so without these blocks each probe falls into the SPA fallback and answers
+  // 200 + index.html -- a reply that reads like a hit and tells a scanner the host is live. These
+  // regex locations make nginx answer 404 instead. Nothing here runs in `npm run dev`, so the
+  // config is only observable in the built container -- hence a text assertion, like the rest.
+
+  /** The body of the first regex location whose header matches `pattern`. */
+  function regexLocationBody(pattern: RegExp): string {
+    const opening = directives.match(new RegExp(`location ${pattern.source} \\{`))
+    if (opening?.index === undefined) return ''
+    return directives.slice(opening.index + opening[0].length).split(/^\s*\}/m)[0]
+  }
+
+  const dotfileBody = regexLocationBody(/~ \/\\\.\(\?!well-known\)/)
+  const secretFileBody = regexLocationBody(/~\* \\\.\([^)]*\)\$/)
+
+  it('404s dotfile probes (/.git, /.aws, /.env) via a regex deny block', () => {
+    // The leading-dot path segment is what every one of /.git/config, /.aws/credentials and /.env
+    // has in common. `return 404` runs in the rewrite phase, before a `deny` ever would, so it is
+    // what actually answers -- and it leaks less than a 403 while being truthful (these don't exist).
+    expect(dotfileBody, 'no `location ~ /\\.(?!well-known)` block found').not.toBe('')
+    expect(dotfileBody).toMatch(/return 404;/)
+  })
+
+  it('spares /.well-known/ via the negative lookahead', () => {
+    // ACME challenges and similar live under /.well-known/; a blanket /\. block would 404 them. The
+    // (?!well-known) lookahead in the location header is the carve-out -- assert it is there and that
+    // the block does not re-deny well-known some other way.
+    expect(directives).toMatch(/location ~ \/\\\.\(\?!well-known\) \{/)
+    expect(dotfileBody).not.toContain('well-known')
+  })
+
+  it('404s dotless secret filenames (aws.env, *.sql dumps) the dotfile block misses', () => {
+    // /aws.env has no leading dot, so the block above never sees it; this one keys on the extension.
+    expect(secretFileBody, 'no secret-filename regex location found').not.toBe('')
+    expect(secretFileBody).toMatch(/return 404;/)
+    for (const ext of ['env', 'ini', 'bak', 'sql', 'log']) {
+      expect(directives, `secret-filename regex must cover .${ext}`).toMatch(
+        new RegExp(`location ~\\* \\\\\\.\\([^)]*\\b${ext}\\b[^)]*\\)\\$`),
+      )
+    }
+  })
+
+  it('places both deny blocks before the SPA fallback, so probes never reach it', () => {
+    // nginx evaluates regex locations ahead of the `/` prefix match regardless of file order, but
+    // keeping them textually ahead of `location / {` makes the intent legible and guards against a
+    // future refactor that turns the fallback into something a regex would not outrank.
+    const dotfileAt = directives.search(/location ~ \/\\\.\(\?!well-known\) \{/)
+    const secretAt = directives.search(/location ~\* \\\.\([^)]*\)\$ \{/)
+    const fallbackAt = directives.search(/location \/ \{/)
+    expect(dotfileAt).toBeGreaterThanOrEqual(0)
+    expect(secretAt).toBeGreaterThanOrEqual(0)
+    expect(fallbackAt).toBeGreaterThan(dotfileAt)
+    expect(fallbackAt).toBeGreaterThan(secretAt)
+  })
+
+  it('does not shadow the hashed-asset or manifest locations', () => {
+    // Vite emits .js/.css under /assets/ and an exact-match = /manifest.webmanifest location; none of
+    // those extensions appear in the secret-filename list, and an exact match outranks any regex. If
+    // a future ext were added here that collided, this catches it.
+    for (const ext of ['js', 'css', 'webmanifest']) {
+      expect(secretFileBody).not.toContain(ext)
+    }
+  })
+})
